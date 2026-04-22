@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html data-theme="light" lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>lore</title>
+    <link rel="stylesheet" href="/pico.min.css">
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <div class="app-layout">
+        <nav class="app-sidebar">
+            <h1 class="app-title">lore</h1>
+            <form class="add-url-form" id="add-form">
+                <input type="url" id="add-url" placeholder="Add URL...">
+            </form>
+            <div id="add-status"></div>
+            <input type="search" id="search-input" placeholder="Search...">
+            <ul class="search-results" id="search-results"></ul>
+            <ul class="app-nav">
+                <li><a href="#/" class="nav-link active">Pages</a></li>
+                <li><a href="#/rules" class="nav-link">Rules</a></li>
+            </ul>
+        </nav>
+        <main class="app-main" id="main-content">
+        </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+</body>
+</html>
