@@ -1,0 +1,330 @@
+use anyhow::Result;
+use std::path::PathBuf;
+
+/// Resolve database path from environment or system default.
+pub fn db_path() -> PathBuf {
+    if let Ok(p) = std::env::var("LORE_DB") {
+        return PathBuf::from(p);
+    }
+    if let Some(dir) = dirs::data_local_dir() {
+        let p = dir.join("lore");
+        std::fs::create_dir_all(&p).ok();
+        return p.join("lore.db");
+    }
+    PathBuf::from("lore.db")
+}
+
+pub fn open_db() -> Result<rusqlite::Connection> {
+    lore_core::db::open(&db_path())
+}
+
+// ---- Page types & queries ----
+
+#[derive(Clone, Debug)]
+pub struct PageRow {
+    pub id: i64,
+    pub title: String,
+    pub domain: String,
+    pub category: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PageDetailData {
+    pub url: String,
+    pub title: String,
+    pub domain: String,
+    pub category: String,
+    pub status: String,
+    pub created_at: String,
+    pub content_size: Option<String>,
+    pub has_snapshot: bool,
+    pub plain_text_preview: Option<String>,
+    pub screenshot_base64: Option<String>,
+    pub last_error: Option<String>,
+}
+
+pub fn list_pages(limit: usize) -> Result<Vec<PageRow>> {
+    let conn = open_db()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, url, title, domain, category, status, created_at
+         FROM web_page WHERE trashed_at IS NULL
+         ORDER BY created_at DESC, id DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map([limit as i64], |row| {
+            Ok(PageRow {
+                id: row.get(0)?,
+                title: row
+                    .get::<_, Option<String>>(2)?
+                    .unwrap_or_else(|| crate::texts::NO_TITLE.to_string()),
+                domain: row.get(3)?,
+                category: row.get(4)?,
+                status: row.get(5)?,
+                created_at: row.get::<_, String>(6)?.chars().take(10).collect(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn get_page(id: i64) -> Result<PageDetailData> {
+    let conn = open_db()?;
+
+    let (url, title, domain, category, status, created_at, last_error) = conn.query_row(
+        "SELECT url, title, domain, category, status, created_at, last_error FROM web_page WHERE id = ?1",
+        [id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        },
+    )?;
+
+    let snapshot: Option<(String, Option<String>, Option<Vec<u8>>)> = conn
+        .query_row(
+            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), screenshot FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
+            [id],
+            |row| {
+                let size: i64 = row.get(0)?;
+                let size_str = if size > 1_000_000 {
+                    format!("{:.1} MB", size as f64 / 1_000_000.0)
+                } else if size > 1_000 {
+                    format!("{:.1} KB", size as f64 / 1_000.0)
+                } else {
+                    format!("{} B", size)
+                };
+                Ok((size_str, row.get(1)?, row.get(2)?))
+            },
+        )
+        .ok();
+
+    let screenshot_base64 = snapshot
+        .as_ref()
+        .and_then(|(_, _, s)| s.as_ref())
+        .map(|bytes| {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        });
+
+    Ok(PageDetailData {
+        url,
+        title: title.unwrap_or_else(|| crate::texts::NO_TITLE.to_string()),
+        domain,
+        category,
+        status,
+        created_at: created_at.chars().take(10).collect(),
+        content_size: snapshot.as_ref().map(|(s, _, _)| s.clone()),
+        has_snapshot: snapshot.is_some(),
+        plain_text_preview: snapshot.and_then(|(_, t, _)| t),
+        screenshot_base64,
+        last_error,
+    })
+}
+
+pub fn add_url(raw_url: &str) -> Result<String> {
+    let conn = open_db()?;
+    let rules = lore_core::db::load_rules(&conn)?;
+    let parsed = url::Url::parse(raw_url)?;
+    let normalized = lore_core::rules::normalize_url(&parsed);
+    let domain = parsed.host_str().unwrap_or("unknown").to_string();
+    let category = lore_core::rules::classify(&parsed, &rules);
+    let status = if category == "archive" {
+        "queued"
+    } else {
+        "skipped"
+    };
+
+    lore_core::db::insert_web_page(
+        &conn,
+        &lore_core::db::NewWebPage {
+            url: raw_url,
+            url_normalized: &normalized,
+            title: None,
+            domain: &domain,
+            category: &category,
+            status,
+            source: None,
+        },
+    )?;
+    Ok(format!("[{}] {}", category, raw_url))
+}
+
+pub fn search_pages(query: &str, limit: usize) -> Result<Vec<PageRow>> {
+    let conn = open_db()?;
+    let query = if query.contains('*') || query.contains('"') || query.contains(" AND ") {
+        query.to_string()
+    } else {
+        query
+            .split_whitespace()
+            .map(|w| format!("{}*", w))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT wp.id, wp.url, wp.title, wp.domain, wp.category
+         FROM web_page_fts fts
+         JOIN web_page_snapshot wps ON wps.id = fts.rowid
+         JOIN web_page wp ON wp.id = wps.web_page_id
+         WHERE web_page_fts MATCH ?1 AND wp.trashed_at IS NULL
+         ORDER BY rank
+         LIMIT ?2",
+    )?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![query, limit as i64], |row| {
+            Ok(PageRow {
+                id: row.get(0)?,
+                title: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                domain: row.get(3)?,
+                category: row.get(4)?,
+                status: String::new(),
+                created_at: String::new(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn search_notes(query: &str, limit: usize) -> Result<Vec<lore_core::db::NoteRow>> {
+    let conn = open_db()?;
+    let query = if query.contains('*') || query.contains('"') {
+        query.to_string()
+    } else {
+        query
+            .split_whitespace()
+            .map(|w| format!("{}*", w))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT n.id, n.title, SUBSTR(n.body, 1, 100), n.folder_id, n.updated_at
+         FROM note_fts fts
+         JOIN note n ON n.id = fts.rowid
+         WHERE note_fts MATCH ?1 AND n.deleted_at IS NULL
+         ORDER BY rank
+         LIMIT ?2",
+    )?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![query, limit as i64], |row| {
+            Ok(lore_core::db::NoteRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body_preview: row.get(2)?,
+                folder_id: row.get(3)?,
+                updated_at: row.get::<_, String>(4)?.chars().take(10).collect(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+// ---- Trash queries ----
+
+#[derive(Clone, Debug)]
+pub struct TrashItem {
+    pub id: i64,
+    pub title: String,
+    pub kind: TrashKind,
+    pub trashed_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TrashKind {
+    Page,
+    Note,
+}
+
+pub fn list_trash() -> Result<Vec<TrashItem>> {
+    let conn = open_db()?;
+    let mut items = Vec::new();
+
+    // Trashed pages
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(title, url), trashed_at FROM web_page WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC",
+    )?;
+    let pages = stmt
+        .query_map([], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::Page,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok());
+    items.extend(pages);
+
+    // Trashed notes
+    let mut stmt = conn.prepare(
+        "SELECT id, title, deleted_at FROM note WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+    )?;
+    let notes = stmt
+        .query_map([], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::Note,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok());
+    items.extend(notes);
+
+    // Sort by trashed_at desc
+    items.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at));
+    Ok(items)
+}
+
+// ---- Rules ----
+
+#[derive(Clone, Debug)]
+pub struct RuleRow {
+    pub pattern: String,
+    pub match_type: String,
+    pub category: String,
+    pub note: String,
+}
+
+pub fn load_rules() -> Result<Vec<RuleRow>> {
+    let conn = open_db()?;
+    let mut stmt = conn.prepare(
+        "SELECT pattern, match_type, category, COALESCE(note, '') FROM classification_rule ORDER BY priority DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(RuleRow {
+                pattern: row.get(0)?,
+                match_type: row.get(1)?,
+                category: row.get(2)?,
+                note: row.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn open_in_browser(url: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}

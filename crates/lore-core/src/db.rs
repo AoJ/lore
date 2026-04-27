@@ -15,6 +15,26 @@ pub fn open(path: &Path) -> Result<Connection> {
     conn.execute_batch(SCHEMA)
         .context("initializing database schema")?;
 
+    // Migration: add last_error column if missing
+    let has_last_error: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('web_page') WHERE name='last_error'")
+        .and_then(|mut s| s.exists([]))
+        .unwrap_or(false);
+    if !has_last_error {
+        conn.execute_batch("ALTER TABLE web_page ADD COLUMN last_error TEXT;")
+            .ok();
+    }
+
+    // Migration: add trashed_at column if missing
+    let has_trashed: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('web_page') WHERE name='trashed_at'")
+        .and_then(|mut s| s.exists([]))
+        .unwrap_or(false);
+    if !has_trashed {
+        conn.execute_batch("ALTER TABLE web_page ADD COLUMN trashed_at TEXT;")
+            .ok();
+    }
+
     // Seed classification rules if table is empty
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM classification_rule", [], |row| {
         row.get(0)
@@ -56,8 +76,21 @@ pub fn insert_web_page(conn: &Connection, page: &NewWebPage) -> Result<i64> {
 
 pub fn update_status(conn: &Connection, page_id: i64, status: &str) -> Result<()> {
     conn.execute(
-        "UPDATE web_page SET status = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
+        "UPDATE web_page SET status = ?1, last_error = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
         rusqlite::params![status, page_id],
+    )?;
+    Ok(())
+}
+
+pub fn update_status_with_error(
+    conn: &Connection,
+    page_id: i64,
+    status: &str,
+    error: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE web_page SET status = ?1, last_error = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3",
+        rusqlite::params![status, error, page_id],
     )?;
     Ok(())
 }
@@ -177,4 +210,234 @@ pub fn load_rules(conn: &Connection) -> Result<Vec<ClassificationRule>> {
         .filter_map(|r| r.ok())
         .collect();
     Ok(rules)
+}
+
+// ---- Soft-delete (trash) for web pages ----
+
+pub fn trash_page(conn: &Connection, page_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE web_page SET trashed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+        [page_id],
+    )?;
+    Ok(())
+}
+
+pub fn restore_page(conn: &Connection, page_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE web_page SET trashed_at = NULL WHERE id = ?1",
+        [page_id],
+    )?;
+    Ok(())
+}
+
+pub fn trash_count(conn: &Connection) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM web_page WHERE trashed_at IS NOT NULL",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+pub fn cleanup_old_trash(conn: &Connection, days: i64) -> Result<usize> {
+    let cutoff = format!("-{} days", days);
+    // Get IDs to delete
+    let ids: Vec<i64> = conn
+        .prepare(
+            "SELECT id FROM web_page WHERE trashed_at IS NOT NULL AND trashed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?1)",
+        )?
+        .query_map([&cutoff], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for id in &ids {
+        delete_page(conn, *id)?;
+    }
+    Ok(ids.len())
+}
+
+// ---- Notes ----
+
+pub fn insert_note(conn: &Connection, title: &str, body: &str, folder_id: Option<i64>) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO note (title, body, folder_id) VALUES (?1, ?2, ?3)",
+        rusqlite::params![title, body, folder_id],
+    )?;
+    let note_id = conn.last_insert_rowid();
+    // Index in FTS
+    conn.execute(
+        "INSERT INTO note_fts(rowid, title, body) VALUES (?1, ?2, ?3)",
+        rusqlite::params![note_id, title, body],
+    )?;
+    Ok(note_id)
+}
+
+pub fn update_note(conn: &Connection, note_id: i64, title: &str, body: &str) -> Result<()> {
+    // Update FTS (delete old, insert new)
+    conn.execute(
+        "INSERT INTO note_fts(note_fts, rowid, title, body) VALUES('delete', ?1, '', '')",
+        [note_id],
+    )
+    .ok();
+    conn.execute(
+        "INSERT INTO note_fts(rowid, title, body) VALUES (?1, ?2, ?3)",
+        rusqlite::params![note_id, title, body],
+    )?;
+    conn.execute(
+        "UPDATE note SET title = ?1, body = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3",
+        rusqlite::params![title, body, note_id],
+    )?;
+    Ok(())
+}
+
+pub fn trash_note(conn: &Connection, note_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE note SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+        [note_id],
+    )?;
+    Ok(())
+}
+
+pub fn restore_note(conn: &Connection, note_id: i64) -> Result<()> {
+    conn.execute("UPDATE note SET deleted_at = NULL WHERE id = ?1", [note_id])?;
+    Ok(())
+}
+
+pub fn delete_note_permanent(conn: &Connection, note_id: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO note_fts(note_fts, rowid, title, body) VALUES('delete', ?1, '', '')",
+        [note_id],
+    )
+    .ok();
+    conn.execute("DELETE FROM note WHERE id = ?1", [note_id])?;
+    Ok(())
+}
+
+pub struct NoteRow {
+    pub id: i64,
+    pub title: String,
+    pub body_preview: String,
+    pub folder_id: Option<i64>,
+    pub updated_at: String,
+}
+
+pub fn list_notes(conn: &Connection, folder_id: Option<i64>) -> Result<Vec<NoteRow>> {
+    let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(fid) = folder_id {
+        (
+            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL AND folder_id = ?1 ORDER BY updated_at DESC".to_string(),
+            vec![Box::new(fid) as Box<dyn rusqlite::types::ToSql>],
+        )
+    } else {
+        (
+            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL ORDER BY updated_at DESC".to_string(),
+            vec![],
+        )
+    };
+    let mut stmt = conn.prepare(&sql)?;
+    let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt
+        .query_map(refs.as_slice(), |row| {
+            Ok(NoteRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body_preview: row.get(2)?,
+                folder_id: row.get(3)?,
+                updated_at: row.get::<_, String>(4)?.chars().take(10).collect(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub struct NoteData {
+    pub id: i64,
+    pub title: String,
+    pub body: String,
+    pub folder_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
+    conn.query_row(
+        "SELECT id, title, body, folder_id, created_at, updated_at FROM note WHERE id = ?1",
+        [note_id],
+        |row| {
+            Ok(NoteData {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body: row.get(2)?,
+                folder_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    )
+    .map_err(Into::into)
+}
+
+// ---- Folders ----
+
+pub struct FolderRow {
+    pub id: i64,
+    pub name: String,
+    pub parent_id: Option<i64>,
+    pub sort_order: i64,
+}
+
+pub fn list_folders(conn: &Connection) -> Result<Vec<FolderRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, parent_id, sort_order FROM note_folder ORDER BY sort_order, name",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(FolderRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+                sort_order: row.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn insert_folder(conn: &Connection, name: &str, parent_id: Option<i64>) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO note_folder (name, parent_id) VALUES (?1, ?2)",
+        rusqlite::params![name, parent_id],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn rename_folder(conn: &Connection, folder_id: i64, name: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE note_folder SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, folder_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
+    // Move notes in this folder to parent (or NULL)
+    let parent: Option<i64> = conn
+        .query_row(
+            "SELECT parent_id FROM note_folder WHERE id = ?1",
+            [folder_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    conn.execute(
+        "UPDATE note SET folder_id = ?1 WHERE folder_id = ?2",
+        rusqlite::params![parent, folder_id],
+    )?;
+    // Move subfolders to parent
+    conn.execute(
+        "UPDATE note_folder SET parent_id = ?1 WHERE parent_id = ?2",
+        rusqlite::params![parent, folder_id],
+    )?;
+    conn.execute("DELETE FROM note_folder WHERE id = ?1", [folder_id])?;
+    Ok(())
 }

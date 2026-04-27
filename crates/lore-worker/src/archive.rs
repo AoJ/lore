@@ -17,6 +17,12 @@ pub fn archive_url(conn: &Connection, url_str: &str) -> Result<()> {
 }
 
 pub fn archive_queued(conn: &Connection, limit: usize) -> Result<()> {
+    // Reset stuck fetching pages back to queued (from previous crashed runs)
+    conn.execute(
+        "UPDATE web_page SET status = 'queued', last_error = 'reset: previous fetch interrupted' WHERE status = 'fetching'",
+        [],
+    )?;
+
     let mut stmt = conn.prepare(
         "SELECT id, url FROM web_page WHERE status = 'queued' AND category = 'archive' LIMIT ?1",
     )?;
@@ -83,7 +89,8 @@ fn fetch_and_store(
             Ok(())
         }
         Err(e) => {
-            db::update_status(conn, page_id, "failed")?;
+            let error_msg = format!("{:#}", e);
+            db::update_status_with_error(conn, page_id, "failed", &error_msg)?;
             eprintln!("Failed: {}: {}", url, e);
             Err(e)
         }
