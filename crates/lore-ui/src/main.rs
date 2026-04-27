@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-const PICO_CSS: &str = include_str!("../assets/pico.min.css");
 const APP_CSS: &str = include_str!("../assets/app.css");
 
 fn main() {
@@ -18,10 +17,7 @@ fn main() {
 
 fn app() -> Element {
     rsx! {
-        document::Style { {PICO_CSS} }
         document::Style { {APP_CSS} }
-        // Force light theme regardless of OS setting
-        script { "document.documentElement.setAttribute('data-theme', 'light')" }
         Router::<Route> {}
     }
 }
@@ -43,8 +39,6 @@ fn Layout() -> Element {
         div { class: "app-layout",
             nav { class: "app-sidebar",
                 h1 { class: "app-title", "lore" }
-                AddUrlInput {}
-                SearchInput {}
                 ul { class: "app-nav",
                     li {
                         Link { to: Route::PageList, "Pages" }
@@ -52,6 +46,14 @@ fn Layout() -> Element {
                     li {
                         Link { to: Route::Rules, "Rules" }
                     }
+                }
+                div { class: "sidebar-section",
+                    SearchInput {}
+                }
+                div { class: "sidebar-spacer" }
+                div { class: "sidebar-section",
+                    div { class: "sidebar-section-label", "Add URL" }
+                    AddUrlInput {}
                 }
             }
             main { class: "app-main",
@@ -145,28 +147,18 @@ fn PageList() -> Element {
     rsx! {
         section { class: "page-list",
             h2 { "Pages" }
-            table { role: "grid",
-                thead {
-                    tr {
-                        th { "Title" }
-                        th { "Domain" }
-                        th { "Category" }
-                        th { "Status" }
-                        th { "Added" }
-                    }
-                }
-                tbody {
-                    for page in pages.read().iter() {
-                        tr { key: "{page.id}",
-                            td {
-                                Link { to: Route::PageDetail { id: page.id },
-                                    "{page.title}"
-                                }
-                            }
-                            td { "{page.domain}" }
-                            td { "{page.category}" }
-                            td { "{page.status}" }
-                            td { class: "date", "{page.created_at}" }
+            div { class: "page-items",
+                for page in pages.read().iter() {
+                    Link { key: "{page.id}", class: "page-item", to: Route::PageDetail { id: page.id },
+                        div { class: "page-item-title", "{page.title}" }
+                        div { class: "page-item-meta",
+                            span { "{page.domain}" }
+                            span { class: "separator", "·" }
+                            span { "{page.category}" }
+                            span { class: "separator", "·" }
+                            span { "{page.status}" }
+                            span { class: "separator", "·" }
+                            span { "{page.created_at}" }
                         }
                     }
                 }
@@ -178,31 +170,34 @@ fn PageList() -> Element {
 #[component]
 fn PageDetail(id: i64) -> Element {
     let page = use_signal(move || get_page(id));
+    let mut screenshot_expanded = use_signal(|| false);
 
     match page.read().as_ref() {
         Ok(p) => rsx! {
             section { class: "page-detail",
-                h2 { "{p.title}" }
-                dl {
-                    dt { "URL" }
-                    dd {
-                        a { href: "{p.url}", target: "_blank", "{p.url}" }
-                    }
-                    dt { "Domain" }
-                    dd { "{p.domain}" }
-                    dt { "Category" }
-                    dd { "{p.category}" }
-                    dt { "Status" }
-                    dd { "{p.status}" }
-                    dt { "Added" }
-                    dd { "{p.created_at}" }
+                nav { class: "breadcrumb",
+                    Link { to: Route::PageList, "Pages" }
+                    span { class: "separator", "›" }
+                    span { class: "current", "{p.title}" }
+                }
+                div { class: "page-detail-url",
+                    a { href: "{p.url}", target: "_blank", "{p.url}" }
+                }
+                div { class: "page-detail-meta",
+                    span { "{p.domain}" }
+                    span { class: "separator", "·" }
+                    span { "{p.category}" }
+                    span { class: "separator", "·" }
+                    span { "{p.status}" }
+                    span { class: "separator", "·" }
+                    span { "{p.created_at}" }
                     if let Some(ref size) = p.content_size {
-                        dt { "Content size" }
-                        dd { "{size}" }
+                        span { class: "separator", "·" }
+                        span { "{size}" }
                     }
                 }
-                if p.has_snapshot {
-                    div { class: "page-actions",
+                div { class: "page-actions",
+                    if p.has_snapshot {
                         button {
                             onclick: {
                                 let url = p.url.clone();
@@ -211,8 +206,25 @@ fn PageDetail(id: i64) -> Element {
                             "Open in browser"
                         }
                     }
+                    button { class: "btn-danger",
+                        onclick: move |_| {
+                            if let Ok(()) = delete_page_from_db(id) {
+                                navigator().push(Route::PageList);
+                            }
+                        },
+                        "Delete"
+                    }
+                }
+                if let Some(ref b64) = p.screenshot_base64 {
+                    div {
+                        class: if *screenshot_expanded.read() { "page-screenshot expanded" } else { "page-screenshot" },
+                        onclick: move |_| { screenshot_expanded.toggle(); },
+                        img { src: "data:image/png;base64,{b64}" }
+                    }
+                }
+                if p.has_snapshot {
                     if let Some(ref text) = p.plain_text_preview {
-                        details { open: true,
+                        details { open: false,
                             summary { "Content preview" }
                             pre { class: "content-preview", "{text}" }
                         }
@@ -294,6 +306,7 @@ struct PageDetailData {
     content_size: Option<String>,
     has_snapshot: bool,
     plain_text_preview: Option<String>,
+    screenshot_base64: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -439,9 +452,9 @@ fn get_page(id: i64) -> anyhow::Result<PageDetailData> {
         },
     )?;
 
-    let snapshot: Option<(String, Option<String>)> = conn
+    let snapshot: Option<(String, Option<String>, Option<Vec<u8>>)> = conn
         .query_row(
-            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000) FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
+            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), screenshot FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
             [id],
             |row| {
                 let size: i64 = row.get(0)?;
@@ -452,10 +465,19 @@ fn get_page(id: i64) -> anyhow::Result<PageDetailData> {
                 } else {
                     format!("{} B", size)
                 };
-                Ok((size_str, row.get(1)?))
+                let screenshot: Option<Vec<u8>> = row.get(2)?;
+                Ok((size_str, row.get(1)?, screenshot))
             },
         )
         .ok();
+
+    let screenshot_base64 = snapshot
+        .as_ref()
+        .and_then(|(_, _, s)| s.as_ref())
+        .map(|bytes| {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        });
 
     Ok(PageDetailData {
         url,
@@ -464,9 +486,10 @@ fn get_page(id: i64) -> anyhow::Result<PageDetailData> {
         category,
         status,
         created_at: created_at.chars().take(10).collect(),
-        content_size: snapshot.as_ref().map(|(s, _)| s.clone()),
+        content_size: snapshot.as_ref().map(|(s, _, _)| s.clone()),
         has_snapshot: snapshot.is_some(),
-        plain_text_preview: snapshot.and_then(|(_, t)| t),
+        plain_text_preview: snapshot.and_then(|(_, t, _)| t),
+        screenshot_base64,
     })
 }
 
@@ -487,6 +510,12 @@ fn load_rules() -> anyhow::Result<Vec<RuleRow>> {
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
+}
+
+fn delete_page_from_db(page_id: i64) -> anyhow::Result<()> {
+    let conn = open_db()?;
+    lore_core::db::delete_page(&conn, page_id)?;
+    Ok(())
 }
 
 fn open_in_browser(url: &str) {

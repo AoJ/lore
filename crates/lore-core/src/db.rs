@@ -98,6 +98,27 @@ pub fn insert_snapshot(
     Ok(snapshot_id)
 }
 
+pub fn delete_page(conn: &Connection, page_id: i64) -> Result<()> {
+    // Delete FTS entries for this page's snapshots
+    let snapshot_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM web_page_snapshot WHERE web_page_id = ?1")?
+        .query_map([page_id], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for sid in snapshot_ids {
+        conn.execute(
+            "INSERT INTO web_page_fts(web_page_fts, rowid, title, plain_text, url) VALUES('delete', ?1, '', '', '')",
+            [sid],
+        ).ok(); // Ignore errors if entry doesn't exist in FTS
+    }
+    conn.execute(
+        "DELETE FROM web_page_snapshot WHERE web_page_id = ?1",
+        [page_id],
+    )?;
+    conn.execute("DELETE FROM web_page WHERE id = ?1", [page_id])?;
+    Ok(())
+}
+
 pub fn find_page_by_url(conn: &Connection, url: &str) -> Result<Option<i64>> {
     let mut stmt = conn.prepare("SELECT id FROM web_page WHERE url = ?1")?;
     let result = stmt.query_row([url], |row| row.get::<_, i64>(0)).ok();

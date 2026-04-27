@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rustup show:*)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo build:*)",
+      "Bash(LORE_DB=/Users/dev/workspace/lore/db.sqlite cargo run:*)",
+      "Bash(kill 5432)",
+      "Bash(screencapture:*)"
+    ]
+  }
+}
