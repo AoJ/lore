@@ -8,11 +8,43 @@ Inspired by Apple Notes (fluid, instant-save, 3-column layout) and Trilium (hier
 
 ---
 
+## Organizační model
+
+### Workspace
+
+Workspace je nejvyšší organizační jednotka. Odděluje od sebe různé kontexty práce — např. "Osobní", "Firma", "Projekt X". Každý workspace má vlastní složky, poznámky a webové stránky. Soubory a pravidla klasifikace jsou sdílené napříč workspacy.
+
+- Aktivní workspace je zobrazen v horní části sidebaru (pod titulkem "lore").
+- Přepínání: klik na název workspace → dropdown se seznamem + "New workspace".
+- Každý workspace má název a volitelnou barvu/ikonu.
+- Webové stránky přidané přes "Add URL" se přiřadí do aktivního workspace.
+- Vyhledávání hledá v rámci aktivního workspace (s možností "Search all workspaces").
+
+### Složky
+
+Složky organizují poznámky do stromové hierarchie uvnitř workspace:
+
+- Každý workspace má vlastní strom složek.
+- Složky se mohou libovolně vnořovat (neomezená hloubka).
+- Složka může obsahovat poznámky a podsložky.
+- Kořenová úroveň = poznámky bez složky (zobrazí se v "Notes").
+- Složky v sidebaru jsou skládací (expand/collapse šipkou).
+
+### Vztah obsahu k workspace
+
+| Typ obsahu | Patří do workspace | Může být ve složce |
+|------------|-------------------|--------------------|
+| Poznámka | Ano | Ano (volitelně) |
+| Webová stránka | Ano | Ne (řadí se dle klasifikace) |
+| Soubor | Sdílený | Může být připojen k poznámce |
+
+---
+
 ## Layout
 
 Tři panely vedle sebe, celá výška okna:
 
-- **Sidebar** (~10rem): Navigační strom — sekce, složky, systémové položky.
+- **Sidebar** (~10rem): Workspace přepínač, navigační strom — sekce, složky, systémové položky.
 - **List panel** (~16rem): Seznam položek odpovídající výběru v sidebaru. Vždy viditelný.
 - **Content panel** (zbytek): Detail vybrané položky z listu. Editovatelný pro poznámky, read-only pro webové stránky a soubory.
 
@@ -22,34 +54,45 @@ Tři panely vedle sebe, celá výška okna:
 
 ### 1. Sidebar
 
-**Cíl:** Uživatel chce rychle přepínat mezi typy obsahu a složkami.
+**Cíl:** Uživatel chce přepínat workspace, navigovat mezi typy obsahu a složkami.
 
 **Prvky (shora dolů):**
 
-- **App titulek** "lore" — vždy viditelný
+- **Workspace přepínač** — název aktivního workspace, klik otevře dropdown:
+  - Seznam existujících workspaců
+  - "New workspace..." položka na konci
+  - Aktivní workspace má zvýraznění
 - **Sekce:**
-  - All Pages — všechny webové stránky
-  - All Notes — všechny poznámky
-  - All Files — všechny uložené soubory/dokumenty
-  - Search — globální vyhledávání
+  - Webs — webové stránky v aktivním workspace
+  - Notes — všechny poznámky v aktivním workspace (bez složky)
+  - Files — všechny soubory
+  - Search — globální v aktivním workspace vyhledávání
 - **Oddělovač** "Folders"
-- **Strom složek** — hierarchický, zanořitelný, skládací. Složky obsahují poznámky.
+- **Strom složek** — hierarchický, zanořitelný, skládací:
+  - Každá složka má šipku pro expand/collapse
+  - Zanořené složky odsazené
+  - Klik na složku → list panel zobrazí její poznámky
+  - Klik na šipku → jen expand/collapse, nezmění list
 - **Oddělovač** "System"
   - Trash — koš se smazanými položkami
-  - Webpage rules — klasifikační pravidla pro weby
+  - Settings — nastavení a pravidla
 
 **Akce uživatele:**
 
+- Klik na workspace přepínač → dropdown s workspacy
 - Klik na sekci → list panel zobrazí odpovídající položky
 - Klik na složku → list panel zobrazí poznámky v dané složce
 - Pravý klik na složku → kontextové menu (přejmenovat, smazat, nová podsložka)
 - Přetažení poznámky na složku → přesun poznámky
+- Klik na "+" u "Folders" labelu → vytvoří novou složku
 
 **Chování:**
 
 - Aktivní položka má zvýrazněné pozadí
 - Pouze jedna položka může být aktivní
 - Trash zobrazuje počet položek jako badge
+- Přepnutí workspace změní obsah všech panelů
+- Seznam workspace s možností smazání je v Settings jako další položka.
 
 ---
 

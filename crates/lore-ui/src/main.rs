@@ -108,7 +108,27 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
         Key::Character(ref ch) if ch == "d" && cmd => {
             trash_selected(&mut state);
         }
+        Key::Character(ref ch) if ch == "n" && cmd => {
+            create_new_note(&mut state);
+        }
         _ => {}
+    }
+}
+
+fn create_new_note(state: &mut AppState) {
+    let folder_id = match &*state.section.read() {
+        Section::Folder(id) => Some(*id),
+        _ => None,
+    };
+    let conn = data::open_db().unwrap();
+    if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id) {
+        // Switch to Notes section if not already there
+        let section = state.section.read().clone();
+        if !matches!(section, Section::AllNotes | Section::Folder(_)) {
+            state.section.set(Section::AllNotes);
+        }
+        state.selected.set(Selected::Note(note_id));
+        state.bump_refresh();
     }
 }
 

@@ -53,18 +53,30 @@ pub fn ListNotes() -> Element {
                         let is_selected = matches!(&selected, crate::state::Selected::Note(nid) if *nid == note.id);
                         let cls = if is_selected { "list-item selected" } else { "list-item" };
                         let id = note.id;
+                        // Title = first line of content (stored in title field),
+                        // Preview = beginning of body (second line onwards)
                         let display_title = if note.title.is_empty() {
-                            note.body_preview.lines().next().unwrap_or("Untitled note").to_string()
+                            if note.body_preview.is_empty() {
+                                texts::PLACEHOLDER_NOTE_TITLE.to_string()
+                            } else {
+                                note.body_preview.lines().next().unwrap_or(texts::PLACEHOLDER_NOTE_TITLE).to_string()
+                            }
                         } else {
                             note.title.clone()
+                        };
+                        let preview = if !note.body_preview.is_empty() {
+                            // Show body preview (already truncated from DB)
+                            note.body_preview.lines().next().unwrap_or("").to_string()
+                        } else {
+                            String::new()
                         };
                         rsx! {
                             div { key: "{note.id}", class: "{cls}",
                                 onclick: move |_| state.select_note(id),
                                 div { class: "list-item-title", "{display_title}" }
-                                if !note.body_preview.is_empty() && !note.title.is_empty() {
+                                if !preview.is_empty() {
                                     div { class: "list-item-meta",
-                                        span { "{note.body_preview}" }
+                                        span { "{preview}" }
                                     }
                                 }
                                 div { class: "list-item-date", "{note.updated_at}" }

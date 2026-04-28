@@ -60,12 +60,23 @@ make worker         # run archive worker
 
 Database defaults to `./db.sqlite`, override with `DB=` or `LORE_DB=`.
 
+### Organizational model
+
+- **Workspace** — top-level isolation unit (e.g. "Personal", "Work", "Project X"). Each workspace has its own folders, notes, and web pages. Switching workspace changes all panels. Files and classification rules are shared.
+- **Folders** — hierarchical tree within a workspace. Contain notes, can nest arbitrarily. Displayed as collapsible tree in sidebar.
+- **Notes** — freeform text inside workspace, optionally in a folder. First line = title. Auto-save.
+- **Web pages** — belong to workspace, classified by rules. Archived by headless browser worker.
+- **Files** — shared across workspaces, can be attached to notes.
+
+See `UX-SPEC.md` for detailed view specifications.
+
 ### What's not done yet
 
+- Workspace management (create, switch, rename, delete)
+- Folder tree in sidebar (create, rename, delete, drag-to-reorder, nested expand/collapse)
 - Dioxus web compilation (needs `wasm32-unknown-unknown` target + `dx` CLI)
-- Notes module with hierarchical structure
-- Trix editor integration for annotations
-- Multi-context/scope switching
+- Rich text editor for notes (Trix or similar)
+- Tags with free-form semantics
 - Sync/replication
 - milli search integration
 - Remote renderer service API

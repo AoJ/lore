@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::state::{AppState, UndoAction};
+use crate::state::{AppState, Selected, UndoAction};
 use crate::data;
 use crate::texts;
 
@@ -12,43 +12,37 @@ pub fn ContentNote(id: i64) -> Element {
         lore_core::db::get_note(&conn, id).ok()
     });
 
-    let mut title = use_signal(|| {
-        note_data.read().as_ref().map(|n| n.title.clone()).unwrap_or_default()
-    });
-    let mut body = use_signal(|| {
-        note_data.read().as_ref().map(|n| n.body.clone()).unwrap_or_default()
+    // Single text buffer: first line = title, rest = body
+    let mut content = use_signal(|| {
+        note_data.read().as_ref().map(|n| {
+            if n.title.is_empty() && n.body.is_empty() {
+                String::new()
+            } else if n.body.is_empty() {
+                n.title.clone()
+            } else {
+                format!("{}\n{}", n.title, n.body)
+            }
+        }).unwrap_or_default()
     });
 
-    // Auto-save on changes
-    let mut save_note = move || {
-        let t = title.read().clone();
-        let b = body.read().clone();
+    let mut save = move || {
+        let text = content.read().clone();
+        let (title, body) = split_title_body(&text);
         let conn = data::open_db().unwrap();
-        lore_core::db::update_note(&conn, id, &t, &b).ok();
+        lore_core::db::update_note(&conn, id, &title, &body).ok();
         state.bump_refresh();
     };
 
     match note_data.read().as_ref() {
         Some(note) => rsx! {
             section { class: "content-panel content-note",
-                input {
-                    class: "note-title",
-                    r#type: "text",
-                    placeholder: texts::PLACEHOLDER_NOTE_TITLE,
-                    value: "{title}",
-                    oninput: move |evt| {
-                        title.set(evt.value());
-                        save_note();
-                    },
-                }
-                hr { class: "note-divider" }
                 textarea {
-                    class: "note-body",
+                    class: "note-editor",
                     placeholder: texts::PLACEHOLDER_NOTE_BODY,
-                    value: "{body}",
+                    value: "{content}",
                     oninput: move |evt| {
-                        body.set(evt.value());
-                        save_note();
+                        content.set(evt.value());
+                        save();
                     },
                 }
                 div { class: "note-footer",
@@ -67,7 +61,7 @@ pub fn ContentNote(id: i64) -> Element {
                                     texts::TOAST_NOTE_TRASH.to_string(),
                                     Some(UndoAction::RestoreNote(note_id)),
                                 );
-                                state.selected.set(crate::state::Selected::None);
+                                state.selected.set(Selected::None);
                                 state.bump_refresh();
                             }
                         },
@@ -81,5 +75,13 @@ pub fn ContentNote(id: i64) -> Element {
                 p { class: "error", "Note not found" }
             }
         },
+    }
+}
+
+/// Split content into title (first line) and body (remaining lines).
+fn split_title_body(text: &str) -> (String, String) {
+    match text.split_once('\n') {
+        Some((first, rest)) => (first.to_string(), rest.to_string()),
+        None => (text.to_string(), String::new()),
     }
 }
