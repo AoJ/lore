@@ -50,6 +50,34 @@ pub fn ContentNote(id: i64) -> Element {
         });
     }
 
+    // Resolve attachment URLs after editor init
+    {
+        let init_md = content.read().clone();
+        use_effect(move || {
+            // Find all lore://attachment/ID references and resolve to data URIs
+            let mut att_map = std::collections::HashMap::new();
+            for part in init_md.split("lore://attachment/") {
+                if let Some(end_pos) = part.find(')') {
+                    if let Ok(att_id) = part[..end_pos].parse::<i64>() {
+                        if let Some(data_uri) = store.get_attachment_data_uri(att_id) {
+                            att_map.insert(att_id.to_string(), data_uri);
+                        }
+                    }
+                }
+            }
+            if !att_map.is_empty() {
+                let entries: Vec<String> = att_map.iter()
+                    .map(|(k, v)| format!("'{}':'{}'", k, v.replace('\'', "\\'")))
+                    .collect();
+                let js = format!(
+                    "setTimeout(function(){{ window.loreEditor && window.loreEditor.resolveAttachments({{{}}}); }}, 500);",
+                    entries.join(",")
+                );
+                document::eval(&js);
+            }
+        });
+    }
+
     // Cleanup on unmount
     {
         let note_id = id;
@@ -111,6 +139,9 @@ pub fn ContentNote(id: i64) -> Element {
                         let (title, body) = split_title_body(&md);
                         store.save_note(id, &title, &body).ok();
 
+                        // Cleanup orphaned attachments
+                        store.cleanup_note_attachments(id, &md);
+
                         // Extract URLs, auto-archive, update indicators
                         let urls = data::extract_urls(&md);
                         if !urls.is_empty() {
@@ -119,6 +150,65 @@ pub fn ContentNote(id: i64) -> Element {
                             store.set_current_note_urls(urls);
                         } else {
                             store.clear_current_note_urls();
+                        }
+                    },
+                }
+
+                // Image paste bridge — JS sends data URI here
+                textarea {
+                    id: "image-bridge",
+                    style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
+                    tabindex: "-1",
+                    oninput: move |evt| {
+                        let data_uri = evt.value();
+                        if !data_uri.starts_with("data:image/") { return; }
+
+                        // Parse data URI: data:image/png;base64,AAAA...
+                        let parts: Vec<&str> = data_uri.splitn(2, ',').collect();
+                        if parts.len() != 2 { return; }
+                        let meta = parts[0]; // data:image/png;base64
+                        let b64_data = parts[1];
+
+                        let mime = meta
+                            .strip_prefix("data:")
+                            .and_then(|s| s.split(';').next())
+                            .unwrap_or("image/png");
+
+                        let ext = match mime {
+                            "image/png" => "png",
+                            "image/jpeg" | "image/jpg" => "jpg",
+                            "image/gif" => "gif",
+                            "image/webp" => "webp",
+                            _ => "png",
+                        };
+
+                        // Decode base64
+                        use base64::Engine;
+                        let bytes = match base64::engine::general_purpose::STANDARD.decode(b64_data) {
+                            Ok(b) => b,
+                            Err(_) => return,
+                        };
+
+                        let name = format!("paste-{}.{}", chrono::Local::now().format("%H%M%S"), ext);
+
+                        // Upload to DB
+                        if let Ok(att_id) = store.upload_image(id, &name, mime, &bytes) {
+                            // Insert markdown into editor
+                            let js = format!(
+                                "window.loreEditor && window.loreEditor.insertImage('{}', 'lore://attachment/{}');",
+                                name, att_id
+                            );
+                            document::eval(&js);
+
+                            // Resolve immediately so image displays
+                            if let Some(data_uri) = store.get_attachment_data_uri(att_id) {
+                                let resolve_js = format!(
+                                    "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
+                                    att_id,
+                                    data_uri.replace('\'', "\\'")
+                                );
+                                document::eval(&resolve_js);
+                            }
                         }
                     },
                 }
@@ -132,7 +222,7 @@ pub fn ContentNote(id: i64) -> Element {
                         span { class: "note-folder-link",
                             onclick: {
                                 let fid = current_folder_id.unwrap();
-                                move |_| state.navigate(crate::state::Section::Folder(fid))
+                                move |_| store.navigate(&mut state,crate::state::Section::Folder(fid))
                             },
                             "📁 {folder_path_str}"
                         }

@@ -66,7 +66,7 @@ pub fn Sidebar() -> Element {
                                         SpaceRenameInput { space_id: sid }
                                     } else {
                                         div { key: "{sid}", class: "{cls}",
-                                            onclick: move |_| state.switch_space(sid),
+                                            onclick: move |_| store.switch_space(&mut state,sid),
                                             "{space.name}"
                                         }
                                     }
@@ -76,7 +76,7 @@ pub fn Sidebar() -> Element {
                         div { class: "space-dropdown-item new-space",
                             onclick: move |_| {
                                 if let Ok(new_id) = store.create_space(&state, "") {
-                                    state.switch_space(new_id);
+                                    store.switch_space(&mut state,new_id);
                                     state.renaming.set(Some(crate::state::Renaming::Space(new_id, String::new())));
                                     state.space_dropdown_open.set(true);
                                     store.refresh(&state);
@@ -91,15 +91,15 @@ pub fn Sidebar() -> Element {
             // Sections
             div { class: "sidebar-group",
                 SidebarItem { label: texts::NAV_NOTES, active: section == Section::AllNotes,
-                    onclick: move |_| state.navigate(Section::AllNotes) }
+                    onclick: move |_| store.navigate(&mut state,Section::AllNotes) }
                 SidebarItem { label: texts::NAV_WEBS, active: section == Section::AllPages,
-                    onclick: move |_| state.navigate(Section::AllPages) }
+                    onclick: move |_| store.navigate(&mut state,Section::AllPages) }
                 SidebarItem { label: texts::NAV_FILES, active: section == Section::AllFiles,
-                    onclick: move |_| state.navigate(Section::AllFiles) }
+                    onclick: move |_| store.navigate(&mut state,Section::AllFiles) }
                 SidebarItem { label: texts::NAV_SEARCH, active: section == Section::Search,
-                    onclick: move |_| state.navigate(Section::Search) }
+                    onclick: move |_| store.navigate(&mut state,Section::Search) }
                 SidebarItem { label: "Timeline".to_string(), active: section == Section::Timeline,
-                    onclick: move |_| state.navigate(Section::Timeline) }
+                    onclick: move |_| store.navigate(&mut state,Section::Timeline) }
             }
 
             // Folders
@@ -131,14 +131,14 @@ pub fn Sidebar() -> Element {
             div { class: "sidebar-divider", {texts::DIVIDER_SYSTEM} }
             div { class: "sidebar-group",
                 div { class: "sidebar-item{active_class(section == Section::Trash)}",
-                    onclick: move |_| state.navigate(Section::Trash),
+                    onclick: move |_| store.navigate(&mut state,Section::Trash),
                     span { {texts::NAV_TRASH} }
                     if *store.trash_count.read() > 0 {
                         span { class: "badge", "{store.trash_count}" }
                     }
                 }
                 SidebarItem { label: texts::NAV_SETTINGS, active: section == Section::Settings,
-                    onclick: move |_| state.navigate(Section::Settings) }
+                    onclick: move |_| store.navigate(&mut state,Section::Settings) }
             }
 
             div { class: "sidebar-spacer" }
@@ -206,7 +206,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                         lore_core::db::delete_space_permanent(&conn, space_id).ok();
                         // Switch to first remaining space
                         if let Ok(s) = lore_core::db::get_active_space(&conn) {
-                            state.switch_space(s.id);
+                            store.switch_space(&mut state,s.id);
                         }
                     }
                     state.renaming.set(None);
@@ -216,7 +216,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                         store.delete_space_permanent(&state, space_id).ok();
                         if let Ok(conn) = data::open_db() {
                             if let Ok(s) = lore_core::db::get_active_space(&conn) {
-                                state.switch_space(s.id);
+                                store.switch_space(&mut state,s.id);
                             }
                         }
                     }
@@ -324,7 +324,7 @@ fn FolderTreeItem(
                 FolderRenameInput { folder_id: folder_id }
             } else {
                 span { class: "folder-name",
-                    onclick: move |_| state.navigate(Section::Folder(folder_id)),
+                    onclick: move |_| store.navigate(&mut state,Section::Folder(folder_id)),
                     "{name}"
                 }
                 if count > 0 {
@@ -364,7 +364,7 @@ fn FolderTreeItem(
                             let conn = data::open_db().unwrap();
                             lore_core::db::delete_folder(&conn, folder_id).ok();
                             if is_active {
-                                state.navigate(Section::AllNotes);
+                                store.navigate(&mut state,Section::AllNotes);
                             }
                             store.refresh(&state);
                             menu_open.set(false);

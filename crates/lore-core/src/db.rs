@@ -348,6 +348,7 @@ pub fn delete_note_permanent(conn: &Connection, note_id: i64) -> Result<()> {
         [note_id],
     )
     .ok();
+    delete_attachments_for_note(conn, note_id)?;
     conn.execute("DELETE FROM note WHERE id = ?1", [note_id])?;
     Ok(())
 }
@@ -711,6 +712,54 @@ pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<std::coll
     Ok(map)
 }
 
+// ---- Attachments ----
+
+pub fn insert_attachment(conn: &Connection, note_id: i64, name: &str, mime_type: &str, data: &[u8]) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO note_attachment (note_id, name, mime_type, data) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![note_id, name, mime_type, data],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn get_attachment_data(conn: &Connection, attachment_id: i64) -> Result<(String, Vec<u8>)> {
+    conn.query_row(
+        "SELECT mime_type, data FROM note_attachment WHERE id = ?1",
+        [attachment_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+            ))
+        },
+    )
+    .map_err(Into::into)
+}
+
+pub fn delete_attachments_for_note(conn: &Connection, note_id: i64) -> Result<()> {
+    conn.execute("DELETE FROM note_attachment WHERE note_id = ?1", [note_id])?;
+    Ok(())
+}
+
+pub fn list_attachment_ids_for_note(conn: &Connection, note_id: i64) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare("SELECT id FROM note_attachment WHERE note_id = ?1")?;
+    let ids = stmt.query_map([note_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
+    Ok(ids)
+}
+
+/// Clean orphaned attachments — IDs not referenced in any note's body
+pub fn cleanup_orphaned_attachments(conn: &Connection, note_id: i64, used_ids: &[i64]) -> Result<usize> {
+    let all_ids = list_attachment_ids_for_note(conn, note_id)?;
+    let mut deleted = 0;
+    for id in &all_ids {
+        if !used_ids.contains(id) {
+            conn.execute("DELETE FROM note_attachment WHERE id = ?1", [*id])?;
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
 /// Activity by day for heatmap (last N days)
 pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(
@@ -734,6 +783,43 @@ pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Ve
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
+}
+
+/// Get notes and pages active on a specific day
+pub fn activity_for_day(conn: &Connection, space_id: i64, day: &str) -> Result<(Vec<NoteRow>, Vec<(i64, String)>)> {
+    // Notes updated on this day
+    let mut stmt = conn.prepare(
+        "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note
+         WHERE space_id = ?1 AND deleted_at IS NULL AND date(updated_at) = ?2
+         ORDER BY updated_at DESC",
+    )?;
+    let notes: Vec<NoteRow> = stmt
+        .query_map(rusqlite::params![space_id, day], |row| {
+            Ok(NoteRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body_preview: row.get(2)?,
+                folder_id: row.get(3)?,
+                updated_at: row.get::<_, String>(4)?.chars().take(10).collect(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Pages created on this day
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(title, url) FROM web_page
+         WHERE space_id = ?1 AND trashed_at IS NULL AND date(created_at) = ?2
+         ORDER BY created_at DESC",
+    )?;
+    let pages: Vec<(i64, String)> = stmt
+        .query_map(rusqlite::params![space_id, day], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok((notes, pages))
 }
 
 /// Count notes per folder (direct children only, excludes deleted)

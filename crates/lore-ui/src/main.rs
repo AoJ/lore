@@ -107,17 +107,10 @@ fn RevisionIndicator() -> Element {
     let state = use_context::<AppState>();
     let mut store = use_context::<store::DataStore>();
 
-    // Two polling loops: fast (section changes) + slow (DB revision)
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            store.poll_fast(&state);
-        }
-    });
     use_future(move || async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            store.poll_db(&state);
+            store.poll(&state);
         }
     });
 
@@ -164,7 +157,7 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
             let conn = data::open_db().unwrap();
             let spaces = lore_core::db::list_spaces(&conn).unwrap_or_default();
             if let Some(space) = spaces.get(idx) {
-                state.switch_space(space.id);
+                store.switch_space(&mut state,space.id);
             }
         }
         _ => {}
@@ -173,7 +166,7 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
 
 fn create_new_space(state: &mut AppState, store: &mut store::DataStore) {
     if let Ok(new_id) = store.create_space(state, "") {
-        state.switch_space(new_id);
+        store.switch_space(state, new_id);
         state.renaming.set(Some(state::Renaming::Space(new_id, String::new())));
         state.space_dropdown_open.set(true);
     }

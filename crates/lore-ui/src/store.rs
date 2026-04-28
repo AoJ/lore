@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use crate::data::{self, PageRow, PageDetailData, TrashItem, TrashKind, RuleRow};
-use crate::state::{AppState, Section};
+use crate::state::{AppState, Section, Selected};
 
 /// Central data store, provided as Dioxus context alongside AppState.
 #[derive(Clone, Copy)]
@@ -20,6 +20,9 @@ pub struct DataStore {
     pub note_counts: Signal<HashMap<i64, i64>>,
     pub revision: Signal<i64>,
     pub heatmap: Signal<Vec<(String, i64)>>,  // (YYYY-MM-DD, count)
+    pub timeline_selected_day: Signal<Option<String>>,
+    pub timeline_day_notes: Signal<Vec<lore_core::db::NoteRow>>,
+    pub timeline_day_pages: Signal<Vec<(i64, String)>>,
 
     // ---- URL indicators ----
     /// URLs from the currently open note — set by editor on each save
@@ -29,8 +32,6 @@ pub struct DataStore {
 
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
-    last_section: Signal<Section>,
-    last_space_id: Signal<i64>,
 }
 
 impl DataStore {
@@ -46,31 +47,17 @@ impl DataStore {
             note_counts: Signal::new(HashMap::new()),
             revision: Signal::new(rev),
             heatmap: Signal::new(Vec::new()),
+            timeline_selected_day: Signal::new(None),
+            timeline_day_notes: Signal::new(Vec::new()),
+            timeline_day_pages: Signal::new(Vec::new()),
             current_note_urls: Signal::new(Vec::new()),
             url_statuses: Signal::new(HashMap::new()),
             last_poll_rev: Signal::new(rev),
-            last_section: Signal::new(Section::AllNotes),
-            last_space_id: Signal::new(space_id),
         }
     }
 
-    /// Fast check — detects section/space changes without DB query. Called every 200ms.
-    pub fn poll_fast(&mut self, state: &AppState) {
-        let current_section = state.section.read().clone();
-        let current_space = *state.space_id.read();
-
-        let section_changed = current_section != *self.last_section.read();
-        let space_changed = current_space != *self.last_space_id.read();
-
-        if section_changed || space_changed {
-            self.last_section.set(current_section);
-            self.last_space_id.set(current_space);
-            self.refresh(state);
-        }
-    }
-
-    /// Slow check — reads DB revision. Called every 2s.
-    pub fn poll_db(&mut self, state: &AppState) {
+    /// Called from polling loop — checks DB revision only.
+    pub fn poll(&mut self, state: &AppState) {
         let new_rev = data::get_revision();
         if new_rev != *self.last_poll_rev.read() {
             self.last_poll_rev.set(new_rev);
@@ -126,6 +113,38 @@ impl DataStore {
         }
 
         self.revision.set(data::get_revision());
+    }
+
+    // ---- Timeline ----
+
+    pub fn select_timeline_day(&mut self, state: &AppState, day: &str) {
+        let space_id = *state.space_id.read();
+        self.timeline_selected_day.set(Some(day.to_string()));
+        if let Ok(conn) = data::open_db() {
+            if let Ok((notes, pages)) = lore_core::db::activity_for_day(&conn, space_id, day) {
+                self.timeline_day_notes.set(notes);
+                self.timeline_day_pages.set(pages);
+            }
+        }
+    }
+
+    // ---- Navigation (immediate refresh on section/space change) ----
+
+    pub fn navigate(&mut self, state: &mut AppState, section: Section) {
+        state.section.set(section);
+        state.selected.set(Selected::None);
+        self.refresh(state);
+    }
+
+    pub fn switch_space(&mut self, state: &mut AppState, space_id: i64) {
+        state.space_id.set(space_id);
+        state.section.set(Section::AllNotes);
+        state.selected.set(Selected::None);
+        state.space_dropdown_open.set(false);
+        if let Ok(conn) = data::open_db() {
+            lore_core::db::touch_space(&conn, space_id).ok();
+        }
+        self.refresh(state);
     }
 
     // ---- Note mutations ----
@@ -293,6 +312,36 @@ impl DataStore {
     pub fn clear_current_note_urls(&mut self) {
         self.current_note_urls.set(Vec::new());
         self.url_statuses.set(HashMap::new());
+    }
+
+    // ---- Attachments (images) ----
+
+    pub fn upload_image(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8]) -> Result<i64, String> {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data).map_err(|e| e.to_string())
+    }
+
+    pub fn get_attachment_data_uri(&self, attachment_id: i64) -> Option<String> {
+        let conn = data::open_db().ok()?;
+        let (mime, bytes) = lore_core::db::get_attachment_data(&conn, attachment_id).ok()?;
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        Some(format!("data:{};base64,{}", mime, b64))
+    }
+
+    pub fn cleanup_note_attachments(&self, note_id: i64, markdown: &str) {
+        // Extract attachment IDs referenced in markdown: ![...](lore://attachment/123)
+        let mut used_ids = Vec::new();
+        for part in markdown.split("lore://attachment/") {
+            if let Some(end) = part.find(')') {
+                if let Ok(id) = part[..end].parse::<i64>() {
+                    used_ids.push(id);
+                }
+            }
+        }
+        if let Ok(conn) = data::open_db() {
+            lore_core::db::cleanup_orphaned_attachments(&conn, note_id, &used_ids).ok();
+        }
     }
 
     // ---- Auto-archive URLs from note content ----

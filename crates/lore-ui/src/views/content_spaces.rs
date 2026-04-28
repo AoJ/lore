@@ -122,7 +122,7 @@ pub fn ContentSpaces() -> Element {
                                         if !is_active {
                                             button { class: "btn-sm",
                                                 onclick: move |_| {
-                                                    state.switch_space(sid);
+                                                    store.switch_space(&mut state,sid);
                                                 },
                                                 "Switch to"
                                             }

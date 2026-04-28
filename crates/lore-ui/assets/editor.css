@@ -89,6 +89,15 @@
     margin: 0.5em 0;
 }
 
+/* ---- Inline images ---- */
+.milkdown .editor img,
+.milkdown .ProseMirror img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius);
+    margin: var(--spacing-xs) 0;
+}
+
 /* ---- URL indicators ---- */
 .milkdown .editor a {
     color: var(--color-accent);
