@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 chromiumoxide = "0.7"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
 lore-core = { path = "../lore-core" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
