@@ -88,19 +88,25 @@ pub fn ContentNote(id: i64) -> Element {
         });
     }
 
-    // Push URL statuses to JS editor when they change
+    // Push URL statuses to JS editor — re-runs whenever url_statuses signal changes
     {
-        let url_statuses_signal = store.url_statuses;
-        use_effect(move || {
-            let statuses = url_statuses_signal.read();
-            if statuses.is_empty() { return; }
-            // Serialize to JSON and call JS
-            let json_entries: Vec<String> = statuses.iter()
-                .map(|(url, status)| format!("\"{}\":\"{}\"", url.replace('"', "\\\""), status))
-                .collect();
-            let json = format!("{{{}}}", json_entries.join(","));
-            let js = format!("window.loreEditor && window.loreEditor.updateUrlStatuses({});", json);
-            document::eval(&js);
+        let statuses_signal = store.url_statuses;
+        use_future(move || async move {
+            loop {
+                // Read signal (subscribes to changes)
+                let statuses = statuses_signal.read().clone();
+                if !statuses.is_empty() {
+                    let json_entries: Vec<String> = statuses.iter()
+                        .map(|(url, status)| format!("\"{}\":\"{}\"", url.replace('"', "\\\""), status))
+                        .collect();
+                    let json = format!("{{{}}}", json_entries.join(","));
+                    // Delay to let Milkdown render links first
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let js = format!("window.loreEditor && window.loreEditor.updateUrlStatuses({});", json);
+                    document::eval(&js);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
         });
     }
 

@@ -83,9 +83,10 @@
 - [x] Auto-archivace URL z poznámek (detekce markdown linků i bare URL)
 - [x] Zpětné odkazy na stránkách ("Referenced in: [poznámka]")
 - [x] Centralizovaný DataStore — žádné race conditions při přepínání poznámek
-- [ ] URL indikátory v editoru (🟢🟡⚪🔴) — CSS pseudo-elementy na odkazech
-- [ ] Vkládání obrázků (uložení do DB jako BLOB, zobrazení inline)
-- [ ] Kalendářní pohled / timeline — heatmapa aktivity ("co jsem dělal v lednu?")
+- [x] URL indikátory v editoru (🟢🟡⚪🔴) — CSS pseudo-elementy, DataStore tracking, auto-refresh
+- [x] Vkládání obrázků (paste ze schránky → BLOB v DB, inline zobrazení, orphan cleanup)
+- [x] Kalendářní pohled / timeline — heatmap 30 dní, klik na den filtruje poznámky/stránky
+- [x] Okamžitá navigace — store.navigate() s přímým refresh (žádný polling lag)
 - [ ] Připojení souborů k poznámce
 
 ### Soubory (modul Files)

@@ -18,6 +18,7 @@
 /* Override defaults to match our design tokens */
 .milkdown .editor,
 .milkdown .ProseMirror {
+    white-space: pre-wrap;
     font-family: var(--font-sans) !important;
     font-size: var(--font-size-sm) !important;
     color: var(--color-text) !important;
@@ -138,6 +139,45 @@
 .milkdown .editor a:hover {
     text-decoration: underline;
 }
+
+/* URL status list (below editor) */
+.url-status-list {
+    border-top: 1px solid var(--color-border-light);
+    padding: var(--spacing-xs) 0;
+    margin-top: var(--spacing-xs);
+}
+
+.url-status-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+    padding: 0.1rem 0;
+}
+
+.url-status-item a {
+    color: var(--color-muted);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.url-status-item a:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+}
+
+.url-status-dot {
+    flex-shrink: 0;
+    font-size: 0.5rem;
+    line-height: 1;
+}
+
+.url-status-item.archived .url-status-dot { color: #34c759; }
+.url-status-item.queued .url-status-dot { color: #ffcc00; }
+.url-status-item.external .url-status-dot { color: var(--color-muted); }
+.url-status-item.failed .url-status-dot { color: var(--color-danger); }
 
 /* Milkdown toolbar styling */
 .milkdown-menu,
