@@ -71,7 +71,7 @@ impl AppState {
             .unwrap_or(1);
 
         Self {
-            section: Signal::new(Section::AllPages),
+            section: Signal::new(Section::AllNotes),
             selected: Signal::new(Selected::None),
             search_query: Signal::new(String::new()),
             toast: Signal::new(None),

@@ -40,6 +40,26 @@ pub fn ListNotes() -> Element {
         notes.set(lore_core::db::list_notes(&conn, folder_id, sid).unwrap_or_default());
     });
 
+    // Revision-based polling — update list when DB changes (e.g. note edited in content panel)
+    use_future(move || async move {
+        let mut last_rev = data::get_revision();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let current_rev = data::get_revision();
+            if current_rev != last_rev {
+                last_rev = current_rev;
+                let section = section_signal.read().clone();
+                let sid = *space_signal.read();
+                let folder_id = match &section {
+                    Section::Folder(id) => Some(*id),
+                    _ => None,
+                };
+                let conn = data::open_db().unwrap();
+                notes.set(lore_core::db::list_notes(&conn, folder_id, sid).unwrap_or_default());
+            }
+        }
+    });
+
     // Current folder_id for the "+" button
     let current_folder_id = match &*state.section.read() {
         Section::Folder(id) => Some(*id),

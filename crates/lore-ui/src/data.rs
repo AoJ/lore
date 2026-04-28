@@ -326,6 +326,69 @@ pub fn get_revision() -> i64 {
         .unwrap_or(0)
 }
 
+/// Extract URLs from text and auto-archive them
+pub fn auto_archive_urls(text: &str, space_id: i64) {
+    let conn = match open_db() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let rules = lore_core::db::load_rules(&conn).unwrap_or_default();
+
+    let urls = extract_urls(text);
+    for url in &urls {
+        if lore_core::db::find_page_by_url(&conn, url).ok().flatten().is_none() {
+            if let Ok(parsed) = url::Url::parse(url) {
+                let normalized = lore_core::rules::normalize_url(&parsed);
+                let domain = parsed.host_str().unwrap_or("unknown").to_string();
+                let category = lore_core::rules::classify(&parsed, &rules);
+                let status = if category == "archive" { "queued" } else { "skipped" };
+                lore_core::db::insert_web_page(&conn, &lore_core::db::NewWebPage {
+                    url,
+                    url_normalized: &normalized,
+                    title: None,
+                    domain: &domain,
+                    category: &category,
+                    status,
+                    source: Some("note"),
+                    space_id: Some(space_id),
+                }).ok();
+            }
+        }
+    }
+}
+
+/// Extract http/https URLs from markdown text
+pub fn extract_urls(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    // Pattern 1: [text](url)
+    let mut rest = text;
+    while let Some(pos) = rest.find("](") {
+        let start = pos + 2;
+        if let Some(end) = rest[start..].find(')') {
+            let url = rest[start..start + end].trim();
+            if url.starts_with("http://") || url.starts_with("https://") {
+                if !urls.contains(&url.to_string()) {
+                    urls.push(url.to_string());
+                }
+            }
+            rest = &rest[start + end..];
+        } else {
+            break;
+        }
+    }
+
+    // Pattern 2: bare URLs
+    for word in text.split_whitespace() {
+        let word = word.trim_matches(|c: char| c == '(' || c == ')' || c == '<' || c == '>' || c == '"' || c == '\'' || c == ',' || c == ';' || c == '.');
+        if (word.starts_with("http://") || word.starts_with("https://")) && !urls.contains(&word.to_string()) {
+            urls.push(word.to_string());
+        }
+    }
+
+    urls
+}
+
 pub fn open_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     {

@@ -575,6 +575,29 @@ a:hover {
     line-height: 1.6;
 }
 
+/* Back-references */
+.page-backrefs {
+    margin-top: var(--spacing-md);
+    font-size: var(--font-size-sm);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.backref-link {
+    color: var(--color-accent);
+    cursor: pointer;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius);
+    background: #f0f7ff;
+}
+
+.backref-link:hover {
+    background: #e0efff;
+    text-decoration: underline;
+}
+
 details summary {
     font-size: var(--font-size-sm);
     font-weight: 600;

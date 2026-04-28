@@ -114,10 +114,10 @@ pub fn Sidebar() -> Element {
 
             // Sections
             div { class: "sidebar-group",
-                SidebarItem { label: texts::NAV_WEBS, active: section == Section::AllPages,
-                    onclick: move |_| state.navigate(Section::AllPages) }
                 SidebarItem { label: texts::NAV_NOTES, active: section == Section::AllNotes,
                     onclick: move |_| state.navigate(Section::AllNotes) }
+                SidebarItem { label: texts::NAV_WEBS, active: section == Section::AllPages,
+                    onclick: move |_| state.navigate(Section::AllPages) }
                 SidebarItem { label: texts::NAV_FILES, active: section == Section::AllFiles,
                     onclick: move |_| state.navigate(Section::AllFiles) }
                 SidebarItem { label: texts::NAV_SEARCH, active: section == Section::Search,

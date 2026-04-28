@@ -1,0 +1,164 @@
+/* ================================================================
+   lore — Editor styles (Milkdown overrides + URL indicators)
+   ================================================================ */
+
+/* Editor container fills content panel */
+.milkdown-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.milkdown-wrapper .milkdown {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Override defaults to match our design tokens */
+.milkdown .editor,
+.milkdown .ProseMirror {
+    font-family: var(--font-sans) !important;
+    font-size: var(--font-size-sm) !important;
+    color: var(--color-text) !important;
+    line-height: 1.5;
+    padding: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+.milkdown .editor p,
+.milkdown .ProseMirror p {
+    margin: 0 0 0.35em 0;
+}
+
+.milkdown .editor h1,
+.milkdown .editor h2,
+.milkdown .editor h3,
+.milkdown .ProseMirror h1,
+.milkdown .ProseMirror h2,
+.milkdown .ProseMirror h3 {
+    font-family: var(--font-sans);
+    color: var(--color-text);
+    margin: 0.6em 0 0.3em 0;
+}
+
+.milkdown .editor h1, .milkdown .ProseMirror h1 { font-size: var(--font-size-lg); }
+.milkdown .editor h2, .milkdown .ProseMirror h2 { font-size: var(--font-size-base); font-weight: 600; }
+.milkdown .editor h3, .milkdown .ProseMirror h3 { font-size: var(--font-size-sm); font-weight: 600; }
+
+.milkdown .editor code, .milkdown .ProseMirror code {
+    font-family: var(--font-mono);
+    background: #f5f5f5;
+    padding: 0.1em 0.25em;
+    border-radius: var(--radius);
+    font-size: 0.85em;
+}
+
+.milkdown .editor pre, .milkdown .ProseMirror pre {
+    font-family: var(--font-mono);
+    background: #f5f5f5;
+    padding: var(--spacing-sm);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: var(--font-size-xs);
+}
+
+.milkdown .editor blockquote, .milkdown .ProseMirror blockquote {
+    border-left: 2px solid var(--color-border);
+    padding-left: var(--spacing-sm);
+    color: var(--color-muted);
+    margin: 0.3em 0;
+}
+
+.milkdown .editor ul, .milkdown .editor ol,
+.milkdown .ProseMirror ul, .milkdown .ProseMirror ol {
+    padding-left: 1.25em;
+    margin: 0.2em 0;
+}
+
+.milkdown .editor li, .milkdown .ProseMirror li {
+    margin: 0.1em 0;
+}
+
+.milkdown .editor hr, .milkdown .ProseMirror hr {
+    border: none;
+    border-top: 1px solid var(--color-border-light);
+    margin: 0.5em 0;
+}
+
+/* ---- URL indicators ---- */
+.milkdown .editor a {
+    color: var(--color-accent);
+    text-decoration: none;
+    position: relative;
+    padding-left: 0.9em;
+}
+
+.milkdown .editor a::before {
+    content: '';
+    display: inline-block;
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--color-muted); /* default: external/unknown */
+}
+
+.milkdown .editor a.url-archived::before {
+    background: #34c759; /* green */
+}
+
+.milkdown .editor a.url-queued::before {
+    background: #ffcc00; /* yellow */
+}
+
+.milkdown .editor a.url-external::before {
+    background: var(--color-muted); /* gray */
+}
+
+.milkdown .editor a.url-failed::before {
+    background: var(--color-danger); /* red */
+}
+
+.milkdown .editor a:hover {
+    text-decoration: underline;
+}
+
+/* Milkdown toolbar styling */
+.milkdown-menu,
+.milkdown .milkdown-menu {
+    border-bottom: 1px solid var(--color-border-light);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+
+/* Dirty indicator — unsaved changes */
+.dirty-indicator {
+    position: absolute;
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    font-size: 0.5rem;
+    color: var(--color-muted);
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.content-note {
+    position: relative;
+}
+
+/* Bridge textarea — hidden */
+#milkdown-bridge {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}

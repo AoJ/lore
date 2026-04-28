@@ -11,6 +11,8 @@ use views::*;
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
 const APP_CSS: &str = include_str!("../assets/app.css");
+const MILKDOWN_JS: &str = include_str!("../assets/milkdown.js");
+const EDITOR_CSS: &str = include_str!("../assets/editor.css");
 
 fn main() {
     use dioxus::desktop::{Config, WindowBuilder};
@@ -32,6 +34,8 @@ fn app() -> Element {
     rsx! {
         document::Style { {TOKENS_CSS} }
         document::Style { {APP_CSS} }
+        document::Style { {EDITOR_CSS} }
+        script { {MILKDOWN_JS} }
         // Auto-focus the keyboard trap on load
         script { "document.addEventListener('DOMContentLoaded', function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}); setTimeout(function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}, 100);" }
         AppLayout {}
@@ -116,18 +120,12 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
     let shift = modifiers.shift();
 
     match key {
-        // Ctrl+J / Ctrl+K — navigate list
+        // Ctrl+J / Ctrl+K — navigate list (always works)
         Key::Character(ref ch) if ch == keys::NAV_DOWN.0 && ctrl => {
             move_selection(&mut state, 1);
         }
         Key::Character(ref ch) if ch == keys::NAV_UP.0 && ctrl => {
             move_selection(&mut state, -1);
-        }
-        // Backspace — deselect
-        Key::Backspace if !cmd => {
-            if *state.selected.read() != Selected::None {
-                state.selected.set(Selected::None);
-            }
         }
         // Cmd+D — trash selected
         Key::Character(ref ch) if ch == "d" && cmd => {

@@ -17,10 +17,14 @@ pub fn ListPages() -> Element {
         pages.set(data::list_pages(s, 200).unwrap_or_default());
     });
 
+    // Revision-based polling — only re-fetch when DB actually changed
     use_future(move || async move {
+        let mut last_rev = data::get_revision();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            if *state.selected.read() == Selected::None {
+            let current_rev = data::get_revision();
+            if current_rev != last_rev {
+                last_rev = current_rev;
                 let s = *state.space_id.read();
                 pages.set(data::list_pages(s, 200).unwrap_or_default());
             }

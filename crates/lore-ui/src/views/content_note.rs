@@ -13,27 +13,48 @@ pub fn ContentNote(id: i64) -> Element {
         lore_core::db::get_note(&conn, id).ok()
     });
 
-    let mut content = use_signal(|| {
-        note_data.read().as_ref().map(|n| {
-            if n.title.is_empty() && n.body.is_empty() {
-                String::new()
-            } else if n.body.is_empty() {
-                n.title.clone()
-            } else {
-                format!("{}\n{}", n.title, n.body)
-            }
-        }).unwrap_or_default()
-    });
+    let initial_content = note_data.read().as_ref().map(|n| {
+        if n.title.is_empty() && n.body.is_empty() {
+            String::new()
+        } else if n.body.is_empty() {
+            n.title.clone()
+        } else {
+            format!("{}\n{}", n.title, n.body)
+        }
+    }).unwrap_or_default();
 
-    let mut save = move || {
+    let mut content = use_signal(move || initial_content);
+
+    // Initialize Milkdown after mount
+    {
+        let init_content = content.read().clone();
+        use_effect(move || {
+            let escaped = init_content
+                .replace('\\', "\\\\")
+                .replace('`', "\\`")
+                .replace("</", "<\\/");
+            let js = format!(
+                "window.loreEditor && window.loreEditor.init('milkdown-root', `{}`, 'milkdown-bridge');",
+                escaped
+            );
+            document::eval(&js);
+        });
+    }
+
+    let save = move || {
         let text = content.read().clone();
         let (title, body) = split_title_body(&text);
         let conn = data::open_db().unwrap();
         lore_core::db::update_note(&conn, id, &title, &body).ok();
-        state.bump_refresh();
+
+        // Auto-archive URLs
+        if text.contains("https://") || text.contains("http://") {
+            let space_id = *state.space_id.read();
+            data::auto_archive_urls(&text, space_id);
+        }
+        // Don't bump_refresh here — polling handles list updates
     };
 
-    // Load folders for move menu — build flat list with depth for tree display
     let folders = use_signal(move || {
         let sid = *state.space_id.read();
         let conn = data::open_db().unwrap();
@@ -41,22 +62,32 @@ pub fn ContentNote(id: i64) -> Element {
     });
 
     let folder_tree: Vec<(i64, String, usize)> = build_folder_tree(&folders.read(), None, 0);
-
     let current_folder_id = note_data.read().as_ref().and_then(|n| n.folder_id);
     let current_folder_name = folder_path(&folders.read(), current_folder_id);
 
     match note_data.read().as_ref() {
         Some(note) => rsx! {
             section { class: "content-panel content-note",
+                // Dirty indicator (unsaved changes)
+                div { id: "dirty-indicator", class: "dirty-indicator",
+                    style: "opacity: 0;",
+                    "●"
+                }
+                // Milkdown editor
+                div { id: "milkdown-root", class: "milkdown-wrapper" }
+
+                // Bridge textarea: Milkdown JS writes markdown here → Dioxus reads it
+                // Must be textarea (not input) to preserve newlines in markdown
                 textarea {
-                    class: "note-editor",
-                    placeholder: texts::PLACEHOLDER_NOTE_BODY,
-                    value: "{content}",
+                    id: "milkdown-bridge",
+                    style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
+                    tabindex: "-1",
                     oninput: move |evt| {
                         content.set(evt.value());
                         save();
                     },
                 }
+
                 div { class: "note-footer",
                     span { "Created: {note.created_at}" }
                     span { class: "sep", "·" }
@@ -72,12 +103,12 @@ pub fn ContentNote(id: i64) -> Element {
                         }
                     }
                 }
+
                 div { class: "note-actions",
-                    // Move to folder
                     div { class: "move-to-wrapper",
                         button { class: "btn",
                             onclick: move |_| move_menu_open.toggle(),
-                            "Move to..."
+                            {texts::BTN_MOVE_TO}
                         }
                         if *move_menu_open.read() {
                             div { class: "move-to-menu",
@@ -125,6 +156,7 @@ pub fn ContentNote(id: i64) -> Element {
                         onclick: {
                             let note_id = id;
                             move |_| {
+                                document::eval("if(window.loreEditor) window.loreEditor.destroy();");
                                 let conn = data::open_db().unwrap();
                                 lore_core::db::trash_note(&conn, note_id).ok();
                                 state.show_toast(
@@ -155,7 +187,6 @@ fn split_title_body(text: &str) -> (String, String) {
     }
 }
 
-/// Build a flat list of (id, name, depth) from hierarchical folders, sorted as a tree.
 fn build_folder_tree(
     folders: &[lore_core::db::FolderRow],
     parent_id: Option<i64>,
@@ -169,7 +200,6 @@ fn build_folder_tree(
     result
 }
 
-/// Build full path for a folder: "Parent / Child / Grandchild"
 fn folder_path(folders: &[lore_core::db::FolderRow], folder_id: Option<i64>) -> Option<String> {
     let fid = folder_id?;
     let mut parts = Vec::new();
@@ -184,4 +214,59 @@ fn folder_path(folders: &[lore_core::db::FolderRow], folder_id: Option<i64>) -> 
     }
     parts.reverse();
     Some(parts.join(" / "))
+}
+
+fn auto_archive_urls(text: &str, space_id: i64) {
+    let conn = match data::open_db() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let rules = lore_core::db::load_rules(&conn).unwrap_or_default();
+
+    // Extract URLs from markdown links [text](url) and bare URLs
+    let mut urls = Vec::new();
+
+    // Pattern 1: [text](url)
+    let mut rest = text;
+    while let Some(pos) = rest.find("](") {
+        let start = pos + 2;
+        if let Some(end) = rest[start..].find(')') {
+            let url = rest[start..start + end].trim();
+            if url.starts_with("http://") || url.starts_with("https://") {
+                urls.push(url.to_string());
+            }
+            rest = &rest[start + end..];
+        } else {
+            break;
+        }
+    }
+
+    // Pattern 2: bare URLs (https://... not inside markdown link)
+    for word in text.split_whitespace() {
+        let word = word.trim_matches(|c: char| c == '(' || c == ')' || c == '<' || c == '>');
+        if (word.starts_with("http://") || word.starts_with("https://")) && !urls.contains(&word.to_string()) {
+            urls.push(word.to_string());
+        }
+    }
+
+    for url in &urls {
+        if lore_core::db::find_page_by_url(&conn, url).ok().flatten().is_none() {
+            if let Ok(parsed) = url::Url::parse(url) {
+                let normalized = lore_core::rules::normalize_url(&parsed);
+                let domain = parsed.host_str().unwrap_or("unknown").to_string();
+                let category = lore_core::rules::classify(&parsed, &rules);
+                let status = if category == "archive" { "queued" } else { "skipped" };
+                lore_core::db::insert_web_page(&conn, &lore_core::db::NewWebPage {
+                    url,
+                    url_normalized: &normalized,
+                    title: None,
+                    domain: &domain,
+                    category: &category,
+                    status,
+                    source: Some("note"),
+                    space_id: Some(space_id),
+                }).ok();
+            }
+        }
+    }
 }

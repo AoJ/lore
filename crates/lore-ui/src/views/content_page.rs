@@ -89,6 +89,44 @@ pub fn ContentPage(id: i64) -> Element {
                         }
                     }
                 }
+                // Back-references: which notes link to this URL
+                {
+                    let space_id = *state.space_id.read();
+                    let refs = data::open_db().ok()
+                        .and_then(|conn| lore_core::db::find_notes_referencing_url(&conn, &p.url, space_id).ok())
+                        .unwrap_or_default();
+                    if !refs.is_empty() {
+                        rsx! {
+                            div { class: "page-backrefs",
+                                strong { "Referenced in:" }
+                                for (note_id, note_title) in refs.iter() {
+                                    {
+                                        let nid = *note_id;
+                                        let display = if note_title.is_empty() { "Untitled note".to_string() } else { note_title.clone() };
+                                        rsx! {
+                                            span { class: "backref-link",
+                                                onclick: move |_| {
+                                                    // Navigate to correct section (folder or root)
+                                                    let note_folder = data::open_db().ok()
+                                                        .and_then(|c| lore_core::db::get_note(&c, nid).ok())
+                                                        .and_then(|n| n.folder_id);
+                                                    match note_folder {
+                                                        Some(fid) => state.section.set(crate::state::Section::Folder(fid)),
+                                                        None => state.section.set(crate::state::Section::AllNotes),
+                                                    }
+                                                    state.selected.set(crate::state::Selected::Note(nid));
+                                                },
+                                                "{display}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {}
+                    }
+                }
             }
         },
         Err(e) => rsx! {

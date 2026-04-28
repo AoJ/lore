@@ -595,6 +595,79 @@ fn revision_increments_on_page_changes() {
 
 // ---- Classification rules ----
 
+// ---- URL extraction (logic from data.rs, tested here for convenience) ----
+
+fn extract_urls(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    let mut rest = text;
+    while let Some(pos) = rest.find("](") {
+        let start = pos + 2;
+        if let Some(end) = rest[start..].find(')') {
+            let url = rest[start..start + end].trim();
+            if url.starts_with("http://") || url.starts_with("https://") {
+                if !urls.contains(&url.to_string()) {
+                    urls.push(url.to_string());
+                }
+            }
+            rest = &rest[start + end..];
+        } else {
+            break;
+        }
+    }
+    for word in text.split_whitespace() {
+        let word = word.trim_matches(|c: char| c == '(' || c == ')' || c == '<' || c == '>' || c == '"' || c == '\'' || c == ',' || c == ';' || c == '.');
+        if (word.starts_with("http://") || word.starts_with("https://")) && !urls.contains(&word.to_string()) {
+            urls.push(word.to_string());
+        }
+    }
+    urls
+}
+
+#[test]
+fn extract_urls_markdown_links() {
+    let text = "Check [Rust](https://rust-lang.org) and [Docs](https://doc.rust-lang.org/book)";
+    let urls = extract_urls(text);
+    assert_eq!(urls, vec!["https://rust-lang.org", "https://doc.rust-lang.org/book"]);
+}
+
+#[test]
+fn extract_urls_bare() {
+    let text = "Visit https://example.com for more info and http://test.org too";
+    let urls = extract_urls(text);
+    assert_eq!(urls, vec!["https://example.com", "http://test.org"]);
+}
+
+#[test]
+fn extract_urls_mixed() {
+    let text = "See [link](https://a.com) and also https://b.com here";
+    let urls = extract_urls(text);
+    assert_eq!(urls, vec!["https://a.com", "https://b.com"]);
+}
+
+#[test]
+fn extract_urls_no_duplicates() {
+    let text = "Visit https://a.com and [same](https://a.com) again";
+    let urls = extract_urls(text);
+    assert_eq!(urls, vec!["https://a.com"]);
+}
+
+#[test]
+fn extract_urls_with_trailing_punctuation() {
+    let text = "Check https://example.com, and https://test.org.";
+    let urls = extract_urls(text);
+    assert!(urls.contains(&"https://example.com".to_string()));
+    assert!(urls.contains(&"https://test.org".to_string()));
+}
+
+#[test]
+fn extract_urls_milkdown_format() {
+    // Milkdown produces this exact markdown format
+    let text = "# Heading\n\nSome text with [a link](https://github.com/test) in it.\n\nBare url: https://example.org/path?q=1\n";
+    let urls = extract_urls(text);
+    assert!(urls.contains(&"https://github.com/test".to_string()));
+    assert!(urls.contains(&"https://example.org/path?q=1".to_string()));
+}
+
 #[test]
 fn rules_are_seeded() {
     let (_dir, conn) = open_test_db();

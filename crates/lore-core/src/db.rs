@@ -678,6 +678,39 @@ pub fn space_stats(conn: &Connection, space_id: i64) -> Result<SpaceStats> {
     })
 }
 
+/// Find notes that reference a given URL in their body text
+pub fn find_notes_referencing_url(conn: &Connection, url: &str, space_id: i64) -> Result<Vec<(i64, String)>> {
+    let pattern = format!("%{}%", url);
+    let mut stmt = conn.prepare(
+        "SELECT id, title FROM note WHERE body LIKE ?1 AND space_id = ?2 AND deleted_at IS NULL ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![pattern, space_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// Check archive status for multiple URLs at once
+pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<std::collections::HashMap<String, String>> {
+    let mut map = std::collections::HashMap::new();
+    for url in urls {
+        if let Ok(Some(status)) = conn.query_row(
+            "SELECT status FROM web_page WHERE url = ?1 OR url_normalized = ?1",
+            [url],
+            |row| row.get::<_, String>(0),
+        ).map(Some).or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        }) {
+            map.insert(url.clone(), status);
+        }
+    }
+    Ok(map)
+}
+
 /// Count notes per folder (direct children only, excludes deleted)
 pub fn folder_note_counts(conn: &Connection, space_id: i64) -> Result<std::collections::HashMap<i64, i64>> {
     let mut stmt = conn.prepare(
