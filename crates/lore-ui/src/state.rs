@@ -21,6 +21,7 @@ pub enum Selected {
     Note(i64),
     File(i64),
     SettingsRules,
+    SettingsSpaces,
 }
 
 /// Toast notification data

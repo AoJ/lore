@@ -9,5 +9,6 @@ pub mod content_page;
 pub mod content_note;
 pub mod content_file;
 pub mod content_rules;
+pub mod content_spaces;
 pub mod content_empty;
 pub mod toast;

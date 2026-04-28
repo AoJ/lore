@@ -228,7 +228,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                     } else {
                         // Empty name — delete the space
                         let conn = data::open_db().unwrap();
-                        lore_core::db::delete_space(&conn, space_id).ok();
+                        lore_core::db::delete_space_permanent(&conn, space_id).ok();
                         // Switch to first remaining space
                         if let Ok(s) = lore_core::db::get_active_space(&conn) {
                             state.switch_space(s.id);
@@ -239,7 +239,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                 } else if evt.key() == Key::Escape {
                     if is_new {
                         let conn = data::open_db().unwrap();
-                        lore_core::db::delete_space(&conn, space_id).ok();
+                        lore_core::db::delete_space_permanent(&conn, space_id).ok();
                         if let Ok(s) = lore_core::db::get_active_space(&conn) {
                             state.switch_space(s.id);
                         }

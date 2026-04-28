@@ -65,11 +65,12 @@
 ## Co chybí
 
 ### Složky — pokročilé
-- [ ] Hover → "..." ikona → kontextové menu (Rename, Delete, New subfolder) — jako Apple Notes
-- [ ] Vytvoření podsložky (hierarchicky pod existující)
-- [ ] Přesunutí poznámky do jiné složky (drag & drop nebo přes menu)
-- [ ] Přesunutí složky pod jinou složku (drag & drop)
-- [ ] Správa spaces v Settings (přejmenování, smazání)
+- [x] Hover → "..." ikona → kontextové menu (Rename, Delete, New subfolder) — jako Apple Notes
+- [x] Vytvoření podsložky (hierarchicky pod existující)
+- [x] Přesunutí poznámky do jiné složky (přes "Move to..." menu se stromovou strukturou)
+- [x] Sidebar se přepne na cílovou složku po přesunu, poznámka zůstane selected
+- [ ] Přesunutí složky pod jinou složku (drag & drop — odloženo, čeká na web verzi)
+- [x] Správa spaces v Settings (přejmenování, smazání, statistiky)
 
 ### Poznámky — pokročilé
 - [ ] Rich text editor (preferovaný Trix nebo contenteditable s toolbar)

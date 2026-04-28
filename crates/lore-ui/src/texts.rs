@@ -23,6 +23,7 @@ pub const LIST_SETTINGS: &str = "Settings";
 
 // ---- Settings items ----
 pub const SETTINGS_WEBPAGE_RULES: &str = "Webpage rules";
+pub const SETTINGS_SPACES: &str = "Spaces";
 
 // ---- Content panel ----
 pub const CONTENT_RULES_TITLE: &str = "Classification Rules";

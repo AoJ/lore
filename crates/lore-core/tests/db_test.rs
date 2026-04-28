@@ -56,6 +56,24 @@ fn touch_space_updates_last_used() {
 }
 
 #[test]
+fn trash_and_restore_space() {
+    let (_dir, conn) = open_test_db();
+    let space_id = db::insert_space(&conn, "Temp").unwrap();
+
+    db::trash_space(&conn, space_id).unwrap();
+    // Should not appear in active list
+    let active = db::list_spaces(&conn).unwrap();
+    assert!(!active.iter().any(|s| s.id == space_id));
+    // Should appear in all list
+    let all = db::list_all_spaces(&conn).unwrap();
+    assert!(all.iter().any(|s| s.id == space_id && s.deleted_at.is_some()));
+
+    db::restore_space(&conn, space_id).unwrap();
+    let active = db::list_spaces(&conn).unwrap();
+    assert!(active.iter().any(|s| s.id == space_id));
+}
+
+#[test]
 fn delete_space_removes_all_content() {
     let (_dir, conn) = open_test_db();
     let space_id = db::insert_space(&conn, "Doomed").unwrap();
@@ -74,7 +92,7 @@ fn delete_space_removes_all_content() {
     let note_id = db::insert_note(&conn, "Test", "Body", None, space_id).unwrap();
     let folder_id = db::insert_folder(&conn, "Folder", None, space_id).unwrap();
 
-    db::delete_space(&conn, space_id).unwrap();
+    db::delete_space_permanent(&conn, space_id).unwrap();
 
     // Verify everything is gone
     let pages: Vec<i64> = conn
@@ -247,6 +265,144 @@ fn trash_and_restore_page() {
 
     db::restore_page(&conn, id).unwrap();
     assert_eq!(db::trash_count(&conn).unwrap(), 0);
+}
+
+#[test]
+fn restore_note_safe_with_existing_folder() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let folder = db::insert_folder(&conn, "F", None, space.id).unwrap();
+    let note = db::insert_note(&conn, "Note", "", Some(folder), space.id).unwrap();
+
+    db::trash_note(&conn, note).unwrap();
+    db::restore_note_safe(&conn, note).unwrap();
+
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, Some(folder), "should stay in folder");
+    assert!(n.deleted_at.is_none());
+}
+
+#[test]
+fn restore_note_safe_with_deleted_folder() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let folder = db::insert_folder(&conn, "Temp", None, space.id).unwrap();
+    let note = db::insert_note(&conn, "Note", "", Some(folder), space.id).unwrap();
+
+    db::trash_note(&conn, note).unwrap();
+    db::delete_folder(&conn, folder).unwrap();
+
+    // Folder deleted — note moved to root by delete_folder
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, None);
+
+    // Restore — should work, note is in root
+    db::restore_note_safe(&conn, note).unwrap();
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, None);
+    assert!(n.deleted_at.is_none());
+}
+
+#[test]
+fn delete_folder_moves_all_notes_to_parent() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let folder = db::insert_folder(&conn, "F", None, space.id).unwrap();
+    let active_note = db::insert_note(&conn, "Active", "", Some(folder), space.id).unwrap();
+    let trashed_note = db::insert_note(&conn, "Trashed", "", Some(folder), space.id).unwrap();
+    db::trash_note(&conn, trashed_note).unwrap();
+
+    db::delete_folder(&conn, folder).unwrap();
+
+    // Both moved to root (FK constraint requires it)
+    let an = db::get_note(&conn, active_note).unwrap();
+    assert_eq!(an.folder_id, None);
+    let tn = db::get_note(&conn, trashed_note).unwrap();
+    assert_eq!(tn.folder_id, None);
+}
+
+#[test]
+fn delete_nested_folder_moves_notes_to_grandparent() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let grandparent = db::insert_folder(&conn, "GP", None, space.id).unwrap();
+    let parent = db::insert_folder(&conn, "P", Some(grandparent), space.id).unwrap();
+    let note = db::insert_note(&conn, "Note", "", Some(parent), space.id).unwrap();
+
+    db::delete_folder(&conn, parent).unwrap();
+
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, Some(grandparent), "should move to grandparent, not root");
+}
+
+#[test]
+fn delete_folder_chain_notes_land_in_root() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let f1 = db::insert_folder(&conn, "F1", None, space.id).unwrap();
+    let f2 = db::insert_folder(&conn, "F2", Some(f1), space.id).unwrap();
+    let note = db::insert_note(&conn, "Deep", "", Some(f2), space.id).unwrap();
+
+    // Delete child first, then parent
+    db::delete_folder(&conn, f2).unwrap();
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, Some(f1), "moves to parent");
+
+    db::delete_folder(&conn, f1).unwrap();
+    let n = db::get_note(&conn, note).unwrap();
+    assert_eq!(n.folder_id, None, "moves to root after all folders deleted");
+}
+
+#[test]
+fn trash_note_then_trash_space_then_restore_space() {
+    let (_dir, conn) = open_test_db();
+    let sid = db::insert_space(&conn, "Temp").unwrap();
+    let note = db::insert_note(&conn, "N", "", None, sid).unwrap();
+
+    // Trash note
+    db::trash_note(&conn, note).unwrap();
+    // Trash space
+    db::trash_space(&conn, sid).unwrap();
+
+    // Space gone from active list
+    assert!(!db::list_spaces(&conn).unwrap().iter().any(|s| s.id == sid));
+
+    // Restore space
+    db::restore_space(&conn, sid).unwrap();
+    assert!(db::list_spaces(&conn).unwrap().iter().any(|s| s.id == sid));
+
+    // Note still trashed
+    let n = db::get_note(&conn, note).unwrap();
+    assert!(n.deleted_at.is_some(), "note should still be trashed");
+
+    // Restore note
+    db::restore_note_safe(&conn, note).unwrap();
+    let notes = db::list_notes(&conn, None, sid).unwrap();
+    assert_eq!(notes.len(), 1);
+}
+
+#[test]
+fn delete_folder_with_subfolder_containing_notes() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let parent = db::insert_folder(&conn, "Parent", None, space.id).unwrap();
+    let child = db::insert_folder(&conn, "Child", Some(parent), space.id).unwrap();
+    let note_in_parent = db::insert_note(&conn, "NP", "", Some(parent), space.id).unwrap();
+    let note_in_child = db::insert_note(&conn, "NC", "", Some(child), space.id).unwrap();
+
+    // Delete parent — child becomes root, parent's notes move to root
+    db::delete_folder(&conn, parent).unwrap();
+
+    let np = db::get_note(&conn, note_in_parent).unwrap();
+    assert_eq!(np.folder_id, None, "parent's note goes to root");
+
+    let nc = db::get_note(&conn, note_in_child).unwrap();
+    assert_eq!(nc.folder_id, Some(child), "child's note stays in child");
+
+    let folders = db::list_folders(&conn, space.id).unwrap();
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].id, child);
+    assert_eq!(folders[0].parent_id, None, "child becomes root folder");
 }
 
 #[test]

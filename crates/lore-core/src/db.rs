@@ -15,6 +15,15 @@ pub fn open(path: &Path) -> Result<Connection> {
     conn.execute_batch(SCHEMA)
         .context("initializing database schema")?;
 
+    // Migration: add deleted_at to space if missing
+    let has_space_deleted: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('space') WHERE name='deleted_at'")
+        .and_then(|mut s| s.exists([]))
+        .unwrap_or(false);
+    if !has_space_deleted {
+        conn.execute_batch("ALTER TABLE space ADD COLUMN deleted_at TEXT;").ok();
+    }
+
     // Ensure revision counter is seeded (existing DBs may not have it)
     conn.execute("INSERT OR IGNORE INTO db_revision (id, revision) VALUES (1, 0)", []).ok();
 
@@ -247,18 +256,35 @@ pub fn trash_count(conn: &Connection) -> Result<i64> {
 
 pub fn cleanup_old_trash(conn: &Connection, days: i64) -> Result<usize> {
     let cutoff = format!("-{} days", days);
-    // Get IDs to delete
-    let ids: Vec<i64> = conn
+    let mut cleaned = 0usize;
+
+    // Clean old trashed pages
+    let page_ids: Vec<i64> = conn
         .prepare(
             "SELECT id FROM web_page WHERE trashed_at IS NOT NULL AND trashed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?1)",
         )?
         .query_map([&cutoff], |row| row.get(0))?
         .filter_map(|r| r.ok())
         .collect();
-    for id in &ids {
+    for id in &page_ids {
         delete_page(conn, *id)?;
+        cleaned += 1;
     }
-    Ok(ids.len())
+
+    // Clean old trashed spaces (permanently delete with all content)
+    let space_ids: Vec<i64> = conn
+        .prepare(
+            "SELECT id FROM space WHERE deleted_at IS NOT NULL AND deleted_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?1)",
+        )?
+        .query_map([&cutoff], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for id in &space_ids {
+        delete_space_permanent(conn, *id)?;
+        cleaned += 1;
+    }
+
+    Ok(cleaned)
 }
 
 // ---- Notes ----
@@ -370,11 +396,12 @@ pub struct NoteData {
     pub folder_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
+    pub deleted_at: Option<String>,
 }
 
 pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
     conn.query_row(
-        "SELECT id, title, body, folder_id, created_at, updated_at FROM note WHERE id = ?1",
+        "SELECT id, title, body, folder_id, created_at, updated_at, deleted_at FROM note WHERE id = ?1",
         [note_id],
         |row| {
             Ok(NoteData {
@@ -384,6 +411,7 @@ pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
                 folder_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
+                deleted_at: row.get(6)?,
             })
         },
     )
@@ -448,7 +476,6 @@ pub fn rename_folder(conn: &Connection, folder_id: i64, name: &str) -> Result<()
 }
 
 pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
-    // Move notes in this folder to parent (or NULL)
     let parent: Option<i64> = conn
         .query_row(
             "SELECT parent_id FROM note_folder WHERE id = ?1",
@@ -457,6 +484,8 @@ pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
         )
         .ok()
         .flatten();
+    // Move all notes (active and trashed) to parent folder — FK constraint
+    // requires this since the folder row is being deleted
     conn.execute(
         "UPDATE note SET folder_id = ?1 WHERE folder_id = ?2",
         rusqlite::params![parent, folder_id],
@@ -470,6 +499,24 @@ pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Restore a trashed note. If its folder no longer exists, move to root.
+pub fn restore_note_safe(conn: &Connection, note_id: i64) -> Result<()> {
+    conn.execute("UPDATE note SET deleted_at = NULL WHERE id = ?1", [note_id])?;
+    // Check if folder still exists
+    let folder_id: Option<i64> = conn.query_row(
+        "SELECT folder_id FROM note WHERE id = ?1", [note_id], |r| r.get(0),
+    )?;
+    if let Some(fid) = folder_id {
+        let exists: bool = conn
+            .prepare("SELECT 1 FROM note_folder WHERE id = ?1")?
+            .exists([fid])?;
+        if !exists {
+            conn.execute("UPDATE note SET folder_id = NULL WHERE id = ?1", [note_id])?;
+        }
+    }
+    Ok(())
+}
+
 // ---- Spaces ----
 
 pub struct SpaceRow {
@@ -477,11 +524,13 @@ pub struct SpaceRow {
     pub name: String,
     pub color: Option<String>,
     pub last_used: Option<String>,
+    pub deleted_at: Option<String>,
 }
 
+/// List active (non-deleted) spaces
 pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, color, last_used FROM space ORDER BY last_used DESC, created_at DESC",
+        "SELECT id, name, color, last_used, deleted_at FROM space WHERE deleted_at IS NULL ORDER BY last_used DESC, created_at DESC",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -490,6 +539,27 @@ pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
                 name: row.get(1)?,
                 color: row.get(2)?,
                 last_used: row.get(3)?,
+                deleted_at: row.get(4)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// List ALL spaces including soft-deleted (for Settings view)
+pub fn list_all_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color, last_used, deleted_at FROM space ORDER BY deleted_at IS NOT NULL, last_used DESC, created_at DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SpaceRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                last_used: row.get(3)?,
+                deleted_at: row.get(4)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -499,7 +569,7 @@ pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
 
 pub fn get_active_space(conn: &Connection) -> Result<SpaceRow> {
     conn.query_row(
-        "SELECT id, name, color, last_used FROM space ORDER BY last_used DESC, created_at DESC LIMIT 1",
+        "SELECT id, name, color, last_used, deleted_at FROM space WHERE deleted_at IS NULL ORDER BY last_used DESC, created_at DESC LIMIT 1",
         [],
         |row| {
             Ok(SpaceRow {
@@ -507,6 +577,7 @@ pub fn get_active_space(conn: &Connection) -> Result<SpaceRow> {
                 name: row.get(1)?,
                 color: row.get(2)?,
                 last_used: row.get(3)?,
+                deleted_at: row.get(4)?,
             })
         },
     )
@@ -537,7 +608,22 @@ pub fn rename_space(conn: &Connection, space_id: i64, name: &str) -> Result<()> 
     Ok(())
 }
 
-pub fn delete_space(conn: &Connection, space_id: i64) -> Result<()> {
+/// Soft-delete a space — content stays but is inaccessible until restored
+pub fn trash_space(conn: &Connection, space_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE space SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+        [space_id],
+    )?;
+    Ok(())
+}
+
+pub fn restore_space(conn: &Connection, space_id: i64) -> Result<()> {
+    conn.execute("UPDATE space SET deleted_at = NULL WHERE id = ?1", [space_id])?;
+    Ok(())
+}
+
+/// Permanently delete a space and ALL its content
+pub fn delete_space_permanent(conn: &Connection, space_id: i64) -> Result<()> {
     // Delete all content in this space
     // First get snapshot IDs for FTS cleanup
     let page_ids: Vec<i64> = conn
@@ -559,6 +645,37 @@ pub fn delete_space(conn: &Connection, space_id: i64) -> Result<()> {
     conn.execute("DELETE FROM note_folder WHERE space_id = ?1", [space_id])?;
     conn.execute("DELETE FROM space WHERE id = ?1", [space_id])?;
     Ok(())
+}
+
+pub struct SpaceStats {
+    pub page_count: i64,
+    pub note_count: i64,
+    pub file_count: i64,
+    pub pages_size_bytes: i64,
+}
+
+pub fn space_stats(conn: &Connection, space_id: i64) -> Result<SpaceStats> {
+    let page_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM web_page WHERE space_id = ?1 AND trashed_at IS NULL",
+        [space_id], |r| r.get(0),
+    )?;
+    let note_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM note WHERE space_id = ?1 AND deleted_at IS NULL",
+        [space_id], |r| r.get(0),
+    )?;
+    let pages_size_bytes: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(LENGTH(wps.html_content) + LENGTH(COALESCE(wps.plain_text,'')) + LENGTH(COALESCE(wps.screenshot,''))), 0)
+         FROM web_page_snapshot wps
+         JOIN web_page wp ON wp.id = wps.web_page_id
+         WHERE wp.space_id = ?1 AND wp.trashed_at IS NULL",
+        [space_id], |r| r.get(0),
+    )?;
+    Ok(SpaceStats {
+        page_count,
+        note_count,
+        file_count: 0, // files not implemented yet
+        pages_size_bytes,
+    })
 }
 
 /// Count notes per folder (direct children only, excludes deleted)

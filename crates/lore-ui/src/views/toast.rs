@@ -27,7 +27,7 @@ pub fn Toast() -> Element {
                                             lore_core::db::restore_page(&conn, *id).ok();
                                         }
                                         UndoAction::RestoreNote(id) => {
-                                            lore_core::db::restore_note(&conn, *id).ok();
+                                            lore_core::db::restore_note_safe(&conn, *id).ok();
                                         }
                                     }
                                     state.bump_refresh();

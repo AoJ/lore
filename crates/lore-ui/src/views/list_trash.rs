@@ -50,7 +50,7 @@ pub fn ListTrash() -> Element {
                                             let conn = data::open_db().unwrap();
                                             match item_kind {
                                                 data::TrashKind::Page => { lore_core::db::restore_page(&conn, item_id).ok(); }
-                                                data::TrashKind::Note => { lore_core::db::restore_note(&conn, item_id).ok(); }
+                                                data::TrashKind::Note => { lore_core::db::restore_note_safe(&conn, item_id).ok(); }
                                             }
                                             state.show_toast(texts::TOAST_RESTORED.to_string(), None);
                                             state.bump_refresh();

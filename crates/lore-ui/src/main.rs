@@ -76,6 +76,7 @@ fn AppLayout() -> Element {
                         Selected::Note(id) => rsx! { content_note::ContentNote { key: "n-{id}", id: *id } },
                         Selected::File(id) => rsx! { content_file::ContentFile { key: "f-{id}", id: *id } },
                         Selected::SettingsRules => rsx! { content_rules::ContentRules {} },
+                    Selected::SettingsSpaces => rsx! { content_spaces::ContentSpaces {} },
                         Selected::None => rsx! { content_empty::ContentEmpty {} },
                     }}
                 }
