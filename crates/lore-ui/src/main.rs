@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 mod state;
+mod store;
 mod data;
 mod texts;
 mod keys;
@@ -29,14 +30,17 @@ fn main() {
 
 fn app() -> Element {
     let state = AppState::new();
+    let mut store = store::DataStore::new(*state.space_id.read());
+    store.refresh(&state);
+
     use_context_provider(|| state);
+    use_context_provider(|| store);
 
     rsx! {
         document::Style { {TOKENS_CSS} }
         document::Style { {APP_CSS} }
         document::Style { {EDITOR_CSS} }
         script { {MILKDOWN_JS} }
-        // Auto-focus the keyboard trap on load
         script { "document.addEventListener('DOMContentLoaded', function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}); setTimeout(function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}, 100);" }
         AppLayout {}
     }
@@ -55,7 +59,8 @@ fn AppLayout() -> Element {
                 autofocus: true,
                 class: "app-keyboard-trap",
                 onkeydown: move |evt: KeyboardEvent| {
-                    handle_keyboard(evt, state);
+                    let store = use_context::<store::DataStore>();
+                    handle_keyboard(evt, state, store);
                 },
 
                 // Panel 1: Sidebar
@@ -95,24 +100,26 @@ fn AppLayout() -> Element {
     }
 }
 
+/// Central polling loop + revision display. Drives all data refresh.
 #[component]
 fn RevisionIndicator() -> Element {
-    let mut rev = use_signal(|| data::get_revision());
+    let state = use_context::<AppState>();
+    let mut store = use_context::<store::DataStore>();
 
-    // Poll revision every 2 seconds
     use_future(move || async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            rev.set(data::get_revision());
+            store.poll(&state);
         }
     });
 
+    let rev = store.revision;
     rsx! {
         div { class: "revision-indicator", "r{rev}" }
     }
 }
 
-fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
+fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::DataStore) {
     let key = evt.key();
     let modifiers = evt.modifiers();
     let cmd = modifiers.meta();
@@ -129,19 +136,19 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
         }
         // Cmd+D — trash selected
         Key::Character(ref ch) if ch == "d" && cmd => {
-            trash_selected(&mut state);
+            trash_selected(&mut state, &mut store);
         }
         // Cmd+N — new note
         Key::Character(ref ch) if ch == "n" && cmd && !shift => {
-            create_new_note(&mut state);
+            create_new_note(&mut state, &mut store);
         }
         // Cmd+Shift+N — new space
         Key::Character(ref ch) if ch == "N" && cmd && shift => {
-            create_new_space(&mut state);
+            create_new_space(&mut state, &mut store);
         }
         // Cmd+Shift+F — new folder
         Key::Character(ref ch) if (ch == "F" || ch == "f") && cmd && shift => {
-            create_new_folder(&mut state);
+            create_new_folder(&mut state, &mut store);
         }
         // Ctrl+1..9 — switch space
         Key::Character(ref ch) if ctrl && ch.len() == 1 && ch.as_bytes()[0] >= b'1' && ch.as_bytes()[0] <= b'9' => {
@@ -156,32 +163,26 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
     }
 }
 
-fn create_new_space(state: &mut AppState) {
-    let conn = data::open_db().unwrap();
-    if let Ok(new_id) = lore_core::db::insert_space(&conn, "") {
+fn create_new_space(state: &mut AppState, store: &mut store::DataStore) {
+    if let Ok(new_id) = store.create_space(state, "") {
         state.switch_space(new_id);
         state.renaming.set(Some(state::Renaming::Space(new_id, String::new())));
         state.space_dropdown_open.set(true);
     }
 }
 
-fn create_new_folder(state: &mut AppState) {
-    let space_id = *state.space_id.read();
-    let conn = data::open_db().unwrap();
-    if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None, space_id) {
+fn create_new_folder(state: &mut AppState, store: &mut store::DataStore) {
+    if let Ok(fid) = store.create_folder(state, "", None) {
         state.renaming.set(Some(state::Renaming::Folder(fid, String::new())));
-        state.bump_refresh();
     }
 }
 
-fn create_new_note(state: &mut AppState) {
+fn create_new_note(state: &mut AppState, store: &mut store::DataStore) {
     let folder_id = match &*state.section.read() {
         Section::Folder(id) => Some(*id),
         _ => None,
     };
-    let space_id = *state.space_id.read();
-    let conn = data::open_db().unwrap();
-    if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id, space_id) {
+    if let Ok(note_id) = store.create_note(state, folder_id) {
         // Switch to Notes section if not already there
         let section = state.section.read().clone();
         if !matches!(section, Section::AllNotes | Section::Folder(_)) {
@@ -192,28 +193,20 @@ fn create_new_note(state: &mut AppState) {
     }
 }
 
-fn trash_selected(state: &mut AppState) {
+fn trash_selected(state: &mut AppState, store: &mut store::DataStore) {
     let selected = state.selected.read().clone();
     match selected {
         Selected::Page(id) => {
-            let conn = data::open_db().unwrap();
-            lore_core::db::trash_page(&conn, id).ok();
-            state.show_toast(
-                texts::TOAST_MOVED_TRASH.to_string(),
-                Some(state::UndoAction::RestorePage(id)),
-            );
-            state.selected.set(Selected::None);
-            state.bump_refresh();
+            if store.trash_page(state, id).is_ok() {
+                state.show_toast(texts::TOAST_MOVED_TRASH.to_string(), Some(state::UndoAction::RestorePage(id)));
+                state.selected.set(Selected::None);
+            }
         }
         Selected::Note(id) => {
-            let conn = data::open_db().unwrap();
-            lore_core::db::trash_note(&conn, id).ok();
-            state.show_toast(
-                texts::TOAST_NOTE_TRASH.to_string(),
-                Some(state::UndoAction::RestoreNote(id)),
-            );
-            state.selected.set(Selected::None);
-            state.bump_refresh();
+            if store.trash_note(state, id).is_ok() {
+                state.show_toast(texts::TOAST_NOTE_TRASH.to_string(), Some(state::UndoAction::RestoreNote(id)));
+                state.selected.set(Selected::None);
+            }
         }
         _ => {}
     }

@@ -1,32 +1,24 @@
 use dioxus::prelude::*;
 use crate::state::AppState;
+use crate::store::DataStore;
 use crate::data;
 use crate::texts;
 
 #[component]
 pub fn ListTrash() -> Element {
     let mut state = use_context::<AppState>();
-    let space_id = *state.space_id.read();
-    let mut items = use_signal(move || data::list_trash(space_id).unwrap_or_default());
-
-    let tick = state.refresh_tick;
-    let sid = state.space_id;
-    use_effect(move || {
-        let _ = *tick.read();
-        let s = *sid.read();
-        items.set(data::list_trash(s).unwrap_or_default());
-    });
+    let mut store = use_context::<DataStore>();
 
     rsx! {
         div { class: "list-panel",
             div { class: "list-header",
-                h2 { class: "list-title", "{texts::LIST_TRASH} ({items.read().len()})" }
+                h2 { class: "list-title", "{texts::LIST_TRASH} ({store.trash_items.read().len()})" }
             }
             div { class: "list-items",
-                if items.read().is_empty() {
+                if store.trash_items.read().is_empty() {
                     div { class: "empty-state", {texts::EMPTY_TRASH} }
                 }
-                for item in items.read().iter() {
+                for item in store.trash_items.read().iter() {
                     {
                         let kind_label = match item.kind {
                             data::TrashKind::Page => texts::KIND_PAGE,
@@ -47,24 +39,22 @@ pub fn ListTrash() -> Element {
                                 div { class: "trash-actions",
                                     button { class: "btn-sm",
                                         onclick: move |_| {
-                                            let conn = data::open_db().unwrap();
-                                            match item_kind {
-                                                data::TrashKind::Page => { lore_core::db::restore_page(&conn, item_id).ok(); }
-                                                data::TrashKind::Note => { lore_core::db::restore_note_safe(&conn, item_id).ok(); }
+                                            let result = match item_kind {
+                                                data::TrashKind::Page => store.restore_page(&state, item_id),
+                                                data::TrashKind::Note => store.restore_note(&state, item_id),
+                                            };
+                                            if result.is_ok() {
+                                                state.show_toast(texts::TOAST_RESTORED.to_string(), None);
                                             }
-                                            state.show_toast(texts::TOAST_RESTORED.to_string(), None);
-                                            state.bump_refresh();
                                         },
                                         {texts::BTN_RESTORE}
                                     }
                                     button { class: "btn-sm btn-danger",
                                         onclick: move |_| {
-                                            let conn = data::open_db().unwrap();
                                             match item_kind2 {
-                                                data::TrashKind::Page => { lore_core::db::delete_page(&conn, item_id2).ok(); }
-                                                data::TrashKind::Note => { lore_core::db::delete_note_permanent(&conn, item_id2).ok(); }
+                                                data::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).ok(); }
+                                                data::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).ok(); }
                                             }
-                                            state.bump_refresh();
                                         },
                                         {texts::BTN_DELETE_FOREVER}
                                     }

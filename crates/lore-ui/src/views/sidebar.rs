@@ -1,49 +1,26 @@
 use dioxus::prelude::*;
 use crate::state::{AppState, Section};
+use crate::store::DataStore;
 use crate::data;
 use crate::texts;
 
 #[component]
 pub fn Sidebar() -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<DataStore>();
     let mut url_input = use_signal(String::new);
     let mut status_msg = use_signal(|| Option::<String>::None);
 
     let space_id = *state.space_id.read();
-    let mut spaces = use_signal(|| {
-        let conn = data::open_db().unwrap();
-        lore_core::db::list_spaces(&conn).unwrap_or_default()
-    });
-    let mut folders = use_signal(move || {
-        let conn = data::open_db().unwrap();
-        lore_core::db::list_folders(&conn, space_id).unwrap_or_default()
-    });
-    let mut trash_count = use_signal(|| lore_core::db::trash_count(&data::open_db().unwrap()).unwrap_or(0));
-    let mut note_counts = use_signal(|| {
-        lore_core::db::folder_note_counts(&data::open_db().unwrap(), space_id).unwrap_or_default()
-    });
-
-    let tick = state.refresh_tick;
-    use_effect(move || {
-        let _ = *tick.read();
-        let sid = *state.space_id.read();
-        let conn = data::open_db().unwrap();
-        trash_count.set(lore_core::db::trash_count(&conn).unwrap_or(0));
-        note_counts.set(lore_core::db::folder_note_counts(&conn, sid).unwrap_or_default());
-        spaces.set(lore_core::db::list_spaces(&conn).unwrap_or_default());
-        folders.set(lore_core::db::list_folders(&conn, sid).unwrap_or_default());
-    });
 
     let on_add_url = move |evt: FormEvent| {
         evt.prevent_default();
         let raw_url = url_input.read().trim().to_string();
         if raw_url.is_empty() { return; }
-        let sid = *state.space_id.read();
-        match data::add_url(&raw_url, sid) {
+        match store.add_url(&state, &raw_url) {
             Ok(msg) => {
                 status_msg.set(Some(msg));
                 url_input.set(String::new());
-                state.bump_refresh();
             }
             Err(e) => status_msg.set(Some(format!("Error: {}", e))),
         }
@@ -51,13 +28,13 @@ pub fn Sidebar() -> Element {
 
     let section = state.section.read().clone();
     let dropdown_open = *state.space_dropdown_open.read();
-    let active_space_name = spaces.read().iter()
+    let active_space_name = store.spaces.read().iter()
         .find(|s| s.id == space_id)
         .map(|s| s.name.clone())
         .unwrap_or("Space".to_string());
 
     // Build folder tree (already filtered by space in DB query)
-    let space_folders: Vec<FolderData> = folders.read().iter()
+    let space_folders: Vec<FolderData> = store.folders.read().iter()
         .map(FolderData::from)
         .collect();
     let root_folders: Vec<&FolderData> = space_folders.iter()
@@ -78,7 +55,7 @@ pub fn Sidebar() -> Element {
                 }
                 if dropdown_open {
                     div { class: "space-dropdown",
-                        for space in spaces.read().iter() {
+                        for space in store.spaces.read().iter() {
                             {
                                 let sid = space.id;
                                 let is_active = sid == space_id;
@@ -98,12 +75,11 @@ pub fn Sidebar() -> Element {
                         }
                         div { class: "space-dropdown-item new-space",
                             onclick: move |_| {
-                                let conn = data::open_db().unwrap();
-                                if let Ok(new_id) = lore_core::db::insert_space(&conn, "") {
+                                if let Ok(new_id) = store.create_space(&state, "") {
                                     state.switch_space(new_id);
                                     state.renaming.set(Some(crate::state::Renaming::Space(new_id, String::new())));
                                     state.space_dropdown_open.set(true);
-                                    spaces.set(lore_core::db::list_spaces(&data::open_db().unwrap()).unwrap_or_default());
+                                    store.refresh(&state);
                                 }
                             },
                             "+ New space..."
@@ -129,11 +105,8 @@ pub fn Sidebar() -> Element {
                 span { {texts::DIVIDER_FOLDERS} }
                 span { class: "sidebar-add-btn",
                     onclick: move |_| {
-                        let sid = *state.space_id.read();
-                        let conn = data::open_db().unwrap();
-                        if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None, sid) {
+                        if let Ok(fid) = store.create_folder(&state, "", None) {
                             state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
-                            state.bump_refresh();
                         }
                     },
                     "+"
@@ -146,7 +119,7 @@ pub fn Sidebar() -> Element {
                         name: folder.name.clone(),
                         depth: 0,
                         all_folders: space_folders.clone(),
-                        note_counts: note_counts.read().clone(),
+                        note_counts: store.note_counts.read().clone(),
                         active_section: section.clone(),
                     }
                 }
@@ -158,8 +131,8 @@ pub fn Sidebar() -> Element {
                 div { class: "sidebar-item{active_class(section == Section::Trash)}",
                     onclick: move |_| state.navigate(Section::Trash),
                     span { {texts::NAV_TRASH} }
-                    if *trash_count.read() > 0 {
-                        span { class: "badge", "{trash_count}" }
+                    if *store.trash_count.read() > 0 {
+                        span { class: "badge", "{store.trash_count}" }
                     }
                 }
                 SidebarItem { label: texts::NAV_SETTINGS, active: section == Section::Settings,
@@ -204,6 +177,7 @@ fn SidebarItem(label: String, active: bool, onclick: EventHandler<MouseEvent>) -
 #[component]
 fn SpaceRenameInput(space_id: i64) -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<DataStore>();
     let initial = match &*state.renaming.read() {
         Some(crate::state::Renaming::Space(_, name)) if !name.is_empty() => name.clone(),
         _ => String::new(),
@@ -223,8 +197,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                 if evt.key() == Key::Enter {
                     let name = value.read().trim().to_string();
                     if !name.is_empty() {
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::rename_space(&conn, space_id, &name).ok();
+                        store.rename_space(&state, space_id, &name).ok();
                     } else {
                         // Empty name — delete the space
                         let conn = data::open_db().unwrap();
@@ -235,17 +208,18 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                         }
                     }
                     state.renaming.set(None);
-                    state.bump_refresh();
+                    store.refresh(&state);
                 } else if evt.key() == Key::Escape {
                     if is_new {
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::delete_space_permanent(&conn, space_id).ok();
-                        if let Ok(s) = lore_core::db::get_active_space(&conn) {
-                            state.switch_space(s.id);
+                        store.delete_space_permanent(&state, space_id).ok();
+                        if let Ok(conn) = data::open_db() {
+                            if let Ok(s) = lore_core::db::get_active_space(&conn) {
+                                state.switch_space(s.id);
+                            }
                         }
                     }
                     state.renaming.set(None);
-                    state.bump_refresh();
+                    store.refresh(&state);
                 }
             },
         }
@@ -255,6 +229,7 @@ fn SpaceRenameInput(space_id: i64) -> Element {
 #[component]
 fn FolderRenameInput(folder_id: i64) -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<DataStore>();
     let initial = match &*state.renaming.read() {
         Some(crate::state::Renaming::Folder(_, name)) if !name.is_empty() => name.clone(),
         _ => String::new(),
@@ -274,23 +249,20 @@ fn FolderRenameInput(folder_id: i64) -> Element {
                 if evt.key() == Key::Enter {
                     let name = value.read().trim().to_string();
                     if !name.is_empty() {
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::rename_folder(&conn, folder_id, &name).ok();
+                        store.rename_folder(&state, folder_id, &name).ok();
                     } else {
                         // Empty name — delete the folder
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::delete_folder(&conn, folder_id).ok();
+                        store.delete_folder(&state, folder_id).ok();
                     }
                     state.renaming.set(None);
-                    state.bump_refresh();
+                    store.refresh(&state);
                 } else if evt.key() == Key::Escape {
                     // Cancel — delete only if new (empty name)
                     if is_new {
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::delete_folder(&conn, folder_id).ok();
+                        store.delete_folder(&state, folder_id).ok();
                     }
                     state.renaming.set(None);
-                    state.bump_refresh();
+                    store.refresh(&state);
                 }
             },
         }
@@ -321,6 +293,7 @@ fn FolderTreeItem(
     active_section: Section,
 ) -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<DataStore>();
     let mut expanded = use_signal(|| true);
     let mut menu_open = use_signal(|| false);
     let is_active = active_section == Section::Folder(folder_id);
@@ -369,12 +342,9 @@ fn FolderTreeItem(
                 div { class: "folder-context-menu",
                     div { class: "folder-menu-item",
                         onclick: move |_| {
-                            let sid = *state.space_id.read();
-                            let conn = data::open_db().unwrap();
-                            if let Ok(fid) = lore_core::db::insert_folder(&conn, "", Some(folder_id), sid) {
+                            if let Ok(fid) = store.create_folder(&state, "", Some(folder_id)) {
                                 state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
                                 expanded.set(true);
-                                state.bump_refresh();
                             }
                             menu_open.set(false);
                         },
@@ -394,7 +364,7 @@ fn FolderTreeItem(
                             if is_active {
                                 state.navigate(Section::AllNotes);
                             }
-                            state.bump_refresh();
+                            store.refresh(&state);
                             menu_open.set(false);
                         },
                         "Delete"

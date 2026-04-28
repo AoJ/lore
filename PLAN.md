@@ -58,7 +58,11 @@
 - [x] Žádný raw SQL ve views — vše přes lore_core::db funkce
 - [x] space_id jako parametr v insert_note, insert_folder, list_notes, list_folders
 - [x] Indexy na space_id sloupcích
-- [x] 33 integračních testů (space izolace, CRUD, trash, revize, rules)
+- [x] 48 integračních testů (space izolace, CRUD, trash, revize, rules, URL extraction)
+- [x] Centrální DataStore (store.rs) — jediný zdroj pravdy pro UI data
+- [x] Jedna revision-based polling smyčka (2s) místo rozptýlených per-component pollings
+- [x] Všechny mutace přes DataStore metody s Result error handling
+- [x] Okamžité ukládání poznámek (bez JS debounce) — eliminace race conditions
 
 ---
 
@@ -73,15 +77,16 @@
 - [x] Správa spaces v Settings (přejmenování, smazání, statistiky)
 
 ### Poznámky — pokročilé
-- [ ] Rich text editor (preferovaný Trix nebo contenteditable s toolbar)
-- [ ] Vkládání odkazů — automatická detekce URL, propojení s web archivem:
-  - 🟢 odkaz uložen lokálně (archivovaná stránka)
-  - 🟡 ve frontě k archivaci
-  - ⚪ pouze externí odkaz (filtrováno pravidly)
-  - 🔴 archivace selhala
-- [ ] Vkládání obrázků (uložení do DB jako BLOB)
-- [ ] Připojení souborů k poznámce
+- [x] Milkdown WYSIWYG markdown editor (ProseMirror + Remark)
+- [x] Paste sanitization (ProseMirror schema filtruje nechtěné formáty z Word/web/PDF)
+- [x] Auto-save okamžitý (bez debounce, přes DataStore)
+- [x] Auto-archivace URL z poznámek (detekce markdown linků i bare URL)
+- [x] Zpětné odkazy na stránkách ("Referenced in: [poznámka]")
+- [x] Centralizovaný DataStore — žádné race conditions při přepínání poznámek
+- [ ] URL indikátory v editoru (🟢🟡⚪🔴) — CSS pseudo-elementy na odkazech
+- [ ] Vkládání obrázků (uložení do DB jako BLOB, zobrazení inline)
 - [ ] Kalendářní pohled / timeline — heatmapa aktivity ("co jsem dělal v lednu?")
+- [ ] Připojení souborů k poznámce
 
 ### Soubory (modul Files)
 - [ ] DB tabulka `file` (id, name, mime_type, size, data BLOB, created_at)

@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 use crate::state::AppState;
+use crate::store::DataStore;
 use crate::data;
 
 #[component]
 pub fn ContentSpaces() -> Element {
     let mut state = use_context::<AppState>();
-    let tick = state.refresh_tick;
+    let mut store = use_context::<DataStore>();
+    let tick = store.revision;
     let mut spaces_data = use_signal(Vec::<SpaceWithStats>::new);
     let mut renaming_id = use_signal(|| Option::<i64>::None);
     let mut rename_value = use_signal(String::new);
@@ -70,11 +72,9 @@ pub fn ContentSpaces() -> Element {
                                                 if evt.key() == Key::Enter {
                                                     let name = rename_value.read().trim().to_string();
                                                     if !name.is_empty() {
-                                                        let conn = data::open_db().unwrap();
-                                                        lore_core::db::rename_space(&conn, sid, &name).ok();
+                                                        store.rename_space(&state, sid, &name).ok();
                                                     }
                                                     renaming_id.set(None);
-                                                    state.bump_refresh();
                                                 } else if evt.key() == Key::Escape {
                                                     renaming_id.set(None);
                                                 }
@@ -107,16 +107,14 @@ pub fn ContentSpaces() -> Element {
                                         button { class: "btn-sm",
                                             onclick: move |_| {
                                                 let conn = data::open_db().unwrap();
-                                                lore_core::db::restore_space(&conn, sid).ok();
-                                                state.bump_refresh();
+                                                store.restore_space(&state, sid).ok();
                                             },
                                             "Restore"
                                         }
                                         button { class: "btn-sm btn-danger",
                                             onclick: move |_| {
                                                 let conn = data::open_db().unwrap();
-                                                lore_core::db::delete_space_permanent(&conn, sid).ok();
-                                                state.bump_refresh();
+                                                store.delete_space_permanent(&state, sid).ok();
                                             },
                                             "Delete permanently"
                                         }
@@ -139,9 +137,7 @@ pub fn ContentSpaces() -> Element {
                                         if !is_active {
                                             button { class: "btn-sm btn-danger",
                                                 onclick: move |_| {
-                                                    let conn = data::open_db().unwrap();
-                                                    lore_core::db::trash_space(&conn, sid).ok();
-                                                    state.bump_refresh();
+                                                    store.trash_space(&state, sid).ok();
                                                 },
                                                 "Delete"
                                             }

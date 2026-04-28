@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 use crate::state::{AppState, UndoAction};
+use crate::store::DataStore;
 use crate::data;
 use crate::texts;
 
 #[component]
 pub fn ContentPage(id: i64) -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<DataStore>();
     let page = use_signal(move || data::get_page(id));
     let mut screenshot_expanded = use_signal(|| false);
 
@@ -49,9 +51,7 @@ pub fn ContentPage(id: i64) -> Element {
                             onclick: {
                                 let page_id = id;
                                 move |_| {
-                                    let conn = data::open_db().unwrap();
-                                    lore_core::db::update_status(&conn, page_id, "queued").ok();
-                                    state.bump_refresh();
+                                    store.retry_page(&state, page_id).ok();
                                 }
                             },
                             {texts::BTN_RETRY}
@@ -61,14 +61,13 @@ pub fn ContentPage(id: i64) -> Element {
                         onclick: {
                             let page_id = id;
                             move |_| {
-                                let conn = data::open_db().unwrap();
-                                lore_core::db::trash_page(&conn, page_id).ok();
-                                state.show_toast(
-                                    texts::TOAST_MOVED_TRASH.to_string(),
-                                    Some(UndoAction::RestorePage(page_id)),
-                                );
-                                state.selected.set(crate::state::Selected::None);
-                                state.bump_refresh();
+                                if store.trash_page(&state, page_id).is_ok() {
+                                    state.show_toast(
+                                        texts::TOAST_MOVED_TRASH.to_string(),
+                                        Some(UndoAction::RestorePage(page_id)),
+                                    );
+                                    state.selected.set(crate::state::Selected::None);
+                                }
                             }
                         },
                         {texts::BTN_DELETE}

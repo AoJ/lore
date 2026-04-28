@@ -6,6 +6,7 @@ use crate::texts;
 #[component]
 pub fn ContentNote(id: i64) -> Element {
     let mut state = use_context::<AppState>();
+    let mut store = use_context::<crate::store::DataStore>();
     let mut move_menu_open = use_signal(|| false);
 
     let note_data = use_signal(move || {
@@ -25,35 +26,31 @@ pub fn ContentNote(id: i64) -> Element {
 
     let mut content = use_signal(move || initial_content);
 
-    // Initialize Milkdown after mount
+    // Initialize Milkdown with note ID
     {
         let init_content = content.read().clone();
+        let note_id = id;
         use_effect(move || {
             let escaped = init_content
                 .replace('\\', "\\\\")
                 .replace('`', "\\`")
                 .replace("</", "<\\/");
             let js = format!(
-                "window.loreEditor && window.loreEditor.init('milkdown-root', `{}`, 'milkdown-bridge');",
-                escaped
+                "window.loreEditor && window.loreEditor.init('milkdown-root', `{}`, 'milkdown-bridge', {});",
+                escaped, note_id
             );
             document::eval(&js);
         });
     }
 
-    let save = move || {
-        let text = content.read().clone();
-        let (title, body) = split_title_body(&text);
-        let conn = data::open_db().unwrap();
-        lore_core::db::update_note(&conn, id, &title, &body).ok();
-
-        // Auto-archive URLs
-        if text.contains("https://") || text.contains("http://") {
-            let space_id = *state.space_id.read();
-            data::auto_archive_urls(&text, space_id);
-        }
-        // Don't bump_refresh here — polling handles list updates
-    };
+    // Cleanup on unmount — force save pending changes with correct note ID
+    {
+        let note_id = id;
+        use_drop(move || {
+            let js = format!("window.loreEditor && window.loreEditor.cleanup({});", note_id);
+            document::eval(&js);
+        });
+    }
 
     let folders = use_signal(move || {
         let sid = *state.space_id.read();
@@ -80,11 +77,23 @@ pub fn ContentNote(id: i64) -> Element {
                 // Must be textarea (not input) to preserve newlines in markdown
                 textarea {
                     id: "milkdown-bridge",
+                    "data-note-id": "{id}",
                     style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
                     tabindex: "-1",
                     oninput: move |evt| {
-                        content.set(evt.value());
-                        save();
+                        let md = evt.value();
+                        if md.is_empty() { return; }
+
+                        // Use the component's note ID for save
+                        // (JS bridge sets data-note-id but we trust our own ID
+                        // since cleanup already saved with correct ID before switch)
+                        let (title, body) = split_title_body(&md);
+                        store.save_note(id, &title, &body).ok();
+
+                        if md.contains("https://") || md.contains("http://") {
+                            let space_id = *state.space_id.read();
+                            store.auto_archive_urls(&md, space_id);
+                        }
                     },
                 }
 
@@ -115,8 +124,7 @@ pub fn ContentNote(id: i64) -> Element {
                                 if current_folder_id.is_some() {
                                     div { class: "move-to-item",
                                         onclick: move |_| {
-                                            let conn = data::open_db().unwrap();
-                                            lore_core::db::move_note_to_folder(&conn, id, None).ok();
+                                            store.move_note(&state, id, None).ok();
                                             move_menu_open.set(false);
                                             state.section.set(crate::state::Section::AllNotes);
                                             state.bump_refresh();
@@ -137,8 +145,7 @@ pub fn ContentNote(id: i64) -> Element {
                                                 style: "padding-left: calc(var(--spacing-sm) + {indent})",
                                                 onclick: move |_| {
                                                     if !is_current {
-                                                        let conn = data::open_db().unwrap();
-                                                        lore_core::db::move_note_to_folder(&conn, id, Some(fid)).ok();
+                                                        store.move_note(&state, id, Some(fid)).ok();
                                                         state.section.set(crate::state::Section::Folder(fid));
                                                         state.bump_refresh();
                                                     }
@@ -157,14 +164,13 @@ pub fn ContentNote(id: i64) -> Element {
                             let note_id = id;
                             move |_| {
                                 document::eval("if(window.loreEditor) window.loreEditor.destroy();");
-                                let conn = data::open_db().unwrap();
-                                lore_core::db::trash_note(&conn, note_id).ok();
-                                state.show_toast(
-                                    texts::TOAST_NOTE_TRASH.to_string(),
-                                    Some(UndoAction::RestoreNote(note_id)),
-                                );
-                                state.selected.set(Selected::None);
-                                state.bump_refresh();
+                                if store.trash_note(&state, note_id).is_ok() {
+                                    state.show_toast(
+                                        texts::TOAST_NOTE_TRASH.to_string(),
+                                        Some(UndoAction::RestoreNote(note_id)),
+                                    );
+                                    state.selected.set(Selected::None);
+                                }
                             }
                         },
                         {texts::BTN_DELETE}
