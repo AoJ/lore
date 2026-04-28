@@ -8,7 +8,6 @@ mod views;
 
 use state::{AppState, Section, Selected};
 use views::*;
-use rusqlite;  // for params! in create_new_note
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
 const APP_CSS: &str = include_str!("../assets/app.css");
@@ -82,9 +81,29 @@ fn AppLayout() -> Element {
                 }
             }
 
+            // Revision indicator
+            RevisionIndicator {}
+
             // Toast overlay (outside keyboard trap)
             toast::Toast {}
         }
+    }
+}
+
+#[component]
+fn RevisionIndicator() -> Element {
+    let mut rev = use_signal(|| data::get_revision());
+
+    // Poll revision every 2 seconds
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            rev.set(data::get_revision());
+        }
+    });
+
+    rsx! {
+        div { class: "revision-indicator", "r{rev}" }
     }
 }
 
@@ -150,8 +169,7 @@ fn create_new_space(state: &mut AppState) {
 fn create_new_folder(state: &mut AppState) {
     let space_id = *state.space_id.read();
     let conn = data::open_db().unwrap();
-    if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None) {
-        conn.execute("UPDATE note_folder SET space_id = ?1 WHERE id = ?2", rusqlite::params![space_id, fid]).ok();
+    if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None, space_id) {
         state.renaming.set(Some(state::Renaming::Folder(fid, String::new())));
         state.bump_refresh();
     }
@@ -164,9 +182,7 @@ fn create_new_note(state: &mut AppState) {
     };
     let space_id = *state.space_id.read();
     let conn = data::open_db().unwrap();
-    if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id) {
-        // Set space_id on the new note
-        conn.execute("UPDATE note SET space_id = ?1 WHERE id = ?2", rusqlite::params![space_id, note_id]).ok();
+    if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id, space_id) {
         // Switch to Notes section if not already there
         let section = state.section.read().clone();
         if !matches!(section, Section::AllNotes | Section::Folder(_)) {

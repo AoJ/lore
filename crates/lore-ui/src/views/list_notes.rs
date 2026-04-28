@@ -2,54 +2,64 @@ use dioxus::prelude::*;
 use crate::state::{AppState, Section};
 use crate::data;
 use crate::texts;
-use rusqlite;
 
 #[component]
 pub fn ListNotes() -> Element {
     let mut state = use_context::<AppState>();
-    let section = state.section.read().clone();
+    let mut notes = use_signal(Vec::<lore_core::db::NoteRow>::new);
+    let mut panel_title = use_signal(|| texts::LIST_NOTES.to_string());
 
-    let folder_id = match &section {
+    // Read section signal inside effect so it re-runs on every section change
+    let section_signal = state.section;
+    let space_signal = state.space_id;
+    let tick = state.refresh_tick;
+
+    use_effect(move || {
+        let _ = *tick.read();
+        let section = section_signal.read().clone();
+        let sid = *space_signal.read();
+
+        let folder_id = match &section {
+            Section::Folder(id) => Some(*id),
+            _ => None,
+        };
+
+        // Update title
+        let title = match &section {
+            Section::Folder(_) => {
+                let conn = data::open_db().ok();
+                let folders = conn.as_ref().and_then(|c| lore_core::db::list_folders(c, sid).ok()).unwrap_or_default();
+                folders.iter().find(|f| Some(f.id) == folder_id).map(|f| f.name.clone()).unwrap_or(texts::LIST_NOTES.to_string())
+            }
+            _ => texts::LIST_NOTES.to_string(),
+        };
+        panel_title.set(title);
+
+        // Fetch notes
+        let conn = data::open_db().unwrap();
+        notes.set(lore_core::db::list_notes(&conn, folder_id, sid).unwrap_or_default());
+    });
+
+    // Current folder_id for the "+" button
+    let current_folder_id = match &*state.section.read() {
         Section::Folder(id) => Some(*id),
         _ => None,
     };
-
-    let title = match &section {
-        Section::Folder(_) => {
-            // Look up folder name
-            let conn = data::open_db().ok();
-            let folders = conn.as_ref().and_then(|c| lore_core::db::list_folders(c).ok()).unwrap_or_default();
-            folders.iter().find(|f| Some(f.id) == folder_id).map(|f| f.name.clone()).unwrap_or("Notes".to_string())
-        }
-        _ => texts::LIST_NOTES.to_string(),
-    };
-
-    let mut notes = use_signal(move || {
-        let conn = data::open_db().unwrap();
-        lore_core::db::list_notes(&conn, folder_id).unwrap_or_default()
-    });
-
-    let tick = state.refresh_tick;
-    use_effect(move || {
-        let _ = *tick.read();
-        let conn = data::open_db().unwrap();
-        notes.set(lore_core::db::list_notes(&conn, folder_id).unwrap_or_default());
-    });
-
-    let selected = state.selected.read().clone();
 
     rsx! {
         div { class: "list-panel",
             div { class: "list-header",
                 div { class: "list-header-row",
-                    h2 { class: "list-title", "{title}" }
+                    h2 { class: "list-title", "{panel_title}" }
                     button { class: "list-add-btn",
                         onclick: move |_| {
                             let sid = *state.space_id.read();
+                            let fid = match &*state.section.read() {
+                                Section::Folder(id) => Some(*id),
+                                _ => None,
+                            };
                             let conn = data::open_db().unwrap();
-                            if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id) {
-                                conn.execute("UPDATE note SET space_id = ?1 WHERE id = ?2",
-                                    rusqlite::params![sid, note_id]).ok();
+                            if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", fid, sid) {
                                 state.selected.set(crate::state::Selected::Note(note_id));
                                 state.bump_refresh();
                             }
@@ -61,16 +71,14 @@ pub fn ListNotes() -> Element {
             div { class: "list-items",
                 if notes.read().is_empty() {
                     div { class: "empty-state",
-                        if folder_id.is_some() { {texts::EMPTY_FOLDER} } else { {texts::EMPTY_NOTES} }
+                        if current_folder_id.is_some() { {texts::EMPTY_FOLDER} } else { {texts::EMPTY_NOTES} }
                     }
                 }
                 for note in notes.read().iter() {
                     {
-                        let is_selected = matches!(&selected, crate::state::Selected::Note(nid) if *nid == note.id);
+                        let is_selected = matches!(&*state.selected.read(), crate::state::Selected::Note(nid) if *nid == note.id);
                         let cls = if is_selected { "list-item selected" } else { "list-item" };
                         let id = note.id;
-                        // Title = first line of content (stored in title field),
-                        // Preview = beginning of body (second line onwards)
                         let display_title = if note.title.is_empty() {
                             if note.body_preview.is_empty() {
                                 texts::PLACEHOLDER_NOTE_TITLE.to_string()
@@ -81,7 +89,6 @@ pub fn ListNotes() -> Element {
                             note.title.clone()
                         };
                         let preview = if !note.body_preview.is_empty() {
-                            // Show body preview (already truncated from DB)
                             note.body_preview.lines().next().unwrap_or("").to_string()
                         } else {
                             String::new()

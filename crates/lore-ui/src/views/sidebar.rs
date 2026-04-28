@@ -14,9 +14,9 @@ pub fn Sidebar() -> Element {
         let conn = data::open_db().unwrap();
         lore_core::db::list_spaces(&conn).unwrap_or_default()
     });
-    let mut folders = use_signal(|| {
+    let mut folders = use_signal(move || {
         let conn = data::open_db().unwrap();
-        lore_core::db::list_folders(&conn).unwrap_or_default()
+        lore_core::db::list_folders(&conn, space_id).unwrap_or_default()
     });
     let mut trash_count = use_signal(|| lore_core::db::trash_count(&data::open_db().unwrap()).unwrap_or(0));
     let mut note_counts = use_signal(|| {
@@ -31,7 +31,7 @@ pub fn Sidebar() -> Element {
         trash_count.set(lore_core::db::trash_count(&conn).unwrap_or(0));
         note_counts.set(lore_core::db::folder_note_counts(&conn, sid).unwrap_or_default());
         spaces.set(lore_core::db::list_spaces(&conn).unwrap_or_default());
-        folders.set(lore_core::db::list_folders(&conn).unwrap_or_default());
+        folders.set(lore_core::db::list_folders(&conn, sid).unwrap_or_default());
     });
 
     let on_add_url = move |evt: FormEvent| {
@@ -56,9 +56,8 @@ pub fn Sidebar() -> Element {
         .map(|s| s.name.clone())
         .unwrap_or("Space".to_string());
 
-    // Build folder tree: only folders in current space
+    // Build folder tree (already filtered by space in DB query)
     let space_folders: Vec<FolderData> = folders.read().iter()
-        .filter(|f| f.space_id.map_or(true, |sid| sid == space_id))
         .map(FolderData::from)
         .collect();
     let root_folders: Vec<&FolderData> = space_folders.iter()
@@ -130,12 +129,11 @@ pub fn Sidebar() -> Element {
                 span { {texts::DIVIDER_FOLDERS} }
                 span { class: "sidebar-add-btn",
                     onclick: move |_| {
-                        let conn = data::open_db().unwrap();
                         let sid = *state.space_id.read();
-                        if let Ok(fid) = lore_core::db::insert_folder(&conn, "New Folder", None) {
-                            conn.execute("UPDATE note_folder SET space_id = ?1 WHERE id = ?2", rusqlite::params![sid, fid]).ok();
-                            state.renaming.set(Some(crate::state::Renaming::Folder(fid, "New Folder".to_string())));
-                            folders.set(lore_core::db::list_folders(&data::open_db().unwrap()).unwrap_or_default());
+                        let conn = data::open_db().unwrap();
+                        if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None, sid) {
+                            state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
+                            state.bump_refresh();
                         }
                     },
                     "+"

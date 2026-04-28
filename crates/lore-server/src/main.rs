@@ -335,6 +335,7 @@ async fn add_page(
             category: &category,
             status,
             source: Some("web"),
+            space_id: None,
         },
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

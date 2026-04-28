@@ -319,6 +319,13 @@ pub fn load_rules() -> Result<Vec<RuleRow>> {
     Ok(rows)
 }
 
+pub fn get_revision() -> i64 {
+    open_db()
+        .ok()
+        .and_then(|conn| lore_core::db::get_revision(&conn).ok())
+        .unwrap_or(0)
+}
+
 pub fn open_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     {

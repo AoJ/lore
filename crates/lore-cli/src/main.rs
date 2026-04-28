@@ -103,6 +103,7 @@ fn add_url(
             category: &category,
             status,
             source: None,
+            space_id: None,
         },
     )?;
 

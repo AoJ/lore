@@ -15,43 +15,8 @@ pub fn open(path: &Path) -> Result<Connection> {
     conn.execute_batch(SCHEMA)
         .context("initializing database schema")?;
 
-    // Migration: add last_error column if missing
-    let has_last_error: bool = conn
-        .prepare("SELECT 1 FROM pragma_table_info('web_page') WHERE name='last_error'")
-        .and_then(|mut s| s.exists([]))
-        .unwrap_or(false);
-    if !has_last_error {
-        conn.execute_batch("ALTER TABLE web_page ADD COLUMN last_error TEXT;")
-            .ok();
-    }
-
-    // Migration: add trashed_at column if missing
-    let has_trashed: bool = conn
-        .prepare("SELECT 1 FROM pragma_table_info('web_page') WHERE name='trashed_at'")
-        .and_then(|mut s| s.exists([]))
-        .unwrap_or(false);
-    if !has_trashed {
-        conn.execute_batch("ALTER TABLE web_page ADD COLUMN trashed_at TEXT;")
-            .ok();
-    }
-
-    // Migration: add space_id columns if missing
-    for table in &["web_page", "note", "note_folder"] {
-        let has_space_id: bool = conn
-            .prepare(&format!(
-                "SELECT 1 FROM pragma_table_info('{}') WHERE name='space_id'",
-                table
-            ))
-            .and_then(|mut s| s.exists([]))
-            .unwrap_or(false);
-        if !has_space_id {
-            conn.execute_batch(&format!(
-                "ALTER TABLE {} ADD COLUMN space_id INTEGER REFERENCES space(id);",
-                table
-            ))
-            .ok();
-        }
-    }
+    // Ensure revision counter is seeded (existing DBs may not have it)
+    conn.execute("INSERT OR IGNORE INTO db_revision (id, revision) VALUES (1, 0)", []).ok();
 
     // Seed default space if none exists
     let space_count: i64 = conn.query_row("SELECT COUNT(*) FROM space", [], |row| row.get(0))?;
@@ -77,6 +42,12 @@ pub fn open(path: &Path) -> Result<Connection> {
     }
 
     Ok(conn)
+}
+
+/// Get the current global revision number. Incremented by DB triggers on every change.
+pub fn get_revision(conn: &Connection) -> Result<i64> {
+    conn.query_row("SELECT revision FROM db_revision WHERE id = 1", [], |r| r.get(0))
+        .map_err(Into::into)
 }
 
 pub struct NewWebPage<'a> {
@@ -292,10 +263,10 @@ pub fn cleanup_old_trash(conn: &Connection, days: i64) -> Result<usize> {
 
 // ---- Notes ----
 
-pub fn insert_note(conn: &Connection, title: &str, body: &str, folder_id: Option<i64>) -> Result<i64> {
+pub fn insert_note(conn: &Connection, title: &str, body: &str, folder_id: Option<i64>, space_id: i64) -> Result<i64> {
     conn.execute(
-        "INSERT INTO note (title, body, folder_id) VALUES (?1, ?2, ?3)",
-        rusqlite::params![title, body, folder_id],
+        "INSERT INTO note (title, body, folder_id, space_id) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![title, body, folder_id, space_id],
     )?;
     let note_id = conn.last_insert_rowid();
     // Index in FTS
@@ -355,16 +326,16 @@ pub struct NoteRow {
     pub updated_at: String,
 }
 
-pub fn list_notes(conn: &Connection, folder_id: Option<i64>) -> Result<Vec<NoteRow>> {
+pub fn list_notes(conn: &Connection, folder_id: Option<i64>, space_id: i64) -> Result<Vec<NoteRow>> {
     let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(fid) = folder_id {
         (
-            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL AND folder_id = ?1 ORDER BY updated_at DESC".to_string(),
-            vec![Box::new(fid) as Box<dyn rusqlite::types::ToSql>],
+            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL AND folder_id = ?1 AND space_id = ?2 ORDER BY updated_at DESC".to_string(),
+            vec![Box::new(fid) as Box<dyn rusqlite::types::ToSql>, Box::new(space_id)],
         )
     } else {
         (
-            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL ORDER BY updated_at DESC".to_string(),
-            vec![],
+            "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL AND folder_id IS NULL AND space_id = ?1 ORDER BY updated_at DESC".to_string(),
+            vec![Box::new(space_id) as Box<dyn rusqlite::types::ToSql>],
         )
     };
     let mut stmt = conn.prepare(&sql)?;
@@ -433,12 +404,12 @@ impl Clone for FolderRow {
     }
 }
 
-pub fn list_folders(conn: &Connection) -> Result<Vec<FolderRow>> {
+pub fn list_folders(conn: &Connection, space_id: i64) -> Result<Vec<FolderRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, parent_id, sort_order, space_id FROM note_folder ORDER BY sort_order, name",
+        "SELECT id, name, parent_id, sort_order, space_id FROM note_folder WHERE space_id = ?1 ORDER BY sort_order, name",
     )?;
     let rows = stmt
-        .query_map([], |row| {
+        .query_map([space_id], |row| {
             Ok(FolderRow {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -452,10 +423,10 @@ pub fn list_folders(conn: &Connection) -> Result<Vec<FolderRow>> {
     Ok(rows)
 }
 
-pub fn insert_folder(conn: &Connection, name: &str, parent_id: Option<i64>) -> Result<i64> {
+pub fn insert_folder(conn: &Connection, name: &str, parent_id: Option<i64>, space_id: i64) -> Result<i64> {
     conn.execute(
-        "INSERT INTO note_folder (name, parent_id) VALUES (?1, ?2)",
-        rusqlite::params![name, parent_id],
+        "INSERT INTO note_folder (name, parent_id, space_id) VALUES (?1, ?2, ?3)",
+        rusqlite::params![name, parent_id, space_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
