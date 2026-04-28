@@ -10,6 +10,7 @@ pub enum Section {
     Search,
     Folder(i64),
     Trash,
+    Timeline,
     Settings,
 }
 
@@ -85,6 +86,8 @@ impl AppState {
     pub fn navigate(&mut self, section: Section) {
         self.section.set(section);
         self.selected.set(Selected::None);
+        // Note: DataStore.poll() detects section change and refreshes automatically
+        // For instant update, caller can also call store.refresh() explicitly
     }
 
     pub fn select_page(&mut self, id: i64) {

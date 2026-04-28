@@ -98,6 +98,8 @@ pub fn Sidebar() -> Element {
                     onclick: move |_| state.navigate(Section::AllFiles) }
                 SidebarItem { label: texts::NAV_SEARCH, active: section == Section::Search,
                     onclick: move |_| state.navigate(Section::Search) }
+                SidebarItem { label: "Timeline".to_string(), active: section == Section::Timeline,
+                    onclick: move |_| state.navigate(Section::Timeline) }
             }
 
             // Folders

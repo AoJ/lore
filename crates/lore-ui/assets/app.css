@@ -822,6 +822,66 @@ details summary {
     text-decoration: underline;
 }
 
+/* ---- Heatmap / Timeline ---- */
+.heatmap-container {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    overflow-x: auto;
+}
+
+.heatmap-labels {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    flex-shrink: 0;
+}
+
+.heatmap-label {
+    font-size: 0.5625rem;
+    color: var(--color-muted);
+    height: 0.75rem;
+    line-height: 0.75rem;
+    text-align: right;
+    padding-right: 0.25rem;
+}
+
+.heatmap-grid {
+    display: flex;
+    gap: 0.125rem;
+}
+
+.heatmap-week {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.heatmap-cell {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 0.125rem;
+    background: var(--color-border-light);
+}
+
+.heatmap-cell.future {
+    background: transparent;
+}
+
+.heatmap-cell.level-1 { background: #9be9a8; }
+.heatmap-cell.level-2 { background: #40c463; }
+.heatmap-cell.level-3 { background: #30a14e; }
+.heatmap-cell.level-4 { background: #216e39; }
+
+.heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: var(--spacing-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+}
+
 /* ---- Content: Spaces management ---- */
 .content-spaces h2 {
     font-size: var(--font-size-lg);

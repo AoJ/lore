@@ -5,6 +5,7 @@ pub mod list_files;
 pub mod list_search;
 pub mod list_trash;
 pub mod list_settings;
+pub mod list_timeline;
 pub mod content_page;
 pub mod content_note;
 pub mod content_file;

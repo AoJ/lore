@@ -711,6 +711,31 @@ pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<std::coll
     Ok(map)
 }
 
+/// Activity by day for heatmap (last N days)
+pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT day, SUM(cnt) FROM (
+            SELECT date(updated_at) as day, COUNT(*) as cnt
+            FROM note WHERE space_id = ?1 AND deleted_at IS NULL
+              AND updated_at > date('now', ?2)
+            GROUP BY date(updated_at)
+            UNION ALL
+            SELECT date(created_at) as day, COUNT(*) as cnt
+            FROM web_page WHERE space_id = ?1 AND trashed_at IS NULL
+              AND created_at > date('now', ?2)
+            GROUP BY date(created_at)
+        ) GROUP BY day ORDER BY day",
+    )?;
+    let cutoff = format!("-{} days", days);
+    let rows = stmt
+        .query_map(rusqlite::params![space_id, cutoff], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
 /// Count notes per folder (direct children only, excludes deleted)
 pub fn folder_note_counts(conn: &Connection, space_id: i64) -> Result<std::collections::HashMap<i64, i64>> {
     let mut stmt = conn.prepare(

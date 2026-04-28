@@ -74,6 +74,7 @@ fn AppLayout() -> Element {
                         Section::AllFiles => rsx! { list_files::ListFiles {} },
                         Section::Search => rsx! { list_search::ListSearch {} },
                         Section::Trash => rsx! { list_trash::ListTrash {} },
+                        Section::Timeline => rsx! { list_timeline::ListTimeline {} },
                         Section::Settings => rsx! { list_settings::ListSettings {} },
                     }}
                 }
@@ -106,10 +107,17 @@ fn RevisionIndicator() -> Element {
     let state = use_context::<AppState>();
     let mut store = use_context::<store::DataStore>();
 
+    // Two polling loops: fast (section changes) + slow (DB revision)
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            store.poll_fast(&state);
+        }
+    });
     use_future(move || async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            store.poll(&state);
+            store.poll_db(&state);
         }
     });
 

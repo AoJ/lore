@@ -26,10 +26,17 @@ pub fn ContentNote(id: i64) -> Element {
 
     let mut content = use_signal(move || initial_content);
 
-    // Initialize Milkdown with note ID
+    // Initialize Milkdown with note ID + set initial URLs
     {
         let init_content = content.read().clone();
         let note_id = id;
+
+        // Set URLs for initial content
+        let initial_urls = data::extract_urls(&init_content);
+        if !initial_urls.is_empty() {
+            store.set_current_note_urls(initial_urls);
+        }
+
         use_effect(move || {
             let escaped = init_content
                 .replace('\\', "\\\\")
@@ -43,11 +50,28 @@ pub fn ContentNote(id: i64) -> Element {
         });
     }
 
-    // Cleanup on unmount — force save pending changes with correct note ID
+    // Cleanup on unmount
     {
         let note_id = id;
         use_drop(move || {
             let js = format!("window.loreEditor && window.loreEditor.cleanup({});", note_id);
+            document::eval(&js);
+            store.clear_current_note_urls();
+        });
+    }
+
+    // Push URL statuses to JS editor when they change
+    {
+        let url_statuses_signal = store.url_statuses;
+        use_effect(move || {
+            let statuses = url_statuses_signal.read();
+            if statuses.is_empty() { return; }
+            // Serialize to JSON and call JS
+            let json_entries: Vec<String> = statuses.iter()
+                .map(|(url, status)| format!("\"{}\":\"{}\"", url.replace('"', "\\\""), status))
+                .collect();
+            let json = format!("{{{}}}", json_entries.join(","));
+            let js = format!("window.loreEditor && window.loreEditor.updateUrlStatuses({});", json);
             document::eval(&js);
         });
     }
@@ -84,15 +108,17 @@ pub fn ContentNote(id: i64) -> Element {
                         let md = evt.value();
                         if md.is_empty() { return; }
 
-                        // Use the component's note ID for save
-                        // (JS bridge sets data-note-id but we trust our own ID
-                        // since cleanup already saved with correct ID before switch)
                         let (title, body) = split_title_body(&md);
                         store.save_note(id, &title, &body).ok();
 
-                        if md.contains("https://") || md.contains("http://") {
+                        // Extract URLs, auto-archive, update indicators
+                        let urls = data::extract_urls(&md);
+                        if !urls.is_empty() {
                             let space_id = *state.space_id.read();
                             store.auto_archive_urls(&md, space_id);
+                            store.set_current_note_urls(urls);
+                        } else {
+                            store.clear_current_note_urls();
                         }
                     },
                 }

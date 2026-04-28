@@ -19,9 +19,18 @@ pub struct DataStore {
     pub trash_count: Signal<i64>,
     pub note_counts: Signal<HashMap<i64, i64>>,
     pub revision: Signal<i64>,
+    pub heatmap: Signal<Vec<(String, i64)>>,  // (YYYY-MM-DD, count)
+
+    // ---- URL indicators ----
+    /// URLs from the currently open note — set by editor on each save
+    pub current_note_urls: Signal<Vec<String>>,
+    /// Cached status for those URLs — refreshed by polling
+    pub url_statuses: Signal<HashMap<String, String>>,
 
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
+    last_section: Signal<Section>,
+    last_space_id: Signal<i64>,
 }
 
 impl DataStore {
@@ -36,12 +45,32 @@ impl DataStore {
             trash_count: Signal::new(0),
             note_counts: Signal::new(HashMap::new()),
             revision: Signal::new(rev),
+            heatmap: Signal::new(Vec::new()),
+            current_note_urls: Signal::new(Vec::new()),
+            url_statuses: Signal::new(HashMap::new()),
             last_poll_rev: Signal::new(rev),
+            last_section: Signal::new(Section::AllNotes),
+            last_space_id: Signal::new(space_id),
         }
     }
 
-    /// Check if DB revision changed and refresh if needed. Called from polling loop.
-    pub fn poll(&mut self, state: &AppState) {
+    /// Fast check — detects section/space changes without DB query. Called every 200ms.
+    pub fn poll_fast(&mut self, state: &AppState) {
+        let current_section = state.section.read().clone();
+        let current_space = *state.space_id.read();
+
+        let section_changed = current_section != *self.last_section.read();
+        let space_changed = current_space != *self.last_space_id.read();
+
+        if section_changed || space_changed {
+            self.last_section.set(current_section);
+            self.last_space_id.set(current_space);
+            self.refresh(state);
+        }
+    }
+
+    /// Slow check — reads DB revision. Called every 2s.
+    pub fn poll_db(&mut self, state: &AppState) {
         let new_rev = data::get_revision();
         if new_rev != *self.last_poll_rev.read() {
             self.last_poll_rev.set(new_rev);
@@ -66,6 +95,11 @@ impl DataStore {
         self.note_counts.set(lore_core::db::folder_note_counts(&conn, space_id).unwrap_or_default());
         self.trash_count.set(lore_core::db::trash_count(&conn).unwrap_or(0));
 
+        // Heatmap
+        if matches!(section, Section::Timeline) {
+            self.heatmap.set(lore_core::db::activity_by_day(&conn, space_id, 30).unwrap_or_default());
+        }
+
         // Refresh list for current section
         match section {
             Section::AllPages => {
@@ -81,6 +115,14 @@ impl DataStore {
                 self.trash_items.set(data::list_trash(space_id).unwrap_or_default());
             }
             _ => {}
+        }
+
+        // Refresh URL statuses for current note
+        let urls = self.current_note_urls.read().clone();
+        if !urls.is_empty() {
+            if let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls) {
+                self.url_statuses.set(statuses);
+            }
         }
 
         self.revision.set(data::get_revision());
@@ -229,6 +271,28 @@ impl DataStore {
         lore_core::db::delete_note_permanent(&conn, note_id).map_err(|e| e.to_string())?;
         self.refresh(state);
         Ok(())
+    }
+
+    // ---- URL tracking for current note ----
+
+    pub fn set_current_note_urls(&mut self, urls: Vec<String>) {
+        self.current_note_urls.set(urls);
+        // Immediately check statuses
+        if let Ok(conn) = data::open_db() {
+            let urls = self.current_note_urls.read().clone();
+            if !urls.is_empty() {
+                if let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls) {
+                    self.url_statuses.set(statuses);
+                }
+            } else {
+                self.url_statuses.set(HashMap::new());
+            }
+        }
+    }
+
+    pub fn clear_current_note_urls(&mut self) {
+        self.current_note_urls.set(Vec::new());
+        self.url_statuses.set(HashMap::new());
     }
 
     // ---- Auto-archive URLs from note content ----
