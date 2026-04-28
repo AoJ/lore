@@ -204,7 +204,12 @@ fn SidebarItem(label: String, active: bool, onclick: EventHandler<MouseEvent>) -
 #[component]
 fn SpaceRenameInput(space_id: i64) -> Element {
     let mut state = use_context::<AppState>();
-    let mut value = use_signal(String::new);
+    let initial = match &*state.renaming.read() {
+        Some(crate::state::Renaming::Space(_, name)) if !name.is_empty() => name.clone(),
+        _ => String::new(),
+    };
+    let is_new = initial.is_empty();
+    let mut value = use_signal(move || initial);
 
     rsx! {
         input {
@@ -232,11 +237,12 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                     state.renaming.set(None);
                     state.bump_refresh();
                 } else if evt.key() == Key::Escape {
-                    // Cancel — delete the unnamed space
-                    let conn = data::open_db().unwrap();
-                    lore_core::db::delete_space(&conn, space_id).ok();
-                    if let Ok(s) = lore_core::db::get_active_space(&conn) {
-                        state.switch_space(s.id);
+                    if is_new {
+                        let conn = data::open_db().unwrap();
+                        lore_core::db::delete_space(&conn, space_id).ok();
+                        if let Ok(s) = lore_core::db::get_active_space(&conn) {
+                            state.switch_space(s.id);
+                        }
                     }
                     state.renaming.set(None);
                     state.bump_refresh();
@@ -249,7 +255,12 @@ fn SpaceRenameInput(space_id: i64) -> Element {
 #[component]
 fn FolderRenameInput(folder_id: i64) -> Element {
     let mut state = use_context::<AppState>();
-    let mut value = use_signal(String::new);
+    let initial = match &*state.renaming.read() {
+        Some(crate::state::Renaming::Folder(_, name)) if !name.is_empty() => name.clone(),
+        _ => String::new(),
+    };
+    let is_new = initial.is_empty();
+    let mut value = use_signal(move || initial);
 
     rsx! {
         input {
@@ -273,9 +284,11 @@ fn FolderRenameInput(folder_id: i64) -> Element {
                     state.renaming.set(None);
                     state.bump_refresh();
                 } else if evt.key() == Key::Escape {
-                    // Cancel — delete the unnamed folder
-                    let conn = data::open_db().unwrap();
-                    lore_core::db::delete_folder(&conn, folder_id).ok();
+                    // Cancel — delete only if new (empty name)
+                    if is_new {
+                        let conn = data::open_db().unwrap();
+                        lore_core::db::delete_folder(&conn, folder_id).ok();
+                    }
                     state.renaming.set(None);
                     state.bump_refresh();
                 }
@@ -309,6 +322,7 @@ fn FolderTreeItem(
 ) -> Element {
     let mut state = use_context::<AppState>();
     let mut expanded = use_signal(|| true);
+    let mut menu_open = use_signal(|| false);
     let is_active = active_section == Section::Folder(folder_id);
     let children: Vec<_> = all_folders.iter().filter(|f| f.parent_id == Some(folder_id)).collect();
     let has_children = !children.is_empty();
@@ -340,6 +354,51 @@ fn FolderTreeItem(
                 }
                 if count > 0 {
                     span { class: "folder-count", "{count}" }
+                }
+                // "..." menu button — visible on hover via CSS
+                span { class: "folder-menu-btn",
+                    onclick: move |evt| {
+                        evt.stop_propagation();
+                        menu_open.toggle();
+                    },
+                    "…"
+                }
+            }
+            // Context menu dropdown
+            if *menu_open.read() {
+                div { class: "folder-context-menu",
+                    div { class: "folder-menu-item",
+                        onclick: move |_| {
+                            let sid = *state.space_id.read();
+                            let conn = data::open_db().unwrap();
+                            if let Ok(fid) = lore_core::db::insert_folder(&conn, "", Some(folder_id), sid) {
+                                state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
+                                expanded.set(true);
+                                state.bump_refresh();
+                            }
+                            menu_open.set(false);
+                        },
+                        "New subfolder"
+                    }
+                    div { class: "folder-menu-item",
+                        onclick: move |_| {
+                            state.renaming.set(Some(crate::state::Renaming::Folder(folder_id, name.clone())));
+                            menu_open.set(false);
+                        },
+                        "Rename"
+                    }
+                    div { class: "folder-menu-item danger",
+                        onclick: move |_| {
+                            let conn = data::open_db().unwrap();
+                            lore_core::db::delete_folder(&conn, folder_id).ok();
+                            if is_active {
+                                state.navigate(Section::AllNotes);
+                            }
+                            state.bump_refresh();
+                            menu_open.set(false);
+                        },
+                        "Delete"
+                    }
                 }
             }
         }

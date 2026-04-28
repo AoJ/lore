@@ -17,47 +17,59 @@
 - [x] 5s polling pro live aktualizace z workeru
 
 ### Poznámky (modul Notes) — základ
-- [x] Vytvoření poznámky (Cmd+N)
+- [x] Vytvoření poznámky (Cmd+N, "+" tlačítko v list panelu)
 - [x] Editor: jeden textarea, první řádek = titulek
 - [x] Auto-save při každé změně
 - [x] Seznam poznámek v list panelu
 - [x] Soft-delete s undo
+- [x] Přiřazení poznámky do složky (při vytvoření v kontextu složky)
+- [x] Filtrování poznámek podle složky / root
+
+### Space (scope/context switching)
+- [x] DB tabulka `space` (id, name, color, last_used, created_at)
+- [x] Sloupec `space_id` na `web_page`, `note`, `note_folder`
+- [x] Default space "Personal" při prvním spuštění
+- [x] Aktivní space = poslední použitý (ORDER BY last_used DESC, created_at DESC LIMIT 1)
+- [x] Space přepínač v sidebaru (dropdown)
+- [x] Vytvoření nového space s inline rename
+- [x] Filtrování veškerého obsahu podle aktivního space (pages, notes, folders, trash, search)
+- [x] Space izolace ověřena integrační testy
+
+### Složky — základ
+- [x] DB tabulka `note_folder` s `parent_id` a `space_id`
+- [x] Zobrazení v sidebaru (expand/collapse šipky, odsazení)
+- [x] Počet poznámek u každé složky
+- [x] Vytvoření nové složky ("+" u labelu "Folders") s inline rename
+- [x] Smazání složky → poznámky se přesunou do nadřazené (nebo root)
+- [x] Rename složky (inline)
+- [x] Vnořování složek (parent_id)
 
 ### UI framework
 - [x] Třísloupový layout (sidebar, list, content)
 - [x] Design tokeny v tokens.css (barvy, typo, rozměry)
 - [x] Texty v texts.rs (všechny UI stringy na jednom místě)
+- [x] Klávesové zkratky v keys.rs
 - [x] Globální stav přes Dioxus signals (AppState)
-- [x] Klávesové zkratky (Ctrl+J/K navigace, Cmd+D trash, Cmd+N nová poznámka)
 - [x] Toast systém s undo
 - [x] Settings sekce s pravidly klasifikace
+- [x] Globální DB revize (triggery, counter, UI indikátor)
+
+### Architektura
+- [x] Žádný raw SQL ve views — vše přes lore_core::db funkce
+- [x] space_id jako parametr v insert_note, insert_folder, list_notes, list_folders
+- [x] Indexy na space_id sloupcích
+- [x] 33 integračních testů (space izolace, CRUD, trash, revize, rules)
 
 ---
 
 ## Co chybí
 
-### Space (scope/context switching)
-- [ ] DB tabulka `space` (id, name, color, last_used, created_at)
-- [ ] Sloupec `space_id` na `web_page`, `note`, `note_folder` a `file` (trash items patří do space)
-- [ ] Default space "Personal" při prvním spuštění
-- [ ] Aktivní space = poslední použitý (ORDER BY last_used DESC, created_at DESC LIMIT 1)
-- [ ] Space přepínač v sidebaru (dropdown místo "lore" titulku)
-- [ ] Vytvoření nového space
-- [ ] Filtrování veškerého obsahu podle aktivního space
+### Složky — pokročilé
+- [ ] Hover → "..." ikona → kontextové menu (Rename, Delete, New subfolder) — jako Apple Notes
+- [ ] Vytvoření podsložky (hierarchicky pod existující)
+- [ ] Přesunutí poznámky do jiné složky (drag & drop nebo přes menu)
+- [ ] Přesunutí složky pod jinou složku (drag & drop)
 - [ ] Správa spaces v Settings (přejmenování, smazání)
-
-### Složky (hierarchický strom)
-- [ ] Stromové zobrazení v sidebaru (expand/collapse šipky, odsazení)
-- [ ] Počet poznámek u každé složky (jako Apple Notes)
-- [ ] Hover → "..." ikona → kontextové menu:
-  - Rename Folder
-  - Delete Folder
-  - New Folder (podsložka)
-- [ ] Vytvoření nové složky ("+" u labelu "Folders")
-- [ ] Přesunutí poznámky do složky (drag & drop nebo přes menu)
-- [ ] Přesunutí složky (drag & drop na jinou složku = vnořit)
-- [ ] Inline rename (klik na název po výběru z menu)
-- [ ] Smazání složky → poznámky se přesunou do nadřazené (nebo root)
 
 ### Poznámky — pokročilé
 - [ ] Rich text editor (preferovaný Trix nebo contenteditable s toolbar)
@@ -78,7 +90,6 @@
 - [ ] Budoucí: podepsané dokumenty, evidence podpisů, obnova
 
 ### Vyhledávání — pokročilé
-- [ ] Hledání v rámci space (aktuální implementace hledá globálně)
 - [ ] Volba "Search all spaces"
 - [ ] milli integrace (Meilisearch engine) — typo tolerance, prefix, jazyk
 - [ ] Snippet extraction (zvýraznění nalezených termínů ve výsledcích)
@@ -106,15 +117,16 @@
 
 ### Tagy
 - [ ] Free-form tagy na poznámkách a webových stránkách
-- [ ] Cross-space tagging (tag viditelný napříč workspacy)
+- [ ] Cross-space tagging (tag viditelný napříč spaces)
 - [ ] Filtrování podle tagů v list panelu
 
 ---
 
 ## Prioritní pořadí implementace
 
-### Fáze 1: Space + Složky (aktuální)
-Space přepínač, stromové složky v sidebaru s kontextovým menu, poznámky do složek.
+### Fáze 1: Space + Složky ✅ (základ hotový)
+Space přepínač, stromové složky, poznámky do složek, izolace.
+Zbývá: kontextové menu na složkách, podsložky přes menu, přesun drag&drop.
 
 ### Fáze 2: Rich text editor
 Trix nebo podobný editor místo plain textarea. URL detekce a propojení s web archivem.
@@ -123,7 +135,7 @@ Trix nebo podobný editor místo plain textarea. URL detekce a propojení s web 
 Upload, náhled, připojení k poznámkám.
 
 ### Fáze 4: Pokročilé vyhledávání
-Space-scoped search, milli integrace, snippety.
+milli integrace, snippety, "search all spaces".
 
 ### Fáze 5: Timeline / kalendář
 Heatmapa aktivity, filtr podle data.
