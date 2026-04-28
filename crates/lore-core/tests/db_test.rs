@@ -185,6 +185,31 @@ fn note_in_folder() {
     assert!(root.is_empty(), "note in folder should not appear in root listing");
 }
 
+#[test]
+fn move_note_between_folders() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let f1 = db::insert_folder(&conn, "F1", None, space.id).unwrap();
+    let f2 = db::insert_folder(&conn, "F2", None, space.id).unwrap();
+    let note = db::insert_note(&conn, "Note", "", Some(f1), space.id).unwrap();
+
+    // Note is in F1
+    let in_f1 = db::list_notes(&conn, Some(f1), space.id).unwrap();
+    assert_eq!(in_f1.len(), 1);
+
+    // Move to F2
+    db::move_note_to_folder(&conn, note, Some(f2)).unwrap();
+    let in_f1 = db::list_notes(&conn, Some(f1), space.id).unwrap();
+    let in_f2 = db::list_notes(&conn, Some(f2), space.id).unwrap();
+    assert!(in_f1.is_empty());
+    assert_eq!(in_f2.len(), 1);
+
+    // Move to root
+    db::move_note_to_folder(&conn, note, None).unwrap();
+    let root = db::list_notes(&conn, None, space.id).unwrap();
+    assert_eq!(root.len(), 1);
+}
+
 // ---- Trash / soft delete ----
 
 #[test]

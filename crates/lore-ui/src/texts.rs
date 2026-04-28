@@ -77,3 +77,5 @@ pub const KIND_NOTE: &str = "note";
 pub const NO_TITLE: &str = "(no title)";
 pub const LABEL_ERROR: &str = "Error";
 pub const BTN_RETRY: &str = "Retry";
+pub const BTN_MOVE_TO: &str = "Move to...";
+pub const MOVE_TO_ROOT: &str = "Notes (root)";

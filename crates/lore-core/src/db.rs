@@ -295,6 +295,14 @@ pub fn update_note(conn: &Connection, note_id: i64, title: &str, body: &str) -> 
     Ok(())
 }
 
+pub fn move_note_to_folder(conn: &Connection, note_id: i64, folder_id: Option<i64>) -> Result<()> {
+    conn.execute(
+        "UPDATE note SET folder_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
+        rusqlite::params![folder_id, note_id],
+    )?;
+    Ok(())
+}
+
 pub fn trash_note(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE note SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
