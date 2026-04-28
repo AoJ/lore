@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use crate::state::{AppState, Section};
 use crate::data;
 use crate::texts;
+use rusqlite;
 
 #[component]
 pub fn ListNotes() -> Element {
@@ -40,7 +41,22 @@ pub fn ListNotes() -> Element {
     rsx! {
         div { class: "list-panel",
             div { class: "list-header",
-                h2 { class: "list-title", "{title}" }
+                div { class: "list-header-row",
+                    h2 { class: "list-title", "{title}" }
+                    button { class: "list-add-btn",
+                        onclick: move |_| {
+                            let sid = *state.space_id.read();
+                            let conn = data::open_db().unwrap();
+                            if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id) {
+                                conn.execute("UPDATE note SET space_id = ?1 WHERE id = ?2",
+                                    rusqlite::params![sid, note_id]).ok();
+                                state.selected.set(crate::state::Selected::Note(note_id));
+                                state.bump_refresh();
+                            }
+                        },
+                        "+"
+                    }
+                }
             }
             div { class: "list-items",
                 if notes.read().is_empty() {

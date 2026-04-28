@@ -36,14 +36,15 @@
 
 ## Co chybí
 
-### Workspace (scope/context switching)
-- [ ] DB tabulka `workspace` (id, name, color, sort_order, created_at)
-- [ ] Sloupec `workspace_id` na `web_page` a `note`
-- [ ] Default workspace při prvním spuštění
-- [ ] Workspace přepínač v sidebaru (dropdown místo "lore" titulku)
-- [ ] Vytvoření nového workspace
-- [ ] Filtrování obsahu podle aktivního workspace
-- [ ] Správa workspaců v Settings (přejmenování, smazání, řazení)
+### Space (scope/context switching)
+- [ ] DB tabulka `space` (id, name, color, last_used, created_at)
+- [ ] Sloupec `space_id` na `web_page`, `note`, `note_folder` a `file` (trash items patří do space)
+- [ ] Default space "Personal" při prvním spuštění
+- [ ] Aktivní space = poslední použitý (ORDER BY last_used DESC, created_at DESC LIMIT 1)
+- [ ] Space přepínač v sidebaru (dropdown místo "lore" titulku)
+- [ ] Vytvoření nového space
+- [ ] Filtrování veškerého obsahu podle aktivního space
+- [ ] Správa spaces v Settings (přejmenování, smazání)
 
 ### Složky (hierarchický strom)
 - [ ] Stromové zobrazení v sidebaru (expand/collapse šipky, odsazení)
@@ -77,8 +78,8 @@
 - [ ] Budoucí: podepsané dokumenty, evidence podpisů, obnova
 
 ### Vyhledávání — pokročilé
-- [ ] Hledání v rámci workspace (aktuální implementace hledá globálně)
-- [ ] Volba "Search all workspaces"
+- [ ] Hledání v rámci space (aktuální implementace hledá globálně)
+- [ ] Volba "Search all spaces"
 - [ ] milli integrace (Meilisearch engine) — typo tolerance, prefix, jazyk
 - [ ] Snippet extraction (zvýraznění nalezených termínů ve výsledcích)
 - [ ] Filtrování výsledků (typ, datum, složka, stav)
@@ -105,15 +106,15 @@
 
 ### Tagy
 - [ ] Free-form tagy na poznámkách a webových stránkách
-- [ ] Cross-workspace tagging (tag viditelný napříč workspacy)
+- [ ] Cross-space tagging (tag viditelný napříč workspacy)
 - [ ] Filtrování podle tagů v list panelu
 
 ---
 
 ## Prioritní pořadí implementace
 
-### Fáze 1: Workspace + Složky (aktuální)
-Workspace přepínač, stromové složky v sidebaru s kontextovým menu, poznámky do složek.
+### Fáze 1: Space + Složky (aktuální)
+Space přepínač, stromové složky v sidebaru s kontextovým menu, poznámky do složek.
 
 ### Fáze 2: Rich text editor
 Trix nebo podobný editor místo plain textarea. URL detekce a propojení s web archivem.
@@ -122,7 +123,7 @@ Trix nebo podobný editor místo plain textarea. URL detekce a propojení s web 
 Upload, náhled, připojení k poznámkám.
 
 ### Fáze 4: Pokročilé vyhledávání
-Workspace-scoped search, milli integrace, snippety.
+Space-scoped search, milli integrace, snippety.
 
 ### Fáze 5: Timeline / kalendář
 Heatmapa aktivity, filtr podle data.

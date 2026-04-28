@@ -35,6 +35,38 @@ pub fn open(path: &Path) -> Result<Connection> {
             .ok();
     }
 
+    // Migration: add space_id columns if missing
+    for table in &["web_page", "note", "note_folder"] {
+        let has_space_id: bool = conn
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{}') WHERE name='space_id'",
+                table
+            ))
+            .and_then(|mut s| s.exists([]))
+            .unwrap_or(false);
+        if !has_space_id {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {} ADD COLUMN space_id INTEGER REFERENCES space(id);",
+                table
+            ))
+            .ok();
+        }
+    }
+
+    // Seed default space if none exists
+    let space_count: i64 = conn.query_row("SELECT COUNT(*) FROM space", [], |row| row.get(0))?;
+    if space_count == 0 {
+        conn.execute(
+            "INSERT INTO space (name, last_used) VALUES ('Personal', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            [],
+        )?;
+        // Assign all existing content to default space
+        let default_id: i64 = conn.last_insert_rowid();
+        conn.execute("UPDATE web_page SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
+        conn.execute("UPDATE note SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
+        conn.execute("UPDATE note_folder SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
+    }
+
     // Seed classification rules if table is empty
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM classification_rule", [], |row| {
         row.get(0)
@@ -55,12 +87,13 @@ pub struct NewWebPage<'a> {
     pub category: &'a str,
     pub status: &'a str,
     pub source: Option<&'a str>,
+    pub space_id: Option<i64>,
 }
 
 pub fn insert_web_page(conn: &Connection, page: &NewWebPage) -> Result<i64> {
     conn.execute(
-        "INSERT OR IGNORE INTO web_page (url, url_normalized, title, domain, category, status, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT OR IGNORE INTO web_page (url, url_normalized, title, domain, category, status, source, space_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             page.url,
             page.url_normalized,
@@ -69,6 +102,7 @@ pub fn insert_web_page(conn: &Connection, page: &NewWebPage) -> Result<i64> {
             page.category,
             page.status,
             page.source,
+            page.space_id,
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -184,6 +218,7 @@ pub fn ensure_page(
             category,
             status,
             source: None,
+            space_id: None,
         },
     )
 }
@@ -383,11 +418,24 @@ pub struct FolderRow {
     pub name: String,
     pub parent_id: Option<i64>,
     pub sort_order: i64,
+    pub space_id: Option<i64>,
+}
+
+impl Clone for FolderRow {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            parent_id: self.parent_id,
+            sort_order: self.sort_order,
+            space_id: self.space_id,
+        }
+    }
 }
 
 pub fn list_folders(conn: &Connection) -> Result<Vec<FolderRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, parent_id, sort_order FROM note_folder ORDER BY sort_order, name",
+        "SELECT id, name, parent_id, sort_order, space_id FROM note_folder ORDER BY sort_order, name",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -396,6 +444,7 @@ pub fn list_folders(conn: &Connection) -> Result<Vec<FolderRow>> {
                 name: row.get(1)?,
                 parent_id: row.get(2)?,
                 sort_order: row.get(3)?,
+                space_id: row.get(4)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -440,4 +489,112 @@ pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
     )?;
     conn.execute("DELETE FROM note_folder WHERE id = ?1", [folder_id])?;
     Ok(())
+}
+
+// ---- Spaces ----
+
+pub struct SpaceRow {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
+    pub last_used: Option<String>,
+}
+
+pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color, last_used FROM space ORDER BY last_used DESC, created_at DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SpaceRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                last_used: row.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn get_active_space(conn: &Connection) -> Result<SpaceRow> {
+    conn.query_row(
+        "SELECT id, name, color, last_used FROM space ORDER BY last_used DESC, created_at DESC LIMIT 1",
+        [],
+        |row| {
+            Ok(SpaceRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                last_used: row.get(3)?,
+            })
+        },
+    )
+    .map_err(Into::into)
+}
+
+pub fn touch_space(conn: &Connection, space_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE space SET last_used = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+        [space_id],
+    )?;
+    Ok(())
+}
+
+pub fn insert_space(conn: &Connection, name: &str) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO space (name, last_used) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+        [name],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn rename_space(conn: &Connection, space_id: i64, name: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE space SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, space_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_space(conn: &Connection, space_id: i64) -> Result<()> {
+    // Delete all content in this space
+    // First get snapshot IDs for FTS cleanup
+    let page_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM web_page WHERE space_id = ?1")?
+        .query_map([space_id], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for pid in page_ids {
+        delete_page(conn, pid)?;
+    }
+    let note_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM note WHERE space_id = ?1")?
+        .query_map([space_id], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for nid in note_ids {
+        delete_note_permanent(conn, nid)?;
+    }
+    conn.execute("DELETE FROM note_folder WHERE space_id = ?1", [space_id])?;
+    conn.execute("DELETE FROM space WHERE id = ?1", [space_id])?;
+    Ok(())
+}
+
+/// Count notes per folder (direct children only, excludes deleted)
+pub fn folder_note_counts(conn: &Connection, space_id: i64) -> Result<std::collections::HashMap<i64, i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT folder_id, COUNT(*) FROM note WHERE space_id = ?1 AND deleted_at IS NULL AND folder_id IS NOT NULL GROUP BY folder_id",
+    )?;
+    let mut map = std::collections::HashMap::new();
+    let rows = stmt.query_map([space_id], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        if let Ok((fid, count)) = row {
+            map.insert(fid, count);
+        }
+    }
+    Ok(map)
 }

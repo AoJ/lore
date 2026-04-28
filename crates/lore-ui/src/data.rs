@@ -45,15 +45,15 @@ pub struct PageDetailData {
     pub last_error: Option<String>,
 }
 
-pub fn list_pages(limit: usize) -> Result<Vec<PageRow>> {
+pub fn list_pages(space_id: i64, limit: usize) -> Result<Vec<PageRow>> {
     let conn = open_db()?;
     let mut stmt = conn.prepare(
         "SELECT id, url, title, domain, category, status, created_at
-         FROM web_page WHERE trashed_at IS NULL
-         ORDER BY created_at DESC, id DESC LIMIT ?1",
+         FROM web_page WHERE trashed_at IS NULL AND space_id = ?1
+         ORDER BY created_at DESC, id DESC LIMIT ?2",
     )?;
     let rows = stmt
-        .query_map([limit as i64], |row| {
+        .query_map(rusqlite::params![space_id, limit as i64], |row| {
             Ok(PageRow {
                 id: row.get(0)?,
                 title: row
@@ -130,7 +130,7 @@ pub fn get_page(id: i64) -> Result<PageDetailData> {
     })
 }
 
-pub fn add_url(raw_url: &str) -> Result<String> {
+pub fn add_url(raw_url: &str, space_id: i64) -> Result<String> {
     let conn = open_db()?;
     let rules = lore_core::db::load_rules(&conn)?;
     let parsed = url::Url::parse(raw_url)?;
@@ -153,12 +153,13 @@ pub fn add_url(raw_url: &str) -> Result<String> {
             category: &category,
             status,
             source: None,
+            space_id: Some(space_id),
         },
     )?;
     Ok(format!("[{}] {}", category, raw_url))
 }
 
-pub fn search_pages(query: &str, limit: usize) -> Result<Vec<PageRow>> {
+pub fn search_pages(query: &str, space_id: i64, limit: usize) -> Result<Vec<PageRow>> {
     let conn = open_db()?;
     let query = if query.contains('*') || query.contains('"') || query.contains(" AND ") {
         query.to_string()
@@ -175,13 +176,13 @@ pub fn search_pages(query: &str, limit: usize) -> Result<Vec<PageRow>> {
          FROM web_page_fts fts
          JOIN web_page_snapshot wps ON wps.id = fts.rowid
          JOIN web_page wp ON wp.id = wps.web_page_id
-         WHERE web_page_fts MATCH ?1 AND wp.trashed_at IS NULL
+         WHERE web_page_fts MATCH ?1 AND wp.trashed_at IS NULL AND wp.space_id = ?2
          ORDER BY rank
-         LIMIT ?2",
+         LIMIT ?3",
     )?;
 
     let rows = stmt
-        .query_map(rusqlite::params![query, limit as i64], |row| {
+        .query_map(rusqlite::params![query, space_id, limit as i64], |row| {
             Ok(PageRow {
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
@@ -196,7 +197,7 @@ pub fn search_pages(query: &str, limit: usize) -> Result<Vec<PageRow>> {
     Ok(rows)
 }
 
-pub fn search_notes(query: &str, limit: usize) -> Result<Vec<lore_core::db::NoteRow>> {
+pub fn search_notes(query: &str, space_id: i64, limit: usize) -> Result<Vec<lore_core::db::NoteRow>> {
     let conn = open_db()?;
     let query = if query.contains('*') || query.contains('"') {
         query.to_string()
@@ -212,13 +213,13 @@ pub fn search_notes(query: &str, limit: usize) -> Result<Vec<lore_core::db::Note
         "SELECT n.id, n.title, SUBSTR(n.body, 1, 100), n.folder_id, n.updated_at
          FROM note_fts fts
          JOIN note n ON n.id = fts.rowid
-         WHERE note_fts MATCH ?1 AND n.deleted_at IS NULL
+         WHERE note_fts MATCH ?1 AND n.deleted_at IS NULL AND n.space_id = ?2
          ORDER BY rank
-         LIMIT ?2",
+         LIMIT ?3",
     )?;
 
     let rows = stmt
-        .query_map(rusqlite::params![query, limit as i64], |row| {
+        .query_map(rusqlite::params![query, space_id, limit as i64], |row| {
             Ok(lore_core::db::NoteRow {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -248,16 +249,16 @@ pub enum TrashKind {
     Note,
 }
 
-pub fn list_trash() -> Result<Vec<TrashItem>> {
+pub fn list_trash(space_id: i64) -> Result<Vec<TrashItem>> {
     let conn = open_db()?;
     let mut items = Vec::new();
 
     // Trashed pages
     let mut stmt = conn.prepare(
-        "SELECT id, COALESCE(title, url), trashed_at FROM web_page WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC",
+        "SELECT id, COALESCE(title, url), trashed_at FROM web_page WHERE trashed_at IS NOT NULL AND space_id = ?1 ORDER BY trashed_at DESC",
     )?;
     let pages = stmt
-        .query_map([], |row| {
+        .query_map([space_id], |row| {
             Ok(TrashItem {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -270,10 +271,10 @@ pub fn list_trash() -> Result<Vec<TrashItem>> {
 
     // Trashed notes
     let mut stmt = conn.prepare(
-        "SELECT id, title, deleted_at FROM note WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+        "SELECT id, title, deleted_at FROM note WHERE deleted_at IS NOT NULL AND space_id = ?1 ORDER BY deleted_at DESC",
     )?;
     let notes = stmt
-        .query_map([], |row| {
+        .query_map([space_id], |row| {
             Ok(TrashItem {
                 id: row.get(0)?,
                 title: row.get(1)?,

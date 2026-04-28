@@ -10,29 +10,29 @@ Inspired by Apple Notes (fluid, instant-save, 3-column layout) and Trilium (hier
 
 ## Organizační model
 
-### Workspace
+### Space
 
-Workspace je nejvyšší organizační jednotka. Odděluje od sebe různé kontexty práce — např. "Osobní", "Firma", "Projekt X". Každý workspace má vlastní složky, poznámky a webové stránky. Soubory a pravidla klasifikace jsou sdílené napříč workspacy.
+Space je nejvyšší organizační jednotka. Odděluje od sebe různé kontexty práce — např. "Osobní", "Firma", "Projekt X". Každý space má vlastní složky, poznámky a webové stránky. Soubory a pravidla klasifikace jsou sdílené napříč workspacy.
 
-- Aktivní workspace je zobrazen v horní části sidebaru (pod titulkem "lore").
-- Přepínání: klik na název workspace → dropdown se seznamem + "New workspace".
-- Každý workspace má název a volitelnou barvu/ikonu.
-- Webové stránky přidané přes "Add URL" se přiřadí do aktivního workspace.
-- Vyhledávání hledá v rámci aktivního workspace (s možností "Search all workspaces").
+- Aktivní space je zobrazen v horní části sidebaru (pod titulkem "lore").
+- Přepínání: klik na název space → dropdown se seznamem + "New space".
+- Každý space má název a volitelnou barvu/ikonu.
+- Webové stránky přidané přes "Add URL" se přiřadí do aktivního space.
+- Vyhledávání hledá v rámci aktivního space (s možností "Search all spaces").
 
 ### Složky
 
-Složky organizují poznámky do stromové hierarchie uvnitř workspace:
+Složky organizují poznámky do stromové hierarchie uvnitř space:
 
-- Každý workspace má vlastní strom složek.
+- Každý space má vlastní strom složek.
 - Složky se mohou libovolně vnořovat (neomezená hloubka).
 - Složka může obsahovat poznámky a podsložky.
 - Kořenová úroveň = poznámky bez složky (zobrazí se v "Notes").
 - Složky v sidebaru jsou skládací (expand/collapse šipkou).
 
-### Vztah obsahu k workspace
+### Vztah obsahu k space
 
-| Typ obsahu | Patří do workspace | Může být ve složce |
+| Typ obsahu | Patří do space | Může být ve složce |
 |------------|-------------------|--------------------|
 | Poznámka | Ano | Ano (volitelně) |
 | Webová stránka | Ano | Ne (řadí se dle klasifikace) |
@@ -44,7 +44,7 @@ Složky organizují poznámky do stromové hierarchie uvnitř workspace:
 
 Tři panely vedle sebe, celá výška okna:
 
-- **Sidebar** (~10rem): Workspace přepínač, navigační strom — sekce, složky, systémové položky.
+- **Sidebar** (~10rem): Space přepínač, navigační strom — sekce, složky, systémové položky.
 - **List panel** (~16rem): Seznam položek odpovídající výběru v sidebaru. Vždy viditelný.
 - **Content panel** (zbytek): Detail vybrané položky z listu. Editovatelný pro poznámky, read-only pro webové stránky a soubory.
 
@@ -54,19 +54,19 @@ Tři panely vedle sebe, celá výška okna:
 
 ### 1. Sidebar
 
-**Cíl:** Uživatel chce přepínat workspace, navigovat mezi typy obsahu a složkami.
+**Cíl:** Uživatel chce přepínat space, navigovat mezi typy obsahu a složkami.
 
 **Prvky (shora dolů):**
 
-- **Workspace přepínač** — název aktivního workspace, klik otevře dropdown:
+- **Space přepínač** — název aktivního space, klik otevře dropdown:
   - Seznam existujících workspaců
-  - "New workspace..." položka na konci
-  - Aktivní workspace má zvýraznění
+  - "New space..." položka na konci
+  - Aktivní space má zvýraznění
 - **Sekce:**
-  - Webs — webové stránky v aktivním workspace
-  - Notes — všechny poznámky v aktivním workspace (bez složky)
+  - Webs — webové stránky v aktivním space
+  - Notes — všechny poznámky v aktivním space (bez složky)
   - Files — všechny soubory
-  - Search — globální v aktivním workspace vyhledávání
+  - Search — globální v aktivním space vyhledávání
 - **Oddělovač** "Folders"
 - **Strom složek** — hierarchický, zanořitelný, skládací:
   - Každá složka má šipku pro expand/collapse
@@ -79,7 +79,7 @@ Tři panely vedle sebe, celá výška okna:
 
 **Akce uživatele:**
 
-- Klik na workspace přepínač → dropdown s workspacy
+- Klik na space přepínač → dropdown s workspacy
 - Klik na sekci → list panel zobrazí odpovídající položky
 - Klik na složku → list panel zobrazí poznámky v dané složce
 - Pravý klik na složku → kontextové menu (přejmenovat, smazat, nová podsložka)
@@ -91,8 +91,8 @@ Tři panely vedle sebe, celá výška okna:
 - Aktivní položka má zvýrazněné pozadí
 - Pouze jedna položka může být aktivní
 - Trash zobrazuje počet položek jako badge
-- Přepnutí workspace změní obsah všech panelů
-- Seznam workspace s možností smazání je v Settings jako další položka.
+- Přepnutí space změní obsah všech panelů
+- Seznam space s možností smazání je v Settings jako další položka.
 
 ---
 

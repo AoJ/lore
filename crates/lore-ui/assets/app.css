@@ -61,12 +61,72 @@ a:hover {
     overflow-y: auto;
 }
 
-.sidebar-title {
+/* ---- Space switcher ---- */
+.space-switcher {
+    margin-bottom: var(--spacing-md);
+    position: relative;
+}
+
+.space-switcher-current {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem var(--spacing-sm);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.space-switcher-current:hover {
+    background: var(--color-hover);
+}
+
+.space-name {
     font-size: 1.125rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    margin: 0 0 var(--spacing-md) var(--spacing-xs);
     color: var(--color-text);
+}
+
+.space-arrow {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+}
+
+.space-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
+    z-index: 100;
+    padding: var(--spacing-xs) 0;
+}
+
+.space-dropdown-item {
+    padding: 0.375rem var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.space-dropdown-item:hover {
+    background: var(--color-hover);
+}
+
+.space-dropdown-item.active {
+    font-weight: 600;
+    background: var(--color-selected);
+}
+
+.space-dropdown-item.new-space {
+    color: var(--color-accent);
+    border-top: 1px solid var(--color-border-light);
+    margin-top: var(--spacing-xs);
+    padding-top: var(--spacing-sm);
 }
 
 .sidebar-group {
@@ -74,12 +134,78 @@ a:hover {
 }
 
 .sidebar-divider {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     font-size: var(--font-size-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--color-muted);
     margin: var(--spacing-md) 0 var(--spacing-xs) var(--spacing-xs);
+    padding-right: var(--spacing-xs);
+}
+
+.sidebar-add-btn {
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+    cursor: pointer;
+    padding: 0 0.25rem;
+    border-radius: var(--radius);
+    transition: color 0.12s;
+}
+
+.sidebar-add-btn:hover {
+    color: var(--color-accent);
+}
+
+/* ---- Folder tree ---- */
+.folder-item {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+}
+
+.folder-arrow {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    cursor: pointer;
+    width: 1rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.folder-arrow-placeholder {
+    width: 1rem;
+    flex-shrink: 0;
+}
+
+.folder-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.folder-count {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    flex-shrink: 0;
+}
+
+/* ---- Inline rename ---- */
+.inline-rename {
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    padding: 0.125rem 0.25rem;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius);
+    outline: none;
+    background: var(--color-bg);
+    color: var(--color-text);
+    width: 100%;
+    box-shadow: 0 0 0 0.125rem rgba(0, 122, 255, 0.15);
 }
 
 .sidebar-label {
@@ -187,6 +313,33 @@ a:hover {
     color: var(--color-text);
     padding: var(--spacing-md) var(--spacing-sm) var(--spacing-sm);
     flex-shrink: 0;
+}
+
+.list-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.list-header-row .list-title {
+    padding: 0;
+}
+
+.list-add-btn {
+    font-family: var(--font-sans);
+    font-size: var(--font-size-lg);
+    color: var(--color-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0 0.25rem;
+    line-height: 1;
+    border-radius: var(--radius);
+    transition: color 0.12s;
+}
+
+.list-add-btn:hover {
+    color: var(--color-accent);
 }
 
 .list-items {

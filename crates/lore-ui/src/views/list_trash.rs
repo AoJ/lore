@@ -6,12 +6,15 @@ use crate::texts;
 #[component]
 pub fn ListTrash() -> Element {
     let mut state = use_context::<AppState>();
-    let mut items = use_signal(|| data::list_trash().unwrap_or_default());
+    let space_id = *state.space_id.read();
+    let mut items = use_signal(move || data::list_trash(space_id).unwrap_or_default());
 
     let tick = state.refresh_tick;
+    let sid = state.space_id;
     use_effect(move || {
         let _ = *tick.read();
-        items.set(data::list_trash().unwrap_or_default());
+        let s = *sid.read();
+        items.set(data::list_trash(s).unwrap_or_default());
     });
 
     rsx! {

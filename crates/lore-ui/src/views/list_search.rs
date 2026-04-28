@@ -11,11 +11,13 @@ pub fn ListSearch() -> Element {
     let mut note_results = use_signal(Vec::<lore_core::db::NoteRow>::new);
 
     let search_signal = state.search_query;
+    let sid = state.space_id;
     use_effect(move || {
-        let q = search_signal.read().clone(); // subscribe to signal changes
+        let q = search_signal.read().clone();
+        let s = *sid.read();
         if q.len() >= 2 {
-            page_results.set(data::search_pages(&q, 20).unwrap_or_default());
-            note_results.set(data::search_notes(&q, 20).unwrap_or_default());
+            page_results.set(data::search_pages(&q, s, 20).unwrap_or_default());
+            note_results.set(data::search_notes(&q, s, 20).unwrap_or_default());
         } else {
             page_results.set(Vec::new());
             note_results.set(Vec::new());

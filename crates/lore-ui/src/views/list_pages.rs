@@ -6,23 +6,23 @@ use crate::texts;
 #[component]
 pub fn ListPages() -> Element {
     let mut state = use_context::<AppState>();
-    let mut pages = use_signal(|| data::list_pages(200).unwrap_or_default());
+    let space_id = *state.space_id.read();
+    let mut pages = use_signal(move || data::list_pages(space_id, 200).unwrap_or_default());
 
-    // Re-fetch whenever refresh_tick changes
-    // Refresh on manual bump (trash, add URL, etc.)
     let tick = state.refresh_tick;
+    let sid = state.space_id;
     use_effect(move || {
         let _ = *tick.read();
-        pages.set(data::list_pages(200).unwrap_or_default());
+        let s = *sid.read();
+        pages.set(data::list_pages(s, 200).unwrap_or_default());
     });
 
-    // Auto-poll every 5 seconds (worker updates in background)
-    // Only poll when no item is selected to avoid disrupting navigation
     use_future(move || async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            if *state.selected.read() == crate::state::Selected::None {
-                pages.set(data::list_pages(200).unwrap_or_default());
+            if *state.selected.read() == Selected::None {
+                let s = *state.space_id.read();
+                pages.set(data::list_pages(s, 200).unwrap_or_default());
             }
         }
     });

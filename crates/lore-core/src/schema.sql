@@ -1,6 +1,15 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+-- Spaces (top-level organizational unit)
+CREATE TABLE IF NOT EXISTS space (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    color      TEXT,
+    last_used  TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE TABLE IF NOT EXISTS web_page (
     id              INTEGER PRIMARY KEY,
     url             TEXT NOT NULL UNIQUE,

@@ -3,10 +3,12 @@ use dioxus::prelude::*;
 mod state;
 mod data;
 mod texts;
+mod keys;
 mod views;
 
 use state::{AppState, Section, Selected};
 use views::*;
+use rusqlite;  // for params! in create_new_note
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
 const APP_CSS: &str = include_str!("../assets/app.css");
@@ -90,28 +92,68 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState) {
     let key = evt.key();
     let modifiers = evt.modifiers();
     let cmd = modifiers.meta();
-
     let ctrl = modifiers.ctrl();
+    let shift = modifiers.shift();
 
     match key {
-        Key::Character(ref ch) if ch == "j" && ctrl => {
+        // Ctrl+J / Ctrl+K — navigate list
+        Key::Character(ref ch) if ch == keys::NAV_DOWN.0 && ctrl => {
             move_selection(&mut state, 1);
         }
-        Key::Character(ref ch) if ch == "k" && ctrl => {
+        Key::Character(ref ch) if ch == keys::NAV_UP.0 && ctrl => {
             move_selection(&mut state, -1);
         }
+        // Backspace — deselect
         Key::Backspace if !cmd => {
             if *state.selected.read() != Selected::None {
                 state.selected.set(Selected::None);
             }
         }
+        // Cmd+D — trash selected
         Key::Character(ref ch) if ch == "d" && cmd => {
             trash_selected(&mut state);
         }
-        Key::Character(ref ch) if ch == "n" && cmd => {
+        // Cmd+N — new note
+        Key::Character(ref ch) if ch == "n" && cmd && !shift => {
             create_new_note(&mut state);
         }
+        // Cmd+Shift+N — new space
+        Key::Character(ref ch) if ch == "N" && cmd && shift => {
+            create_new_space(&mut state);
+        }
+        // Cmd+Shift+F — new folder
+        Key::Character(ref ch) if (ch == "F" || ch == "f") && cmd && shift => {
+            create_new_folder(&mut state);
+        }
+        // Ctrl+1..9 — switch space
+        Key::Character(ref ch) if ctrl && ch.len() == 1 && ch.as_bytes()[0] >= b'1' && ch.as_bytes()[0] <= b'9' => {
+            let idx = (ch.as_bytes()[0] - b'1') as usize;
+            let conn = data::open_db().unwrap();
+            let spaces = lore_core::db::list_spaces(&conn).unwrap_or_default();
+            if let Some(space) = spaces.get(idx) {
+                state.switch_space(space.id);
+            }
+        }
         _ => {}
+    }
+}
+
+fn create_new_space(state: &mut AppState) {
+    let conn = data::open_db().unwrap();
+    if let Ok(new_id) = lore_core::db::insert_space(&conn, "") {
+        state.switch_space(new_id);
+        state.renaming.set(Some(state::Renaming::Space(new_id, String::new())));
+        state.space_dropdown_open.set(true);
+    }
+}
+
+fn create_new_folder(state: &mut AppState) {
+    let space_id = *state.space_id.read();
+    let conn = data::open_db().unwrap();
+    if let Ok(fid) = lore_core::db::insert_folder(&conn, "", None) {
+        conn.execute("UPDATE note_folder SET space_id = ?1 WHERE id = ?2", rusqlite::params![space_id, fid]).ok();
+        state.renaming.set(Some(state::Renaming::Folder(fid, String::new())));
+        state.bump_refresh();
     }
 }
 
@@ -120,8 +162,11 @@ fn create_new_note(state: &mut AppState) {
         Section::Folder(id) => Some(*id),
         _ => None,
     };
+    let space_id = *state.space_id.read();
     let conn = data::open_db().unwrap();
     if let Ok(note_id) = lore_core::db::insert_note(&conn, "", "", folder_id) {
+        // Set space_id on the new note
+        conn.execute("UPDATE note SET space_id = ?1 WHERE id = ?2", rusqlite::params![space_id, note_id]).ok();
         // Switch to Notes section if not already there
         let section = state.section.read().clone();
         if !matches!(section, Section::AllNotes | Section::Folder(_)) {
@@ -165,9 +210,11 @@ fn move_selection(state: &mut AppState, direction: i32) {
     let section = state.section.read().clone();
     let current = state.selected.read().clone();
 
+    let space_id = *state.space_id.read();
+
     match section {
         Section::AllPages => {
-            let ids = page_ids_ordered();
+            let ids = page_ids_ordered(space_id);
             navigate_ids(&ids, &current, direction, state, |id| Selected::Page(id));
         }
         Section::AllNotes | Section::Folder(_) => {
@@ -175,7 +222,7 @@ fn move_selection(state: &mut AppState, direction: i32) {
                 Section::Folder(id) => Some(*id),
                 _ => None,
             };
-            let ids = note_ids_ordered(folder_id);
+            let ids = note_ids_ordered(folder_id, space_id);
             navigate_ids(&ids, &current, direction, state, |id| Selected::Note(id));
         }
         Section::Settings => {
@@ -185,19 +232,17 @@ fn move_selection(state: &mut AppState, direction: i32) {
     }
 }
 
-fn page_ids_ordered() -> Vec<i64> {
+fn page_ids_ordered(space_id: i64) -> Vec<i64> {
     let conn = data::open_db().unwrap();
-    conn.prepare("SELECT id FROM web_page WHERE trashed_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 200")
+    conn.prepare("SELECT id FROM web_page WHERE trashed_at IS NULL AND space_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 200")
         .and_then(|mut s| {
-            let ids: Vec<i64> = s.query_map([], |r| r.get(0)).ok()
-                .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                .unwrap_or_default();
+            let ids: Vec<i64> = s.query_map([space_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
             Ok(ids)
         })
         .unwrap_or_default()
 }
 
-fn note_ids_ordered(folder_id: Option<i64>) -> Vec<i64> {
+fn note_ids_ordered(folder_id: Option<i64>, space_id: i64) -> Vec<i64> {
     let conn = data::open_db().unwrap();
     if let Some(fid) = folder_id {
         conn.prepare("SELECT id FROM note WHERE deleted_at IS NULL AND folder_id = ?1 ORDER BY updated_at DESC")
@@ -207,9 +252,9 @@ fn note_ids_ordered(folder_id: Option<i64>) -> Vec<i64> {
             })
             .unwrap_or_default()
     } else {
-        conn.prepare("SELECT id FROM note WHERE deleted_at IS NULL ORDER BY updated_at DESC")
+        conn.prepare("SELECT id FROM note WHERE deleted_at IS NULL AND space_id = ?1 ORDER BY updated_at DESC")
             .and_then(|mut s| {
-                let v: Vec<i64> = s.query_map([], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
+                let v: Vec<i64> = s.query_map([space_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
                 Ok(v)
             })
             .unwrap_or_default()
