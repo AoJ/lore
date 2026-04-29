@@ -69,6 +69,44 @@ pub fn open(path: &Path) -> Result<Connection> {
     )
     .ok();
 
+    // Migration: rewrite legacy `lore://attachment/N` URLs to `https://lore.local/attachment/N`.
+    // The custom `lore://` scheme isn't recognized as a hyperlink by Milkdown's
+    // markdown parser → links rendered as raw text and the markdown got serialized
+    // back with escaped brackets like `\[name\]\(lore://attachment/N\)`. The HTTPS
+    // host name is bogus (no real network involved) but lets Milkdown render an
+    // <a> tag we can intercept via a click handler in the editor.
+    // REPLACE is idempotent — running on already-migrated bodies is a no-op.
+    conn.execute(
+        "UPDATE note SET \
+            body  = REPLACE(body,  'lore://attachment/', 'https://lore.local/attachment/'), \
+            title = REPLACE(title, 'lore://attachment/', 'https://lore.local/attachment/') \
+         WHERE body LIKE '%lore://attachment/%' OR title LIKE '%lore://attachment/%'",
+        [],
+    )
+    .ok();
+    // Also un-escape brackets/parens around attachment links that Milkdown
+    // serialized as plain text while it didn't know the lore:// scheme.
+    let re = regex::Regex::new(
+        r"\\\[([^\]\\]*)\\?\]\\\((https://lore\.local/attachment/\d+)\\?\)",
+    ).expect("static regex");
+    let rows: Vec<(i64, String, String)> = conn
+        .prepare("SELECT id, title, body FROM note WHERE body LIKE '%lore.local/attachment/%' OR title LIKE '%lore.local/attachment/%'")
+        .and_then(|mut s| {
+            s.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+                .map(|it| it.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    for (id, title, body) in rows {
+        let fixed_title = re.replace_all(&title, "[$1]($2)").into_owned();
+        let fixed_body = re.replace_all(&body, "[$1]($2)").into_owned();
+        if fixed_title != title || fixed_body != body {
+            conn.execute(
+                "UPDATE note SET title = ?1, body = ?2 WHERE id = ?3",
+                rusqlite::params![fixed_title, fixed_body, id],
+            ).ok();
+        }
+    }
+
     // Ensure revision counter is seeded (existing DBs may not have it)
     conn.execute("INSERT OR IGNORE INTO db_revision (id, revision) VALUES (1, 0)", []).ok();
 

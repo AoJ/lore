@@ -98,7 +98,7 @@ pub fn ContentNote(id: i64) -> Element {
         });
     }
 
-    // Wire up drag&drop handler for files into the editor
+    // Wire up drag&drop and attachment-link click interceptor on the editor
     {
         use_effect(move || {
             let js = r#"
@@ -108,6 +108,8 @@ pub fn ContentNote(id: i64) -> Element {
                     var pm = root.querySelector('.ProseMirror') || root.querySelector('[contenteditable]');
                     if (!pm || pm._loreFileDropBound) return;
                     pm._loreFileDropBound = true;
+
+                    // Drag&drop: file into editor → upload as attachment
                     pm.addEventListener('dragover', function(e) {
                         if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.indexOf('Files') !== -1) {
                             e.preventDefault();
@@ -133,6 +135,24 @@ pub fn ContentNote(id: i64) -> Element {
                             reader.readAsDataURL(file);
                         });
                     });
+
+                    // Click on https://lore.local/attachment/X link in body → trigger save dialog.
+                    // Capture phase so we beat browser's default URL navigation.
+                    pm.addEventListener('click', function(e) {
+                        var a = e.target.closest && e.target.closest('a[href^="https://lore.local/attachment/"]');
+                        if (!a) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var href = a.getAttribute('href') || '';
+                        var idStr = href.replace('https://lore.local/attachment/', '').replace(/[^0-9].*$/, '');
+                        if (!idStr) return;
+                        var bridge = document.getElementById('att-download-bridge');
+                        if (!bridge) return;
+                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        setter.call(bridge, idStr);
+                        bridge.dispatchEvent(new Event('input', {bubbles: true}));
+                        return false;
+                    }, true);
                 }, 600);
             "#;
             document::eval(js);
@@ -143,9 +163,9 @@ pub fn ContentNote(id: i64) -> Element {
     {
         let init_md = content.read().clone();
         use_effect(move || {
-            // Find all lore://attachment/ID references and resolve to data URIs
+            // Find all https://lore.local/attachment/ID references and resolve to data URIs
             let mut att_map = std::collections::HashMap::new();
-            for part in init_md.split("lore://attachment/") {
+            for part in init_md.split("https://lore.local/attachment/") {
                 if let Some(end_pos) = part.find(')') {
                     if let Ok(att_id) = part[..end_pos].parse::<i64>() {
                         if let Some(data_uri) = store.get_attachment_data_uri(att_id) {
@@ -249,6 +269,48 @@ pub fn ContentNote(id: i64) -> Element {
                     },
                 }
 
+                // Attachment download bridge — JS sends attachment id when user
+                // clicks a https://lore.local/attachment/ link in the editor body.
+                textarea {
+                    id: "att-download-bridge",
+                    style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
+                    tabindex: "-1",
+                    oninput: move |evt| {
+                        let payload = evt.value();
+                        let att_id: i64 = match payload.parse() {
+                            Ok(n) => n,
+                            Err(_) => return,
+                        };
+                        let conn = match data::open_db() {
+                            Ok(c) => c,
+                            Err(_) => return,
+                        };
+                        let row = match lore_core::db::get_attachment(&conn, att_id) {
+                            Ok(r) => r,
+                            Err(_) => return,
+                        };
+                        let bytes = match lore_core::db::get_attachment_data(&conn, att_id) {
+                            Ok((_, b)) => b,
+                            Err(_) => return,
+                        };
+                        let fname = row.name;
+                        spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                            let default_dir = dirs::download_dir().unwrap_or_default();
+                            let handle = rfd::AsyncFileDialog::new()
+                                .set_file_name(&fname)
+                                .set_directory(&default_dir)
+                                .save_file()
+                                .await;
+                            if let Some(h) = handle {
+                                if h.write(&bytes).await.is_ok() {
+                                    state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                                }
+                            }
+                        });
+                    },
+                }
+
                 // File drop bridge — JS sends JSON {name, mime, dataUri} here
                 textarea {
                     id: "file-bridge",
@@ -273,7 +335,7 @@ pub fn ContentNote(id: i64) -> Element {
                                 let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
                                 let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                 let js = format!(
-                                    "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                    "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
                                     method, method, escaped_name, att_id
                                 );
                                 document::eval(&js);
@@ -343,7 +405,7 @@ pub fn ContentNote(id: i64) -> Element {
                         if let Ok((att_id, _outcome)) = store.upload_image(id, &name, mime, &bytes) {
                             // Insert markdown into editor
                             let js = format!(
-                                "window.loreEditor && window.loreEditor.insertImage('{}', 'lore://attachment/{}');",
+                                "window.loreEditor && window.loreEditor.insertImage('{}', 'https://lore.local/attachment/{}');",
                                 name, att_id
                             );
                             document::eval(&js);
@@ -406,7 +468,7 @@ pub fn ContentNote(id: i64) -> Element {
                                         let escaped_name = name.replace('\'', "\\'").replace('\\', "\\\\");
                                         let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                         let js = format!(
-                                            "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                            "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
                                             method, method, escaped_name, att_id
                                         );
                                         document::eval(&js);
@@ -529,7 +591,7 @@ pub fn ContentNote(id: i64) -> Element {
                                                                     let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                                                     let _ = prefix; // syntax built by method choice
                                                                     let js = format!(
-                                                                        "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                                                        "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
                                                                         method, method, escaped, aid
                                                                     );
                                                                     document::eval(&js);

@@ -389,11 +389,18 @@ impl DataStore {
     }
 
     pub fn cleanup_note_attachments(&self, note_id: i64, markdown: &str) {
-        // Extract attachment IDs referenced in markdown: ![...](lore://attachment/123)
-        // and [...](lore://attachment/123). Both syntaxes share the URL scheme.
+        // Extract attachment IDs referenced in markdown:
+        //   ![...](https://lore.local/attachment/123)   (images)
+        //   [...](https://lore.local/attachment/123)    (file blocks)
         let mut used_ids = Vec::new();
-        for part in markdown.split("lore://attachment/") {
-            if let Some(end) = part.find(')') {
+        for part in markdown.split("https://lore.local/attachment/") {
+            // The number ends at any non-digit char (typically ')')
+            let end = part
+                .char_indices()
+                .find(|(_, c)| !c.is_ascii_digit())
+                .map(|(i, _)| i)
+                .unwrap_or(part.len());
+            if end > 0 {
                 if let Ok(id) = part[..end].parse::<i64>() {
                     used_ids.push(id);
                 }

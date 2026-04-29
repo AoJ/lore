@@ -3274,6 +3274,7 @@ name = "lore-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "regex",
  "rusqlite",
  "sha2",
  "tempfile",

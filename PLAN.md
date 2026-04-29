@@ -90,7 +90,9 @@
 - [x] Připojení souborů k poznámce — file picker (+ Attach file) i drag&drop do editoru, soft-delete místo hard-delete při odstranění z těla (30denní bezpečnostní okno)
 - [x] Sekce "Attachments" pod poznámkou — výpis aktivních příloh ve stylu Files (ext · name · date · size · checksum)
 - [x] Sekce "Removed" pod poznámkou — soft-deleted přílohy s tlačítkem Restore, auto-cleanup po 30 dnech
-- [ ] Custom Milkdown block-widget pro file přílohy (zatím vkládáme jen jako markdown link, plný "block/pruh mezi odstavci" widget vyžaduje rebuild milkdown.js bundle)
+- [x] File-block render v těle poznámky — `[name](https://lore.local/attachment/N)` zobrazuje se jako šedá full-width karta s 📎 ikonou; klik otevře nativní save dialog. URL prefix migrace ze starého `lore://attachment/N` (Milkdown ho neuznával jako schéma) + regex unescape pro escapované markdown linky.
+- [x] Dedup attachmentů per-note: stejný `name + hash` → reuse ID + insert dalšího odkazu, stejný hash + jiný název = nový soubor (renamed verze)
+- [ ] Plný Milkdown custom node pro file blok s vlastním rendererem (ext badge, velikost, datum, checksum přímo v těle vedle ikony) — vyžaduje JS build setup a rekonstrukci `milkdown.js` ze zdrojáků, zatím odloženo
 
 ### Soubory (modul Files)
 - [x] DB tabulka `file` (id, name, mime_type, size, hash, data BLOB, created_at, deleted_at)

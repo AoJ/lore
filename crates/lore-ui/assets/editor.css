@@ -91,6 +91,48 @@
     margin: var(--spacing-xs) 0;
 }
 
+/* ---- File attachment blocks (lore://attachment/X links) ----
+   Renders [name](lore://attachment/X) as a prominent block card between
+   paragraphs. Image attachments use ![](...) syntax → become <img>, not
+   matched by this rule. */
+.milkdown .editor a[href^="https://lore.local/attachment/"],
+.milkdown .ProseMirror a[href^="https://lore.local/attachment/"] {
+    display: block;
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin: var(--spacing-sm) 0;
+    color: var(--color-text);
+    background: var(--color-sidebar);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius);
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.milkdown .editor a[href^="https://lore.local/attachment/"]:hover,
+.milkdown .ProseMirror a[href^="https://lore.local/attachment/"]:hover {
+    background: var(--color-hover);
+    border-color: var(--color-accent);
+    text-decoration: none;
+}
+
+/* Override the generic URL-indicator dot for attachment blocks */
+.milkdown .editor a[href^="https://lore.local/attachment/"]::before,
+.milkdown .ProseMirror a[href^="https://lore.local/attachment/"]::before {
+    content: "📎";
+    background: transparent;
+    width: auto;
+    height: auto;
+    position: static;
+    border-radius: 0;
+    transform: none;
+    display: inline;
+    margin-right: 0.5em;
+    font-size: 1em;
+}
+
 /* ---- URL indicators ---- */
 .milkdown .editor a {
     color: var(--color-accent);
