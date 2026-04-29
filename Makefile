@@ -6,6 +6,22 @@ build:
 release:
 	cargo build --release --workspace
 
+# JS editor bundle (Milkdown-based, output: crates/lore-ui/assets/milkdown.js)
+JS_DIR := crates/lore-ui/js
+JS_OUT := crates/lore-ui/assets/milkdown.js
+
+js-install:
+	cd $(JS_DIR) && npm install
+
+js-build:
+	cd $(JS_DIR) && npm run build
+
+js-watch:
+	cd $(JS_DIR) && npm run watch
+
+js-clean:
+	rm -rf $(JS_DIR)/node_modules $(JS_DIR)/package-lock.json
+
 
 desktop:
 	LORE_DB=$(DB) cargo run -p lore-ui
@@ -35,4 +51,5 @@ fmt:
 clean:
 	cargo clean
 
-.PHONY: build release desktop desktop-release serve worker test lint fmt clean
+.PHONY: build release desktop desktop-release serve worker test lint fmt clean \
+        js-install js-build js-watch js-clean

@@ -98,15 +98,21 @@ pub fn ContentNote(id: i64) -> Element {
         });
     }
 
-    // Wire up drag&drop and attachment-link click interceptor on the editor
+    // Wire up drag&drop and attachment-link click interceptor on the editor.
+    // Uses a polling pattern instead of fixed setTimeout because Milkdown init
+    // timing varies between versions and the editor's contenteditable element
+    // may not exist when this effect first runs.
     {
         use_effect(move || {
             let js = r#"
-                setTimeout(function() {
+                (function bind(tries) {
                     var root = document.getElementById('milkdown-root');
-                    if (!root) return;
-                    var pm = root.querySelector('.ProseMirror') || root.querySelector('[contenteditable]');
-                    if (!pm || pm._loreFileDropBound) return;
+                    var pm = root && (root.querySelector('.ProseMirror') || root.querySelector('[contenteditable]'));
+                    if (!pm) {
+                        if (tries > 0) setTimeout(function(){bind(tries-1);}, 150);
+                        return;
+                    }
+                    if (pm._loreFileDropBound) return;
                     pm._loreFileDropBound = true;
 
                     // Drag&drop: file into editor → upload as attachment
@@ -135,25 +141,9 @@ pub fn ContentNote(id: i64) -> Element {
                             reader.readAsDataURL(file);
                         });
                     });
-
-                    // Click on https://attachment.lore.invalid/X link in body → trigger save dialog.
-                    // Capture phase so we beat browser's default URL navigation.
-                    pm.addEventListener('click', function(e) {
-                        var a = e.target.closest && e.target.closest('a[href^="https://attachment.lore.invalid/"]');
-                        if (!a) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        var href = a.getAttribute('href') || '';
-                        var idStr = href.replace('https://attachment.lore.invalid/', '').replace(/[^0-9].*$/, '');
-                        if (!idStr) return;
-                        var bridge = document.getElementById('att-download-bridge');
-                        if (!bridge) return;
-                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                        setter.call(bridge, idStr);
-                        bridge.dispatchEvent(new Event('input', {bubbles: true}));
-                        return false;
-                    }, true);
-                }, 600);
+                    // Click handling for attachment blocks is provided by the
+                    // Milkdown markView (js/index.js → buildLinkMarkView).
+                })(40);
             "#;
             document::eval(js);
         });
@@ -180,6 +170,45 @@ pub fn ContentNote(id: i64) -> Element {
                     .collect();
                 let js = format!(
                     "setTimeout(function(){{ window.loreEditor && window.loreEditor.resolveAttachments({{{}}}); }}, 500);",
+                    entries.join(",")
+                );
+                document::eval(&js);
+            }
+        });
+    }
+
+    // Push attachment metadata (size/hash/created_at) to the editor so the
+    // markView can render the rich block (ext badge · name · date · size · hash).
+    // Re-runs on revision changes (new uploads, restores, etc.).
+    {
+        use_effect(move || {
+            // Subscribe to revision changes
+            let _rev = *store.revision.read();
+
+            let active = store.list_active_attachments(id);
+            let removed = store.list_removed_attachments(id);
+            let mut entries: Vec<String> = Vec::new();
+            for att in active.iter().chain(removed.iter()) {
+                let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
+                entries.push(format!(
+                    "'{}':{{name:'{}',size:{},hash:'{}',created_at:'{}',mime_type:'{}'}}",
+                    att.id,
+                    esc(&att.name),
+                    att.size,
+                    esc(&att.hash),
+                    esc(&att.created_at),
+                    esc(att.mime_type.as_deref().unwrap_or("")),
+                ));
+            }
+            if !entries.is_empty() {
+                let js = format!(
+                    "(function poll(tries){{ \
+                        if (window.loreEditor && window.loreEditor.setAttachmentMeta) {{ \
+                            window.loreEditor.setAttachmentMeta({{{}}}); \
+                        }} else if (tries > 0) {{ \
+                            setTimeout(function(){{poll(tries-1);}}, 150); \
+                        }} \
+                    }})(20);",
                     entries.join(",")
                 );
                 document::eval(&js);
@@ -495,68 +524,12 @@ pub fn ContentNote(id: i64) -> Element {
                     }
                 }
 
-                // Attachments sections (active + removed)
+                // Removed attachments section (active ones render inline as blocks
+                // via the Milkdown markView, no need to repeat them at the bottom).
                 {
                     let _rev = *store.revision.read();
-                    let active = store.list_active_attachments(id);
                     let removed = store.list_removed_attachments(id);
                     rsx! {
-                        if !active.is_empty() {
-                            div { class: "note-attachments",
-                                div { class: "note-attachments-header", "Attachments" }
-                                div { class: "note-attachments-list",
-                                    for att in active.iter() {
-                                        {
-                                            let aid = att.id;
-                                            let aname = att.name.clone();
-                                            let ext = ext_from_name(&att.name);
-                                            let size = format_size(att.size);
-                                            let date = att.created_at.clone();
-                                            let short_hash = att.hash.chars().take(8).collect::<String>();
-                                            rsx! {
-                                                div { key: "a-{aid}", class: "attachment-row",
-                                                    span { class: "file-ext-badge", "{ext}" }
-                                                    span { class: "attachment-name",
-                                                        title: "{aname}",
-                                                        onclick: move |_| {
-                                                            let conn = data::open_db().ok();
-                                                            let bytes = conn.as_ref()
-                                                                .and_then(|c| lore_core::db::get_attachment_data(c, aid).ok())
-                                                                .map(|(_, b)| b);
-                                                            let fname = aname.clone();
-                                                            if let Some(b) = bytes {
-                                                                spawn(async move {
-                                                                    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-                                                                    let default_dir = dirs::download_dir().unwrap_or_default();
-                                                                    let handle = rfd::AsyncFileDialog::new()
-                                                                        .set_file_name(&fname)
-                                                                        .set_directory(&default_dir)
-                                                                        .save_file()
-                                                                        .await;
-                                                                    if let Some(h) = handle {
-                                                                        if h.write(&b).await.is_ok() {
-                                                                            state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
-                                                                        }
-                                                                    }
-                                                                });
-                                                            }
-                                                        },
-                                                        "{att.name}"
-                                                    }
-                                                    span { class: "attachment-meta",
-                                                        "{date}"
-                                                        span { class: "sep", "·" }
-                                                        "{size}"
-                                                        span { class: "sep", "·" }
-                                                        span { class: "file-hash", "{short_hash}" }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         if !removed.is_empty() {
                             div { class: "note-attachments",
                                 div { class: "note-attachments-header", "Removed (auto-delete after 30 days)" }

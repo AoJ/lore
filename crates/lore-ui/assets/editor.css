@@ -91,13 +91,15 @@
     margin: var(--spacing-xs) 0;
 }
 
-/* ---- File attachment blocks (lore://attachment/X links) ----
-   Renders [name](lore://attachment/X) as a prominent block card between
-   paragraphs. Image attachments use ![](...) syntax → become <img>, not
-   matched by this rule. */
-.milkdown .editor a[href^="https://attachment.lore.invalid/"],
-.milkdown .ProseMirror a[href^="https://attachment.lore.invalid/"] {
-    display: block;
+/* ---- File attachment blocks ----
+   Custom Milkdown markView (see js/index.js → buildLinkMarkView) renders
+   <a class="file-attachment-block"> with badge/name/meta/×. Layout matches
+   the row in Files list panel (ext · name · date · size · checksum). */
+.milkdown .editor a.file-attachment-block,
+.milkdown .ProseMirror a.file-attachment-block {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
     padding: var(--spacing-sm) var(--spacing-md);
     margin: var(--spacing-sm) 0;
     color: var(--color-text);
@@ -106,31 +108,62 @@
     border-radius: var(--radius);
     text-decoration: none;
     font-size: var(--font-size-sm);
-    font-weight: 500;
     cursor: pointer;
     transition: all 0.12s;
 }
 
-.milkdown .editor a[href^="https://attachment.lore.invalid/"]:hover,
-.milkdown .ProseMirror a[href^="https://attachment.lore.invalid/"]:hover {
+.milkdown .editor a.file-attachment-block:hover,
+.milkdown .ProseMirror a.file-attachment-block:hover {
     background: var(--color-hover);
     border-color: var(--color-accent);
     text-decoration: none;
 }
 
-/* Override the generic URL-indicator dot for attachment blocks */
-.milkdown .editor a[href^="https://attachment.lore.invalid/"]::before,
-.milkdown .ProseMirror a[href^="https://attachment.lore.invalid/"]::before {
-    content: "📎";
+/* Suppress the generic URL-indicator dot for attachment blocks. */
+.milkdown .editor a.file-attachment-block::before,
+.milkdown .ProseMirror a.file-attachment-block::before {
+    content: none;
+}
+
+.milkdown a.file-attachment-block .file-ext-badge {
+    flex-shrink: 0;
+}
+
+.milkdown a.file-attachment-block .file-attachment-name {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.milkdown a.file-attachment-block .file-attachment-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.milkdown a.file-attachment-block .file-attachment-close {
     background: transparent;
-    width: auto;
-    height: auto;
-    position: static;
-    border-radius: 0;
-    transform: none;
-    display: inline;
-    margin-right: 0.5em;
-    font-size: 1em;
+    border: none;
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0 var(--spacing-xs);
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: all 0.12s;
+}
+
+.milkdown a.file-attachment-block .file-attachment-close:hover {
+    color: var(--color-danger);
+    opacity: 1;
 }
 
 /* ---- URL indicators ---- */

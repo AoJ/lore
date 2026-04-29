@@ -7,10 +7,29 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 ## Build
 
 ```
-cargo build --release
+make build         # debug build all crates
+make release       # release build all crates
+make desktop       # run desktop app (debug)
+make desktop-release
+make serve         # run web server
+make worker        # run archive worker
+make test          # run all tests
 ```
 
 Binary: `target/release/lore` (single file, includes SQLite).
+
+### JS editor bundle
+
+The Dioxus desktop app embeds a Milkdown-based markdown editor. Source lives in `crates/lore-ui/js/` and is bundled by esbuild into `crates/lore-ui/assets/milkdown.js` (committed for repeatable Rust builds).
+
+```
+make js-install    # one-time: install npm deps in crates/lore-ui/js
+make js-build      # rebuild crates/lore-ui/assets/milkdown.js
+make js-watch      # rebuild on every save during JS development
+make js-clean      # nuke node_modules and lockfile
+```
+
+Edit the editor at `crates/lore-ui/js/index.js` (plain JS — no TypeScript), run `make js-build`, then `make desktop-release`. To upgrade Milkdown bump versions in `crates/lore-ui/js/package.json` and rebuild.
 
 ## Quick start
 

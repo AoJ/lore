@@ -92,7 +92,7 @@
 - [x] Sekce "Removed" pod poznámkou — soft-deleted přílohy s tlačítkem Restore, auto-cleanup po 30 dnech
 - [x] File-block render v těle poznámky — `[name](https://lore.local/attachment/N)` zobrazuje se jako šedá full-width karta s 📎 ikonou; klik otevře nativní save dialog. URL prefix migrace ze starého `lore://attachment/N` (Milkdown ho neuznával jako schéma) + regex unescape pro escapované markdown linky.
 - [x] Dedup attachmentů per-note: stejný `name + hash` → reuse ID + insert dalšího odkazu, stejný hash + jiný název = nový soubor (renamed verze)
-- [ ] **JS build setup pro `milkdown.js`** — aktuální `assets/milkdown.js` je minified bundle bez source. Manuální editace minified kódu je křehká a bez upgrade path. Cíl: `src/milkdown/` s plain JS source, `package.json` s deps na `@milkdown/*`, esbuild/rollup config, npm script pro build. Output → `assets/milkdown.js`. Make cíl + README sekce. Pak upgrade Milkdown verze + custom nodes.
+- [x] **JS build setup pro `milkdown.js`** — `crates/lore-ui/js/` s package.json + index.js (plain JS) + build.mjs (esbuild). Make cíle `js-install`, `js-build`, `js-watch`, `js-clean`. README sekce. Bundle output → `assets/milkdown.js` (committed pro repeatable Rust build). Migrace z minified bundle na zdrojový kód, žádné manuální editace minifikátu.
 - [ ] **Plný Milkdown custom node pro file blok** (závisí na předchozím) — místo CSS-only block stylingu přes URL prefix udělat custom ProseMirror node `fileAttachment` s vlastním rendererem: ext badge vlevo, filename, metadata vpravo (velikost, datum, checksum), × tlačítko pro odpojení. Markdown serializace `[name](https://attachment.lore.invalid/N)` zůstane stejná → kompatibilita s plain markdown exportem.
 
 ### Soubory (modul Files)
