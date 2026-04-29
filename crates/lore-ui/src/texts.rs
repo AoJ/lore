@@ -37,6 +37,8 @@ pub const BTN_DELETE: &str = "Delete";
 pub const BTN_RESTORE: &str = "Restore";
 pub const BTN_DELETE_FOREVER: &str = "Delete forever";
 pub const BTN_EMPTY_TRASH: &str = "Empty trash";
+pub const BTN_UPLOAD: &str = "Upload";
+pub const BTN_SAVE_TO_DOWNLOADS: &str = "Download";
 
 pub const LABEL_CONTENT_PREVIEW: &str = "Content preview";
 
@@ -54,7 +56,7 @@ pub const SEARCH_GROUP_FILES: &str = "Files";
 pub const EMPTY_SELECT: &str = "Select an item to view it here.";
 pub const EMPTY_PAGES: &str = "No pages yet. Paste a URL in the sidebar to get started.";
 pub const EMPTY_NOTES: &str = "No notes yet. Press Cmd+N to create one.";
-pub const EMPTY_FILES: &str = "File storage coming soon.";
+pub const EMPTY_FILES: &str = "No files yet. Click Upload to add files.";
 pub const EMPTY_FOLDER: &str = "This folder is empty.";
 pub const EMPTY_TRASH: &str = "Trash is empty.";
 pub const EMPTY_SEARCH: &str = "Type to search across pages and notes.";
@@ -66,6 +68,8 @@ pub fn empty_search_no_results(query: &str) -> String {
 // ---- Toast messages ----
 pub const TOAST_MOVED_TRASH: &str = "Moved to trash.";
 pub const TOAST_NOTE_TRASH: &str = "Note moved to trash.";
+pub const TOAST_FILE_TRASH: &str = "File moved to trash.";
+pub const TOAST_FILE_SAVED: &str = "File saved.";
 pub const TOAST_RESTORED: &str = "Restored.";
 pub const TOAST_UNDO: &str = "Undo";
 pub const TOAST_ALREADY_EXISTS: &str = "Already exists";
@@ -73,6 +77,7 @@ pub const TOAST_ALREADY_EXISTS: &str = "Already exists";
 // ---- Trash item labels ----
 pub const KIND_PAGE: &str = "page";
 pub const KIND_NOTE: &str = "note";
+pub const KIND_FILE: &str = "file";
 
 // ---- Metadata ----
 pub const NO_TITLE: &str = "(no title)";

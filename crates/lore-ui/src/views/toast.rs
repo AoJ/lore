@@ -29,6 +29,9 @@ pub fn Toast() -> Element {
                                         UndoAction::RestoreNote(id) => {
                                             store.restore_note(&state, *id).ok();
                                         }
+                                        UndoAction::RestoreFile(id) => {
+                                            store.restore_file(&state, *id).ok();
+                                        }
                                     }
                                 }
                                 state.dismiss_toast();

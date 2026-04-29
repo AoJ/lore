@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use crate::state::AppState;
 use crate::store::DataStore;
-use crate::data;
+use crate::data::{self, format_file_size};
 
 #[component]
 pub fn ContentSpaces() -> Element {
@@ -19,7 +19,7 @@ pub fn ContentSpaces() -> Element {
         let mut items = Vec::new();
         for s in &spaces {
             let stats = lore_core::db::space_stats(&conn, s.id).unwrap_or(lore_core::db::SpaceStats {
-                page_count: 0, note_count: 0, file_count: 0, pages_size_bytes: 0,
+                page_count: 0, note_count: 0, file_count: 0, file_size_bytes: 0, pages_size_bytes: 0,
             });
             items.push(SpaceWithStats {
                 id: s.id,
@@ -27,7 +27,9 @@ pub fn ContentSpaces() -> Element {
                 deleted_at: s.deleted_at.clone(),
                 page_count: stats.page_count,
                 note_count: stats.note_count,
-                size_display: format_bytes(stats.pages_size_bytes),
+                file_count: stats.file_count,
+                file_size_display: format_file_size(stats.file_size_bytes),
+                size_display: format_file_size(stats.pages_size_bytes),
             });
         }
         spaces_data.set(items);
@@ -100,7 +102,9 @@ pub fn ContentSpaces() -> Element {
                                     span { class: "sep", "·" }
                                     span { "{space.note_count} notes" }
                                     span { class: "sep", "·" }
-                                    span { "{space.size_display}" }
+                                    span { "{space.file_count} files ({space.file_size_display})" }
+                                    span { class: "sep", "·" }
+                                    span { "{space.size_display} archived" }
                                 }
                                 div { class: "space-card-actions",
                                     if is_deleted {
@@ -160,17 +164,7 @@ struct SpaceWithStats {
     deleted_at: Option<String>,
     page_count: i64,
     note_count: i64,
+    file_count: i64,
+    file_size_display: String,
     size_display: String,
-}
-
-fn format_bytes(bytes: i64) -> String {
-    if bytes >= 1_000_000_000 {
-        format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)
-    } else if bytes >= 1_000_000 {
-        format!("{:.1} MB", bytes as f64 / 1_000_000.0)
-    } else if bytes >= 1_000 {
-        format!("{:.1} KB", bytes as f64 / 1_000.0)
-    } else {
-        format!("{} B", bytes)
-    }
 }

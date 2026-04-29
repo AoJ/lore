@@ -136,3 +136,23 @@ CREATE TRIGGER IF NOT EXISTS trg_rev_space_i AFTER INSERT ON space BEGIN UPDATE 
 CREATE TRIGGER IF NOT EXISTS trg_rev_space_u AFTER UPDATE ON space BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
 CREATE TRIGGER IF NOT EXISTS trg_rev_space_d AFTER DELETE ON space BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
 CREATE TRIGGER IF NOT EXISTS trg_rev_snapshot_i AFTER INSERT ON web_page_snapshot BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
+
+-- Files (scoped to space, shared library of uploaded documents/images)
+CREATE TABLE IF NOT EXISTS file (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    mime_type  TEXT,
+    size       INTEGER NOT NULL DEFAULT 0,
+    hash       TEXT NOT NULL DEFAULT '',
+    data       BLOB NOT NULL,
+    space_id   INTEGER REFERENCES space(id),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_space ON file(space_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_file_hash  ON file(hash);
+
+CREATE TRIGGER IF NOT EXISTS trg_rev_file_i AFTER INSERT ON file BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_file_u AFTER UPDATE ON file BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_file_d AFTER DELETE ON file BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;

@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 use std::collections::HashMap;
-use crate::data::{self, PageRow, PageDetailData, TrashItem, TrashKind, RuleRow};
+use crate::data::{self, PageRow, TrashItem};
 use crate::state::{AppState, Section, Selected};
 
 /// Central data store, provided as Dioxus context alongside AppState.
@@ -13,6 +13,7 @@ pub struct DataStore {
     // ---- Cached data (read by components) ----
     pub pages: Signal<Vec<PageRow>>,
     pub notes: Signal<Vec<lore_core::db::NoteRow>>,
+    pub files: Signal<Vec<lore_core::db::FileRow>>,
     pub folders: Signal<Vec<lore_core::db::FolderRow>>,
     pub spaces: Signal<Vec<lore_core::db::SpaceRow>>,
     pub trash_items: Signal<Vec<TrashItem>>,
@@ -40,6 +41,7 @@ impl DataStore {
         Self {
             pages: Signal::new(Vec::new()),
             notes: Signal::new(Vec::new()),
+            files: Signal::new(Vec::new()),
             folders: Signal::new(Vec::new()),
             spaces: Signal::new(Vec::new()),
             trash_items: Signal::new(Vec::new()),
@@ -97,6 +99,9 @@ impl DataStore {
             }
             Section::Folder(folder_id) => {
                 self.notes.set(lore_core::db::list_notes(&conn, Some(folder_id), space_id).unwrap_or_default());
+            }
+            Section::AllFiles => {
+                self.files.set(lore_core::db::list_files(&conn, space_id).unwrap_or_default());
             }
             Section::Trash => {
                 self.trash_items.set(data::list_trash(space_id).unwrap_or_default());
@@ -290,6 +295,48 @@ impl DataStore {
         lore_core::db::delete_note_permanent(&conn, note_id).map_err(|e| e.to_string())?;
         self.refresh(state);
         Ok(())
+    }
+
+    // ---- File mutations ----
+
+    pub fn upload_file(&mut self, state: &AppState, name: &str, mime_type: Option<&str>, data: &[u8]) -> Result<i64, String> {
+        let space_id = *state.space_id.read();
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        let id = lore_core::db::insert_file(&conn, name, mime_type, data, space_id)
+            .map_err(|e| e.to_string())?;
+        self.refresh(state);
+        Ok(id)
+    }
+
+    pub fn trash_file(&mut self, state: &AppState, id: i64) -> Result<(), String> {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::trash_file(&conn, id).map_err(|e| e.to_string())?;
+        self.refresh(state);
+        Ok(())
+    }
+
+    pub fn restore_file(&mut self, state: &AppState, id: i64) -> Result<(), String> {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::restore_file(&conn, id).map_err(|e| e.to_string())?;
+        self.refresh(state);
+        Ok(())
+    }
+
+    pub fn delete_file_permanent(&mut self, state: &AppState, id: i64) -> Result<(), String> {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::delete_file_permanent(&conn, id).map_err(|e| e.to_string())?;
+        self.refresh(state);
+        Ok(())
+    }
+
+    /// Returns a base64 data URI for inline preview (images and PDFs).
+    pub fn get_file_data_uri(&self, id: i64) -> Option<String> {
+        let conn = data::open_db().ok()?;
+        let (mime, bytes) = lore_core::db::get_file_data(&conn, id).ok()?;
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let mime_str = mime.as_deref().unwrap_or("application/octet-stream");
+        Some(format!("data:{};base64,{}", mime_str, b64))
     }
 
     // ---- URL tracking for current note ----

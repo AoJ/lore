@@ -135,6 +135,42 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
         Key::Character(ref ch) if ch == keys::NAV_UP.0 && ctrl => {
             move_selection(&mut state, -1);
         }
+        // Cmd+S — save selected file to disk via native dialog
+        Key::Character(ref ch) if ch == "s" && cmd => {
+            if let Selected::File(id) = *state.selected.read() {
+                let conn = data::open_db().ok();
+                let file_name = conn.as_ref()
+                    .and_then(|c| lore_core::db::get_file(c, id).ok())
+                    .map(|f| f.name);
+                let file_data = conn.as_ref()
+                    .and_then(|c| lore_core::db::get_file_data(c, id).ok())
+                    .map(|(_, b)| b);
+                if let (Some(name), Some(bytes)) = (file_name, file_data) {
+                    spawn(async move {
+                        // Small delay so WKWebView finishes processing the keydown event
+                        // before the native panel takes focus (otherwise dialog flashes).
+                        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                        let default_dir = dirs::download_dir().unwrap_or_default();
+                        let handle = rfd::AsyncFileDialog::new()
+                            .set_file_name(&name)
+                            .set_directory(&default_dir)
+                            .save_file()
+                            .await;
+                        if let Some(h) = handle {
+                            if h.write(&bytes).await.is_ok() {
+                                state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        // Cmd+U — upload file (Files section only)
+        Key::Character(ref ch) if ch == "u" && cmd => {
+            if *state.section.read() == Section::AllFiles {
+                dioxus::document::eval("document.getElementById('file-upload-input').click()");
+            }
+        }
         // Cmd+D — trash selected
         Key::Character(ref ch) if ch == "d" && cmd => {
             trash_selected(&mut state, &mut store);
@@ -206,6 +242,12 @@ fn trash_selected(state: &mut AppState, store: &mut store::DataStore) {
         Selected::Note(id) => {
             if store.trash_note(state, id).is_ok() {
                 state.show_toast(texts::TOAST_NOTE_TRASH.to_string(), Some(state::UndoAction::RestoreNote(id)));
+                state.selected.set(Selected::None);
+            }
+        }
+        Selected::File(id) => {
+            if store.trash_file(state, id).is_ok() {
+                state.show_toast(texts::TOAST_FILE_TRASH.to_string(), Some(state::UndoAction::RestoreFile(id)));
                 state.selected.set(Selected::None);
             }
         }

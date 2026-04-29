@@ -16,4 +16,5 @@ rusqlite = "0.34"
 url = "2"
 base64 = "0.22"
 tokio = { version = "1", features = ["time"] }
+rfd = "0.15"
 chrono = "0.4"

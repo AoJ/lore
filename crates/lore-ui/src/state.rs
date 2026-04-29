@@ -37,6 +37,7 @@ pub struct ToastData {
 pub enum UndoAction {
     RestorePage(i64),
     RestoreNote(i64),
+    RestoreFile(i64),
 }
 
 /// What's being renamed inline

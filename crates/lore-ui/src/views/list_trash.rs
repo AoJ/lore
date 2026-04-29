@@ -23,6 +23,7 @@ pub fn ListTrash() -> Element {
                         let kind_label = match item.kind {
                             data::TrashKind::Page => texts::KIND_PAGE,
                             data::TrashKind::Note => texts::KIND_NOTE,
+                            data::TrashKind::File => texts::KIND_FILE,
                         };
                         let item_id = item.id;
                         let item_kind = item.kind.clone();
@@ -42,6 +43,7 @@ pub fn ListTrash() -> Element {
                                             let result = match item_kind {
                                                 data::TrashKind::Page => store.restore_page(&state, item_id),
                                                 data::TrashKind::Note => store.restore_note(&state, item_id),
+                                                data::TrashKind::File => store.restore_file(&state, item_id),
                                             };
                                             if result.is_ok() {
                                                 state.show_toast(texts::TOAST_RESTORED.to_string(), None);
@@ -54,6 +56,7 @@ pub fn ListTrash() -> Element {
                                             match item_kind2 {
                                                 data::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).ok(); }
                                                 data::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).ok(); }
+                                                data::TrashKind::File => { store.delete_file_permanent(&state, item_id2).ok(); }
                                             }
                                         },
                                         {texts::BTN_DELETE_FOREVER}

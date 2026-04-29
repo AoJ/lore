@@ -247,6 +247,7 @@ pub struct TrashItem {
 pub enum TrashKind {
     Page,
     Note,
+    File,
 }
 
 pub fn list_trash(space_id: i64) -> Result<Vec<TrashItem>> {
@@ -285,10 +286,85 @@ pub fn list_trash(space_id: i64) -> Result<Vec<TrashItem>> {
         .filter_map(|r| r.ok());
     items.extend(notes);
 
+    // Trashed files
+    let mut stmt = conn.prepare(
+        "SELECT id, name, deleted_at FROM file WHERE deleted_at IS NOT NULL AND space_id = ?1 ORDER BY deleted_at DESC",
+    )?;
+    let files = stmt
+        .query_map([space_id], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::File,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok());
+    items.extend(files);
+
     // Sort by trashed_at desc
     items.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at));
     Ok(items)
 }
+
+// ---- File helpers ----
+
+pub fn format_file_size(bytes: i64) -> String {
+    if bytes >= 1_000_000_000 {
+        format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)
+    } else if bytes >= 1_000_000 {
+        format!("{:.1} MB", bytes as f64 / 1_000_000.0)
+    } else if bytes >= 1_000 {
+        format!("{:.1} KB", bytes as f64 / 1_000.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Extract the uppercase file extension, e.g. "PDF", "PNG". Returns "FILE" if none.
+pub fn file_extension(name: &str) -> String {
+    std::path::Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_uppercase())
+        .unwrap_or_else(|| "FILE".into())
+        .to_string()
+}
+
+/// Best-effort MIME type from file extension.
+pub fn mime_from_extension(name: &str) -> String {
+    let ext = std::path::Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "pdf"  => "application/pdf",
+        "png"  => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif"  => "image/gif",
+        "webp" => "image/webp",
+        "svg"  => "image/svg+xml",
+        "avif" => "image/avif",
+        "txt"  => "text/plain",
+        "md"   => "text/markdown",
+        "html" | "htm" => "text/html",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "doc"  => "application/msword",
+        "xls"  => "application/vnd.ms-excel",
+        "zip"  => "application/zip",
+        "gz"   => "application/gzip",
+        "json" => "application/json",
+        "xml"  => "application/xml",
+        "csv"  => "text/csv",
+        "mp4"  => "video/mp4",
+        "mp3"  => "audio/mpeg",
+        _      => "application/octet-stream",
+    }
+    .to_string()
+}
+
+/// Save file bytes to ~/Downloads/<name>. Returns the destination path.
 
 // ---- Rules ----
 
