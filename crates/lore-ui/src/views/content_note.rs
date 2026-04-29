@@ -3,6 +3,54 @@ use crate::state::{AppState, Selected, UndoAction};
 use crate::data;
 use crate::texts;
 
+fn format_size(bytes: i64) -> String {
+    if bytes >= 1_000_000_000 {
+        format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)
+    } else if bytes >= 1_000_000 {
+        format!("{:.1} MB", bytes as f64 / 1_000_000.0)
+    } else if bytes >= 1_000 {
+        format!("{:.1} KB", bytes as f64 / 1_000.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+fn ext_from_name(name: &str) -> String {
+    std::path::Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_uppercase())
+        .unwrap_or_else(|| "FILE".into())
+}
+
+/// Naive JSON string-value extractor: finds `"key":"...."` and returns the
+/// (un-escaped) value. Sufficient for our drop-payload schema where the
+/// producer is our own JS using `JSON.stringify`.
+fn json_extract(json: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{}\":\"", key);
+    let start = json.find(&needle)? + needle.len();
+    let rest = &json[start..];
+    let mut out = String::new();
+    let mut chars = rest.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next()? {
+                'n' => out.push('\n'),
+                't' => out.push('\t'),
+                'r' => out.push('\r'),
+                '"' => out.push('"'),
+                '\\' => out.push('\\'),
+                '/' => out.push('/'),
+                other => out.push(other),
+            }
+        } else if c == '"' {
+            return Some(out);
+        } else {
+            out.push(c);
+        }
+    }
+    None
+}
+
 #[component]
 pub fn ContentNote(id: i64) -> Element {
     let mut state = use_context::<AppState>();
@@ -47,6 +95,47 @@ pub fn ContentNote(id: i64) -> Element {
                 escaped, note_id
             );
             document::eval(&js);
+        });
+    }
+
+    // Wire up drag&drop handler for files into the editor
+    {
+        use_effect(move || {
+            let js = r#"
+                setTimeout(function() {
+                    var root = document.getElementById('milkdown-root');
+                    if (!root) return;
+                    var pm = root.querySelector('.ProseMirror') || root.querySelector('[contenteditable]');
+                    if (!pm || pm._loreFileDropBound) return;
+                    pm._loreFileDropBound = true;
+                    pm.addEventListener('dragover', function(e) {
+                        if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.indexOf('Files') !== -1) {
+                            e.preventDefault();
+                        }
+                    });
+                    pm.addEventListener('drop', function(e) {
+                        if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+                        e.preventDefault();
+                        var bridge = document.getElementById('file-bridge');
+                        if (!bridge) return;
+                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        Array.from(e.dataTransfer.files).forEach(function(file) {
+                            var reader = new FileReader();
+                            reader.onload = function(ev) {
+                                var payload = JSON.stringify({
+                                    name: file.name,
+                                    mime: file.type || 'application/octet-stream',
+                                    dataUri: ev.target.result
+                                });
+                                setter.call(bridge, payload);
+                                bridge.dispatchEvent(new Event('input', {bubbles: true}));
+                            };
+                            reader.readAsDataURL(file);
+                        });
+                    });
+                }, 600);
+            "#;
+            document::eval(js);
         });
     }
 
@@ -160,6 +249,59 @@ pub fn ContentNote(id: i64) -> Element {
                     },
                 }
 
+                // File drop bridge — JS sends JSON {name, mime, dataUri} here
+                textarea {
+                    id: "file-bridge",
+                    style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
+                    tabindex: "-1",
+                    oninput: move |evt| {
+                        let payload = evt.value();
+                        if payload.is_empty() { return; }
+                        let parsed: Option<(String, String, Vec<u8>)> = (|| {
+                            let s = payload.as_str();
+                            let name = json_extract(s, "name")?;
+                            let mime = json_extract(s, "mime")?;
+                            let data_uri = json_extract(s, "dataUri")?;
+                            let comma = data_uri.find(',')?;
+                            let b64 = &data_uri[comma + 1..];
+                            use base64::Engine;
+                            let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+                            Some((name, mime, bytes))
+                        })();
+                        if let Some((name, mime, bytes)) = parsed {
+                            if let Ok((att_id, outcome)) = store.upload_attachment(id, &name, &mime, &bytes) {
+                                let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
+                                let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
+                                let js = format!(
+                                    "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                    method, method, escaped_name, att_id
+                                );
+                                document::eval(&js);
+                                if mime.starts_with("image/") {
+                                    if let Some(uri) = store.get_attachment_data_uri(att_id) {
+                                        let resolve_js = format!(
+                                            "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
+                                            att_id,
+                                            uri.replace('\'', "\\'")
+                                        );
+                                        document::eval(&resolve_js);
+                                    }
+                                }
+                                match outcome {
+                                    lore_core::db::InsertAttachmentOutcome::DedupedActive => {
+                                        state.show_toast(texts::TOAST_ATTACHMENT_DEDUPED.to_string(), None);
+                                    }
+                                    lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => {
+                                        state.show_toast(texts::TOAST_ATTACHMENT_REVIVED.to_string(), None);
+                                    }
+                                    lore_core::db::InsertAttachmentOutcome::Inserted => {}
+                                }
+                                store.refresh(&state);
+                            }
+                        }
+                    },
+                }
+
                 // Image paste bridge — JS sends data URI here
                 textarea {
                     id: "image-bridge",
@@ -198,7 +340,7 @@ pub fn ContentNote(id: i64) -> Element {
                         let name = format!("paste-{}.{}", chrono::Local::now().format("%H%M%S"), ext);
 
                         // Upload to DB
-                        if let Ok(att_id) = store.upload_image(id, &name, mime, &bytes) {
+                        if let Ok((att_id, _outcome)) = store.upload_image(id, &name, mime, &bytes) {
                             // Insert markdown into editor
                             let js = format!(
                                 "window.loreEditor && window.loreEditor.insertImage('{}', 'lore://attachment/{}');",
@@ -235,7 +377,196 @@ pub fn ContentNote(id: i64) -> Element {
                     }
                 }
 
+                // Hidden file input for attachments
+                input {
+                    r#type: "file",
+                    id: "note-attach-input",
+                    multiple: true,
+                    accept: "*/*",
+                    style: "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;",
+                    onchange: move |evt: FormEvent| {
+                        let files = evt.files();
+                        if files.is_empty() { return; }
+                        let note_id = id;
+                        spawn(async move {
+                            let mut store = store;
+                            let mut deduped = 0u32;
+                            let mut revived = 0u32;
+                            for file_data in files {
+                                let name = file_data.name();
+                                let mime = file_data.content_type()
+                                    .unwrap_or_else(|| data::mime_from_extension(&name));
+                                if let Ok(bytes) = file_data.read_bytes().await {
+                                    if let Ok((att_id, outcome)) = store.upload_attachment(note_id, &name, &mime, &bytes) {
+                                        match outcome {
+                                            lore_core::db::InsertAttachmentOutcome::DedupedActive => deduped += 1,
+                                            lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => revived += 1,
+                                            lore_core::db::InsertAttachmentOutcome::Inserted => {}
+                                        }
+                                        let escaped_name = name.replace('\'', "\\'").replace('\\', "\\\\");
+                                        let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
+                                        let js = format!(
+                                            "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                            method, method, escaped_name, att_id
+                                        );
+                                        document::eval(&js);
+                                        if mime.starts_with("image/") {
+                                            if let Some(uri) = store.get_attachment_data_uri(att_id) {
+                                                let resolve_js = format!(
+                                                    "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
+                                                    att_id,
+                                                    uri.replace('\'', "\\'")
+                                                );
+                                                document::eval(&resolve_js);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            store.refresh(&state);
+                            if revived > 0 {
+                                state.show_toast(texts::TOAST_ATTACHMENT_REVIVED.to_string(), None);
+                            } else if deduped > 0 {
+                                state.show_toast(texts::TOAST_ATTACHMENT_DEDUPED.to_string(), None);
+                            }
+                        });
+                    }
+                }
+
+                // Attachments sections (active + removed)
+                {
+                    let _rev = *store.revision.read();
+                    let active = store.list_active_attachments(id);
+                    let removed = store.list_removed_attachments(id);
+                    rsx! {
+                        if !active.is_empty() {
+                            div { class: "note-attachments",
+                                div { class: "note-attachments-header", "Attachments" }
+                                div { class: "note-attachments-list",
+                                    for att in active.iter() {
+                                        {
+                                            let aid = att.id;
+                                            let aname = att.name.clone();
+                                            let ext = ext_from_name(&att.name);
+                                            let size = format_size(att.size);
+                                            let date = att.created_at.clone();
+                                            let short_hash = att.hash.chars().take(8).collect::<String>();
+                                            rsx! {
+                                                div { key: "a-{aid}", class: "attachment-row",
+                                                    span { class: "file-ext-badge", "{ext}" }
+                                                    span { class: "attachment-name",
+                                                        title: "{aname}",
+                                                        onclick: move |_| {
+                                                            let conn = data::open_db().ok();
+                                                            let bytes = conn.as_ref()
+                                                                .and_then(|c| lore_core::db::get_attachment_data(c, aid).ok())
+                                                                .map(|(_, b)| b);
+                                                            let fname = aname.clone();
+                                                            if let Some(b) = bytes {
+                                                                spawn(async move {
+                                                                    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                                                                    let default_dir = dirs::download_dir().unwrap_or_default();
+                                                                    let handle = rfd::AsyncFileDialog::new()
+                                                                        .set_file_name(&fname)
+                                                                        .set_directory(&default_dir)
+                                                                        .save_file()
+                                                                        .await;
+                                                                    if let Some(h) = handle {
+                                                                        if h.write(&b).await.is_ok() {
+                                                                            state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+                                                        },
+                                                        "{att.name}"
+                                                    }
+                                                    span { class: "attachment-meta",
+                                                        "{date}"
+                                                        span { class: "sep", "·" }
+                                                        "{size}"
+                                                        span { class: "sep", "·" }
+                                                        span { class: "file-hash", "{short_hash}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !removed.is_empty() {
+                            div { class: "note-attachments",
+                                div { class: "note-attachments-header", "Removed (auto-delete after 30 days)" }
+                                div { class: "note-attachments-list",
+                                    for att in removed.iter() {
+                                        {
+                                            let aid = att.id;
+                                            let aname = att.name.clone();
+                                            let ext = ext_from_name(&att.name);
+                                            let size = format_size(att.size);
+                                            let date = att.deleted_at.clone().unwrap_or_default()
+                                                .chars().take(10).collect::<String>();
+                                            let short_hash = att.hash.chars().take(8).collect::<String>();
+                                            rsx! {
+                                                div { key: "r-{aid}", class: "attachment-row removed",
+                                                    span { class: "file-ext-badge", "{ext}" }
+                                                    span { class: "attachment-name", title: "{aname}", "{att.name}" }
+                                                    span { class: "attachment-meta",
+                                                        "{date}"
+                                                        span { class: "sep", "·" }
+                                                        "{size}"
+                                                        span { class: "sep", "·" }
+                                                        span { class: "file-hash", "{short_hash}" }
+                                                    }
+                                                    div { class: "attachment-actions",
+                                                        button { class: "btn-sm",
+                                                            onclick: move |_| {
+                                                                if let Ok(row) = store.restore_attachment(&state, aid) {
+                                                                    let mime = row.mime_type.unwrap_or_default();
+                                                                    let prefix = if mime.starts_with("image/") { "!" } else { "" };
+                                                                    let escaped = row.name.replace('\'', "\\'").replace('\\', "\\\\");
+                                                                    let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
+                                                                    let _ = prefix; // syntax built by method choice
+                                                                    let js = format!(
+                                                                        "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'lore://attachment/{}');",
+                                                                        method, method, escaped, aid
+                                                                    );
+                                                                    document::eval(&js);
+                                                                    if mime.starts_with("image/") {
+                                                                        if let Some(uri) = store.get_attachment_data_uri(aid) {
+                                                                            let resolve_js = format!(
+                                                                                "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
+                                                                                aid,
+                                                                                uri.replace('\'', "\\'")
+                                                                            );
+                                                                            document::eval(&resolve_js);
+                                                                        }
+                                                                    }
+                                                                    state.show_toast(texts::TOAST_ATTACHMENT_RESTORED.to_string(), None);
+                                                                }
+                                                            },
+                                                            {texts::BTN_RESTORE}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 div { class: "note-actions",
+                    button { class: "btn note-attach-btn",
+                        r#type: "button",
+                        onclick: move |_| {
+                            document::eval("document.getElementById('note-attach-input').click()");
+                        },
+                        "+ Attach file"
+                    }
                     div { class: "move-to-wrapper",
                         button { class: "btn",
                             onclick: move |_| move_menu_open.toggle(),

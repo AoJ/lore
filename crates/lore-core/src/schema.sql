@@ -87,20 +87,26 @@ CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
     content=''
 );
 
--- Note attachments (images, files)
+-- Note attachments (images, files inline-blocks)
 CREATE TABLE IF NOT EXISTS note_attachment (
     id         INTEGER PRIMARY KEY,
     note_id    INTEGER NOT NULL REFERENCES note(id),
     name       TEXT NOT NULL,
     mime_type  TEXT,
+    size       INTEGER NOT NULL DEFAULT 0,
+    hash       TEXT NOT NULL DEFAULT '',
     data       BLOB NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_note_attachment_note ON note_attachment(note_id);
+-- idx_note_attachment_deleted is created in db.rs after the size/hash/deleted_at migration,
+-- so it's safe both for fresh installs (column exists) and old DBs (migration adds column first).
 
 -- Trigger: revision bump on attachment changes
 CREATE TRIGGER IF NOT EXISTS trg_rev_attachment_i AFTER INSERT ON note_attachment BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_attachment_u AFTER UPDATE ON note_attachment BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
 CREATE TRIGGER IF NOT EXISTS trg_rev_attachment_d AFTER DELETE ON note_attachment BEGIN UPDATE db_revision SET revision = revision + 1 WHERE id = 1; END;
 
 -- Classification rules

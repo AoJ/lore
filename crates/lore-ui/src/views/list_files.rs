@@ -34,13 +34,15 @@ pub fn ListFiles() -> Element {
                         spawn(async move {
                             let mut store = store;
                             let mut last_id: Option<i64> = None;
+                            let mut revived = 0u32;
+                            let mut deduped = 0u32;
                             for file_data in files {
                                 let name = file_data.name();
                                 let mime = file_data.content_type()
                                     .unwrap_or_else(|| data::mime_from_extension(&name));
                                 if let Ok(bytes) = file_data.read_bytes().await {
                                     if let Ok(conn) = data::open_db() {
-                                        if let Ok(id) = lore_core::db::insert_file(
+                                        if let Ok((id, outcome)) = lore_core::db::insert_file(
                                             &conn,
                                             &name,
                                             Some(&mime),
@@ -48,6 +50,11 @@ pub fn ListFiles() -> Element {
                                             space_id,
                                         ) {
                                             last_id = Some(id);
+                                            match outcome {
+                                                lore_core::db::InsertFileOutcome::RevivedFromTrash => revived += 1,
+                                                lore_core::db::InsertFileOutcome::DedupedActive => deduped += 1,
+                                                lore_core::db::InsertFileOutcome::Inserted => {}
+                                            }
                                         }
                                     }
                                 }
@@ -55,6 +62,11 @@ pub fn ListFiles() -> Element {
                             store.refresh(&state);
                             if let Some(id) = last_id {
                                 state.selected.set(crate::state::Selected::File(id));
+                            }
+                            if revived > 0 {
+                                state.show_toast(texts::TOAST_FILE_RESTORED_FROM_TRASH.to_string(), None);
+                            } else if deduped > 0 {
+                                state.show_toast(texts::TOAST_FILE_DEDUPED.to_string(), None);
                             }
                         });
                     }

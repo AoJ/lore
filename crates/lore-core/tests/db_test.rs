@@ -261,10 +261,10 @@ fn trash_and_restore_page() {
     }).unwrap();
 
     db::trash_page(&conn, id).unwrap();
-    assert!(db::trash_count(&conn).unwrap() > 0);
+    assert!(db::trash_count(&conn, space.id).unwrap() > 0);
 
     db::restore_page(&conn, id).unwrap();
-    assert_eq!(db::trash_count(&conn).unwrap(), 0);
+    assert_eq!(db::trash_count(&conn, space.id).unwrap(), 0);
 }
 
 #[test]

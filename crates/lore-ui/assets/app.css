@@ -627,9 +627,9 @@ details summary {
 }
 
 .content-note {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+    /* Natural block flow — let scrolling happen on .content-panel-container.
+       editor.css adds position: relative for the dirty-indicator. */
+    display: block;
 }
 
 .note-footer {
@@ -778,6 +778,96 @@ details summary {
 
 .btn-sm.btn-danger:hover {
     background: var(--color-danger);
+    color: #fff;
+}
+
+/* ---- Note attachments ---- */
+.note-attachments {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border-light);
+}
+
+.note-attachments-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-muted);
+    margin-bottom: var(--spacing-sm);
+}
+
+.note-attachments-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.attachment-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    font-size: var(--font-size-sm);
+}
+
+.attachment-row .file-ext-badge { flex-shrink: 0; }
+
+.attachment-row .attachment-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.attachment-row .attachment-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.attachment-row .attachment-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+}
+
+.attachment-row.removed {
+    background: #fafafa;
+    border-style: dashed;
+    border-color: var(--color-border);
+    opacity: 0.85;
+}
+
+.attachment-row.removed .attachment-name,
+.attachment-row.removed .attachment-meta {
+    color: var(--color-muted);
+}
+
+.attachment-row.removed .file-ext-badge {
+    color: var(--color-muted);
+    border-style: dashed;
+}
+
+/* Outline accent variant of .btn — same dimensions, different look */
+.btn.note-attach-btn {
+    background: transparent;
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+}
+
+.btn.note-attach-btn:hover {
+    background: var(--color-accent);
     color: #fff;
 }
 

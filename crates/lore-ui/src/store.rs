@@ -82,7 +82,7 @@ impl DataStore {
         self.spaces.set(lore_core::db::list_spaces(&conn).unwrap_or_default());
         self.folders.set(lore_core::db::list_folders(&conn, space_id).unwrap_or_default());
         self.note_counts.set(lore_core::db::folder_note_counts(&conn, space_id).unwrap_or_default());
-        self.trash_count.set(lore_core::db::trash_count(&conn).unwrap_or(0));
+        self.trash_count.set(lore_core::db::trash_count(&conn, space_id).unwrap_or(0));
 
         // Heatmap
         if matches!(section, Section::Timeline) {
@@ -299,13 +299,15 @@ impl DataStore {
 
     // ---- File mutations ----
 
-    pub fn upload_file(&mut self, state: &AppState, name: &str, mime_type: Option<&str>, data: &[u8]) -> Result<i64, String> {
+    pub fn upload_file(&mut self, state: &AppState, name: &str, mime_type: Option<&str>, data: &[u8])
+        -> Result<(i64, lore_core::db::InsertFileOutcome), String>
+    {
         let space_id = *state.space_id.read();
         let conn = data::open_db().map_err(|e| e.to_string())?;
-        let id = lore_core::db::insert_file(&conn, name, mime_type, data, space_id)
+        let result = lore_core::db::insert_file(&conn, name, mime_type, data, space_id)
             .map_err(|e| e.to_string())?;
         self.refresh(state);
-        Ok(id)
+        Ok(result)
     }
 
     pub fn trash_file(&mut self, state: &AppState, id: i64) -> Result<(), String> {
@@ -361,9 +363,19 @@ impl DataStore {
         self.url_statuses.set(HashMap::new());
     }
 
-    // ---- Attachments (images) ----
+    // ---- Attachments (images + file blocks) ----
 
-    pub fn upload_image(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8]) -> Result<i64, String> {
+    pub fn upload_image(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8])
+        -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String>
+    {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data).map_err(|e| e.to_string())
+    }
+
+    /// Upload a generic file as a note attachment (file-block, not inline image).
+    pub fn upload_attachment(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8])
+        -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String>
+    {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data).map_err(|e| e.to_string())
     }
@@ -378,6 +390,7 @@ impl DataStore {
 
     pub fn cleanup_note_attachments(&self, note_id: i64, markdown: &str) {
         // Extract attachment IDs referenced in markdown: ![...](lore://attachment/123)
+        // and [...](lore://attachment/123). Both syntaxes share the URL scheme.
         let mut used_ids = Vec::new();
         for part in markdown.split("lore://attachment/") {
             if let Some(end) = part.find(')') {
@@ -389,6 +402,32 @@ impl DataStore {
         if let Ok(conn) = data::open_db() {
             lore_core::db::cleanup_orphaned_attachments(&conn, note_id, &used_ids).ok();
         }
+    }
+
+    pub fn list_active_attachments(&self, note_id: i64) -> Vec<lore_core::db::AttachmentRow> {
+        data::open_db()
+            .ok()
+            .and_then(|c| lore_core::db::list_attachments(&c, note_id).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn list_removed_attachments(&self, note_id: i64) -> Vec<lore_core::db::AttachmentRow> {
+        data::open_db()
+            .ok()
+            .and_then(|c| lore_core::db::list_removed_attachments(&c, note_id).ok())
+            .unwrap_or_default()
+    }
+
+    /// Restore a soft-deleted attachment. Returns the attachment row so caller
+    /// can re-insert the markdown reference at the right place in the note.
+    pub fn restore_attachment(&mut self, state: &AppState, attachment_id: i64)
+        -> Result<lore_core::db::AttachmentRow, String>
+    {
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        lore_core::db::restore_attachment(&conn, attachment_id).map_err(|e| e.to_string())?;
+        let row = lore_core::db::get_attachment(&conn, attachment_id).map_err(|e| e.to_string())?;
+        self.refresh(state);
+        Ok(row)
     }
 
     // ---- Auto-archive URLs from note content ----

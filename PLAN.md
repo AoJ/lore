@@ -87,14 +87,19 @@
 - [x] Vkládání obrázků (paste ze schránky → BLOB v DB, inline zobrazení, orphan cleanup)
 - [x] Kalendářní pohled / timeline — heatmap 30 dní, klik na den filtruje poznámky/stránky
 - [x] Okamžitá navigace — store.navigate() s přímým refresh (žádný polling lag)
-- [ ] Připojení souborů k poznámce
+- [x] Připojení souborů k poznámce — file picker (+ Attach file) i drag&drop do editoru, soft-delete místo hard-delete při odstranění z těla (30denní bezpečnostní okno)
+- [x] Sekce "Attachments" pod poznámkou — výpis aktivních příloh ve stylu Files (ext · name · date · size · checksum)
+- [x] Sekce "Removed" pod poznámkou — soft-deleted přílohy s tlačítkem Restore, auto-cleanup po 30 dnech
+- [ ] Custom Milkdown block-widget pro file přílohy (zatím vkládáme jen jako markdown link, plný "block/pruh mezi odstavci" widget vyžaduje rebuild milkdown.js bundle)
 
 ### Soubory (modul Files)
-- [ ] DB tabulka `file` (id, name, mime_type, size, data BLOB, created_at)
-- [ ] Upload souborů (drag & drop, file picker)
-- [ ] Náhled pro obrázky a PDF
-- [ ] Připojení souboru k poznámce
-- [ ] Budoucí: podepsané dokumenty, evidence podpisů, obnova
+- [x] DB tabulka `file` (id, name, mime_type, size, hash, data BLOB, created_at, deleted_at)
+- [x] Upload souborů (file picker, dedup podle name+hash v rámci space)
+- [x] Náhled pro obrázky a PDF (data URI inline)
+- [x] Soft-delete (trash) + 30denní cleanup
+- [x] Edge case: upload souboru, který je v koši → automatický revive (zachová původní ID)
+- [ ] Connect-soubor-k-poznámce přes Files sekci (záměrně oddělené od note attachmentů — viz Notes/Attachmenty)
+- [ ] Budoucí: podepsané dokumenty, evidence podpisů, verzování
 
 ### Vyhledávání — pokročilé
 - [ ] Volba "Search all spaces"
@@ -126,6 +131,39 @@
 - [ ] Free-form tagy na poznámkách a webových stránkách
 - [ ] Cross-space tagging (tag viditelný napříč spaces)
 - [ ] Filtrování podle tagů v list panelu
+
+### Infrastruktura / Build / DB management
+*Vyplynulo z incidentu 2026-04-29, kdy nová verze kódu tiše selhala na startu kvůli rozdílu schématu a aplikace běžela bez dat — chyba byla swallow-nutá.*
+
+- [ ] **Verzované DB schéma**
+  - Sloupec `schema_version` (nebo tabulka `meta`) v DB
+  - Aplikace zná `EXPECTED_VERSION` v kódu
+  - Při startu: pokud `db.version < expected` → spustit migrace postupně (1→2→3…), commit verze
+  - Pokud `db.version > expected` → **odmítnout start** s jasnou hláškou ("DB schéma v{X}, tato verze aplikace zná jen v{Y} — spusť novější aplikaci")
+  - Pokud `db.version == expected` → start
+- [ ] **Centrální místo pro migrace**
+  - Adresář `crates/lore-core/migrations/NNN_popis.sql` (např. `001_initial.sql`, `002_add_attachment_size_hash.sql`)
+  - Embed přes `include_dir!` nebo `include_str!` per soubor
+  - Linear forward-only — žádné down-migrace zatím
+  - `schema.sql` přestane být zdrojem pravdy → bude jen současný snapshot pro fresh install (generovaný / udržovaný)
+- [ ] **Error handling při startu**
+  - Selhání `db::open()` musí být vidět: hláška v dialog boxu / error overlay v UI místo prázdného okna
+  - Žádné `.ok()` ani `.unwrap_or_default()` na startup-critical operace — místo toho propagovat až do mainu a zobrazit
+  - Verze aplikace + commit hash v error reportu, ať uživatel ví co spustil
+- [ ] **Log management**
+  - `tracing` crate s `tracing-subscriber` (env-filter)
+  - Levely: `error`, `warn`, `info` (default), `debug`, `trace`
+  - File output do `~/Library/Logs/lore/lore.log` s rotací (např. denní)
+  - `RUST_LOG=lore=debug` přepíše level
+  - Případně overlay v UI s posledními N error/warn hláškami (collapsible panel?)
+- [ ] **Makefile jako jediná pravda pro spouštění**
+  - Aktuální `make desktop`, `make serve`, `make worker` — udržovat
+  - Přidat: `make desktop-release`, `make migrate` (vynutí migrace bez startu UI), `make db-version`, `make logs` (tail logu)
+  - `DB ?= $(CURDIR)/db.sqlite` zachovat — dev výchozí, override `DB=` proměnnou
+- [ ] **README.md**
+  - Přepsat sekci "Build" → "Spuštění a vývoj" s odkazy na Makefile cíle
+  - Doplnit "DB & migrace" sekci popisující versioning a kde leží migrační skripty
+  - Doplnit "Logování a debug" sekci s `RUST_LOG`, umístěním logu, jak nahlásit chybu
 
 ---
 

@@ -25,6 +25,50 @@ pub fn open(path: &Path) -> Result<Connection> {
         conn.execute_batch("ALTER TABLE space ADD COLUMN deleted_at TEXT;").ok();
     }
 
+    // Migration: add size/hash/deleted_at to note_attachment if missing
+    let has_att_size: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('note_attachment') WHERE name='size'")
+        .and_then(|mut s| s.exists([]))
+        .unwrap_or(false);
+    if !has_att_size {
+        conn.execute_batch(
+            "ALTER TABLE note_attachment ADD COLUMN size INTEGER NOT NULL DEFAULT 0;\
+             ALTER TABLE note_attachment ADD COLUMN hash TEXT NOT NULL DEFAULT '';\
+             ALTER TABLE note_attachment ADD COLUMN deleted_at TEXT;",
+        )
+        .ok();
+        // Backfill size/hash for existing rows
+        let ids: Vec<i64> = conn
+            .prepare("SELECT id FROM note_attachment WHERE hash = ''")
+            .and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, i64>(0))
+                    .map(|it| it.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default();
+        for id in ids {
+            if let Ok(bytes) = conn.query_row(
+                "SELECT data FROM note_attachment WHERE id = ?1",
+                [id],
+                |r| r.get::<_, Vec<u8>>(0),
+            ) {
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let hash = format!("{:x}", hasher.finalize());
+                conn.execute(
+                    "UPDATE note_attachment SET size = ?1, hash = ?2 WHERE id = ?3",
+                    rusqlite::params![bytes.len() as i64, hash, id],
+                )
+                .ok();
+            }
+        }
+    }
+    // Index on deleted_at — created here (after migration) so it works both for
+    // fresh installs and for migrated old DBs that just gained the column.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_note_attachment_deleted ON note_attachment(deleted_at);",
+    )
+    .ok();
+
     // Ensure revision counter is seeded (existing DBs may not have it)
     conn.execute("INSERT OR IGNORE INTO db_revision (id, revision) VALUES (1, 0)", []).ok();
 
@@ -246,13 +290,13 @@ pub fn restore_page(conn: &Connection, page_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn trash_count(conn: &Connection) -> Result<i64> {
+pub fn trash_count(conn: &Connection, space_id: i64) -> Result<i64> {
     conn.query_row(
         "SELECT \
-            (SELECT COUNT(*) FROM web_page WHERE trashed_at IS NOT NULL) + \
-            (SELECT COUNT(*) FROM note WHERE deleted_at IS NOT NULL) + \
-            (SELECT COUNT(*) FROM file WHERE deleted_at IS NOT NULL)",
-        [],
+            (SELECT COUNT(*) FROM web_page WHERE trashed_at IS NOT NULL AND space_id = ?1) + \
+            (SELECT COUNT(*) FROM note      WHERE deleted_at IS NOT NULL AND space_id = ?1) + \
+            (SELECT COUNT(*) FROM file      WHERE deleted_at IS NOT NULL AND space_id = ?1)",
+        [space_id],
         |row| row.get(0),
     )
     .map_err(Into::into)
@@ -313,6 +357,13 @@ pub fn cleanup_old_trash(conn: &Connection, days: i64) -> Result<usize> {
         delete_space_permanent(conn, *id)?;
         cleaned += 1;
     }
+
+    // Clean old soft-deleted note attachments (BLOB hard-delete after retention)
+    let att_cleaned = conn.execute(
+        "DELETE FROM note_attachment WHERE deleted_at IS NOT NULL AND deleted_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?1)",
+        [&cutoff],
+    )?;
+    cleaned += att_cleaned;
 
     Ok(cleaned)
 }
@@ -753,12 +804,51 @@ pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<std::coll
 
 // ---- Attachments ----
 
-pub fn insert_attachment(conn: &Connection, note_id: i64, name: &str, mime_type: &str, data: &[u8]) -> Result<i64> {
+/// Outcome of `insert_attachment` so the caller can show appropriate feedback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertAttachmentOutcome {
+    Inserted,
+    DedupedActive,
+    RevivedFromRemoved,
+}
+
+/// Insert a note attachment with dedup against `(note_id, name, hash)`. Active
+/// duplicate → return its ID. Removed-list duplicate → clear `deleted_at` and
+/// return its ID. Same hash but different name = renamed version → new row.
+pub fn insert_attachment(
+    conn: &Connection,
+    note_id: i64,
+    name: &str,
+    mime_type: &str,
+    data: &[u8],
+) -> Result<(i64, InsertAttachmentOutcome)> {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let hash = format!("{:x}", hasher.finalize());
+    let size = data.len() as i64;
+
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM note_attachment WHERE note_id = ?1 AND name = ?2 AND hash = ?3 AND deleted_at IS NULL",
+        rusqlite::params![note_id, name, hash],
+        |row| row.get::<_, i64>(0),
+    ) {
+        return Ok((id, InsertAttachmentOutcome::DedupedActive));
+    }
+
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM note_attachment WHERE note_id = ?1 AND name = ?2 AND hash = ?3 AND deleted_at IS NOT NULL",
+        rusqlite::params![note_id, name, hash],
+        |row| row.get::<_, i64>(0),
+    ) {
+        conn.execute("UPDATE note_attachment SET deleted_at = NULL WHERE id = ?1", [id])?;
+        return Ok((id, InsertAttachmentOutcome::RevivedFromRemoved));
+    }
+
     conn.execute(
-        "INSERT INTO note_attachment (note_id, name, mime_type, data) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![note_id, name, mime_type, data],
+        "INSERT INTO note_attachment (note_id, name, mime_type, size, hash, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![note_id, name, mime_type, size, hash, data],
     )?;
-    Ok(conn.last_insert_rowid())
+    Ok((conn.last_insert_rowid(), InsertAttachmentOutcome::Inserted))
 }
 
 pub fn get_attachment_data(conn: &Connection, attachment_id: i64) -> Result<(String, Vec<u8>)> {
@@ -781,22 +871,97 @@ pub fn delete_attachments_for_note(conn: &Connection, note_id: i64) -> Result<()
 }
 
 pub fn list_attachment_ids_for_note(conn: &Connection, note_id: i64) -> Result<Vec<i64>> {
-    let mut stmt = conn.prepare("SELECT id FROM note_attachment WHERE note_id = ?1")?;
+    let mut stmt = conn.prepare(
+        "SELECT id FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NULL",
+    )?;
     let ids = stmt.query_map([note_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
     Ok(ids)
 }
 
-/// Clean orphaned attachments — IDs not referenced in any note's body
+/// Soft-delete attachments not referenced in current markdown body.
+/// Sets `deleted_at = now`. Hard-delete is performed by `cleanup_old_trash`
+/// after retention period expires.
 pub fn cleanup_orphaned_attachments(conn: &Connection, note_id: i64, used_ids: &[i64]) -> Result<usize> {
     let all_ids = list_attachment_ids_for_note(conn, note_id)?;
     let mut deleted = 0;
     for id in &all_ids {
         if !used_ids.contains(id) {
-            conn.execute("DELETE FROM note_attachment WHERE id = ?1", [*id])?;
+            conn.execute(
+                "UPDATE note_attachment SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+                [*id],
+            )?;
             deleted += 1;
         }
     }
     Ok(deleted)
+}
+
+#[derive(Clone, Debug)]
+pub struct AttachmentRow {
+    pub id: i64,
+    pub note_id: i64,
+    pub name: String,
+    pub mime_type: Option<String>,
+    pub size: i64,
+    pub hash: String,
+    pub created_at: String,
+    pub deleted_at: Option<String>,
+}
+
+fn map_attachment_row(row: &rusqlite::Row) -> rusqlite::Result<AttachmentRow> {
+    Ok(AttachmentRow {
+        id: row.get(0)?,
+        note_id: row.get(1)?,
+        name: row.get(2)?,
+        mime_type: row.get(3)?,
+        size: row.get(4)?,
+        hash: row.get(5)?,
+        created_at: row.get::<_, String>(6)?.chars().take(10).collect(),
+        deleted_at: row.get(7)?,
+    })
+}
+
+/// List active attachments for a note (deleted_at IS NULL).
+pub fn list_attachments(conn: &Connection, note_id: i64) -> Result<Vec<AttachmentRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, note_id, name, mime_type, size, hash, created_at, deleted_at \
+         FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NULL \
+         ORDER BY created_at",
+    )?;
+    let rows = stmt.query_map([note_id], map_attachment_row)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// List soft-deleted attachments for a note (the "removed attachments" list).
+pub fn list_removed_attachments(conn: &Connection, note_id: i64) -> Result<Vec<AttachmentRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, note_id, name, mime_type, size, hash, created_at, deleted_at \
+         FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NOT NULL \
+         ORDER BY deleted_at DESC",
+    )?;
+    let rows = stmt.query_map([note_id], map_attachment_row)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn get_attachment(conn: &Connection, id: i64) -> Result<AttachmentRow> {
+    conn.query_row(
+        "SELECT id, note_id, name, mime_type, size, hash, created_at, deleted_at \
+         FROM note_attachment WHERE id = ?1",
+        [id],
+        map_attachment_row,
+    )
+    .map_err(Into::into)
+}
+
+/// Clear `deleted_at` so the attachment is available again. Caller is
+/// responsible for inserting the markdown reference back into the note body.
+pub fn restore_attachment(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("UPDATE note_attachment SET deleted_at = NULL WHERE id = ?1", [id])?;
+    Ok(())
 }
 
 /// Activity by day for heatmap (last N days)
@@ -874,15 +1039,24 @@ pub struct FileRow {
     pub deleted_at: Option<String>,
 }
 
-/// Insert a file, or return the existing file's ID if a non-deleted file with
-/// the same name and hash already exists in this space (silent deduplication).
+/// Outcome of `insert_file` so the caller can show appropriate feedback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertFileOutcome {
+    Inserted,
+    DedupedActive,
+    RevivedFromTrash,
+}
+
+/// Insert a file, or dedupe against an existing file in this space matching
+/// `name + hash`. Active duplicate → return its ID. Trashed duplicate →
+/// clear `deleted_at` and return its ID (silent revive from trash).
 pub fn insert_file(
     conn: &Connection,
     name: &str,
     mime_type: Option<&str>,
     data: &[u8],
     space_id: i64,
-) -> Result<i64> {
+) -> Result<(i64, InsertFileOutcome)> {
     let mut hasher = Sha256::new();
     hasher.update(data);
     let hash = format!("{:x}", hasher.finalize());
@@ -893,14 +1067,23 @@ pub fn insert_file(
         rusqlite::params![name, hash, space_id],
         |row| row.get::<_, i64>(0),
     ) {
-        return Ok(id);
+        return Ok((id, InsertFileOutcome::DedupedActive));
+    }
+
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM file WHERE name = ?1 AND hash = ?2 AND space_id = ?3 AND deleted_at IS NOT NULL",
+        rusqlite::params![name, hash, space_id],
+        |row| row.get::<_, i64>(0),
+    ) {
+        conn.execute("UPDATE file SET deleted_at = NULL WHERE id = ?1", [id])?;
+        return Ok((id, InsertFileOutcome::RevivedFromTrash));
     }
 
     conn.execute(
         "INSERT INTO file (name, mime_type, size, hash, data, space_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![name, mime_type, size, hash, data, space_id],
     )?;
-    Ok(conn.last_insert_rowid())
+    Ok((conn.last_insert_rowid(), InsertFileOutcome::Inserted))
 }
 
 pub fn list_files(conn: &Connection, space_id: i64) -> Result<Vec<FileRow>> {

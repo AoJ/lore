@@ -73,6 +73,11 @@ pub const TOAST_FILE_SAVED: &str = "File saved.";
 pub const TOAST_RESTORED: &str = "Restored.";
 pub const TOAST_UNDO: &str = "Undo";
 pub const TOAST_ALREADY_EXISTS: &str = "Already exists";
+pub const TOAST_FILE_RESTORED_FROM_TRASH: &str = "File restored from trash.";
+pub const TOAST_FILE_DEDUPED: &str = "File already exists, using existing.";
+pub const TOAST_ATTACHMENT_RESTORED: &str = "Attachment restored.";
+pub const TOAST_ATTACHMENT_DEDUPED: &str = "Already attached, linking existing.";
+pub const TOAST_ATTACHMENT_REVIVED: &str = "Attachment restored from removed list.";
 
 // ---- Trash item labels ----
 pub const KIND_PAGE: &str = "page";
