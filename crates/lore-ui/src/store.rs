@@ -390,10 +390,10 @@ impl DataStore {
 
     pub fn cleanup_note_attachments(&self, note_id: i64, markdown: &str) {
         // Extract attachment IDs referenced in markdown:
-        //   ![...](https://lore.local/attachment/123)   (images)
-        //   [...](https://lore.local/attachment/123)    (file blocks)
+        //   ![...](https://attachment.lore.invalid/123)   (images)
+        //   [...](https://attachment.lore.invalid/123)    (file blocks)
         let mut used_ids = Vec::new();
-        for part in markdown.split("https://lore.local/attachment/") {
+        for part in markdown.split("https://attachment.lore.invalid/") {
             // The number ends at any non-digit char (typically ')')
             let end = part
                 .char_indices()

@@ -136,15 +136,15 @@ pub fn ContentNote(id: i64) -> Element {
                         });
                     });
 
-                    // Click on https://lore.local/attachment/X link in body → trigger save dialog.
+                    // Click on https://attachment.lore.invalid/X link in body → trigger save dialog.
                     // Capture phase so we beat browser's default URL navigation.
                     pm.addEventListener('click', function(e) {
-                        var a = e.target.closest && e.target.closest('a[href^="https://lore.local/attachment/"]');
+                        var a = e.target.closest && e.target.closest('a[href^="https://attachment.lore.invalid/"]');
                         if (!a) return;
                         e.preventDefault();
                         e.stopPropagation();
                         var href = a.getAttribute('href') || '';
-                        var idStr = href.replace('https://lore.local/attachment/', '').replace(/[^0-9].*$/, '');
+                        var idStr = href.replace('https://attachment.lore.invalid/', '').replace(/[^0-9].*$/, '');
                         if (!idStr) return;
                         var bridge = document.getElementById('att-download-bridge');
                         if (!bridge) return;
@@ -163,9 +163,9 @@ pub fn ContentNote(id: i64) -> Element {
     {
         let init_md = content.read().clone();
         use_effect(move || {
-            // Find all https://lore.local/attachment/ID references and resolve to data URIs
+            // Find all https://attachment.lore.invalid/ID references and resolve to data URIs
             let mut att_map = std::collections::HashMap::new();
-            for part in init_md.split("https://lore.local/attachment/") {
+            for part in init_md.split("https://attachment.lore.invalid/") {
                 if let Some(end_pos) = part.find(')') {
                     if let Ok(att_id) = part[..end_pos].parse::<i64>() {
                         if let Some(data_uri) = store.get_attachment_data_uri(att_id) {
@@ -270,7 +270,7 @@ pub fn ContentNote(id: i64) -> Element {
                 }
 
                 // Attachment download bridge — JS sends attachment id when user
-                // clicks a https://lore.local/attachment/ link in the editor body.
+                // clicks a https://attachment.lore.invalid/ link in the editor body.
                 textarea {
                     id: "att-download-bridge",
                     style: "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;",
@@ -335,7 +335,7 @@ pub fn ContentNote(id: i64) -> Element {
                                 let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
                                 let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                 let js = format!(
-                                    "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
+                                    "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://attachment.lore.invalid/{}');",
                                     method, method, escaped_name, att_id
                                 );
                                 document::eval(&js);
@@ -405,7 +405,7 @@ pub fn ContentNote(id: i64) -> Element {
                         if let Ok((att_id, _outcome)) = store.upload_image(id, &name, mime, &bytes) {
                             // Insert markdown into editor
                             let js = format!(
-                                "window.loreEditor && window.loreEditor.insertImage('{}', 'https://lore.local/attachment/{}');",
+                                "window.loreEditor && window.loreEditor.insertImage('{}', 'https://attachment.lore.invalid/{}');",
                                 name, att_id
                             );
                             document::eval(&js);
@@ -468,7 +468,7 @@ pub fn ContentNote(id: i64) -> Element {
                                         let escaped_name = name.replace('\'', "\\'").replace('\\', "\\\\");
                                         let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                         let js = format!(
-                                            "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
+                                            "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://attachment.lore.invalid/{}');",
                                             method, method, escaped_name, att_id
                                         );
                                         document::eval(&js);
@@ -591,7 +591,7 @@ pub fn ContentNote(id: i64) -> Element {
                                                                     let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                                                     let _ = prefix; // syntax built by method choice
                                                                     let js = format!(
-                                                                        "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://lore.local/attachment/{}');",
+                                                                        "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://attachment.lore.invalid/{}');",
                                                                         method, method, escaped, aid
                                                                     );
                                                                     document::eval(&js);
