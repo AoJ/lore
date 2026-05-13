@@ -127,7 +127,7 @@
 ### Platformy
 - [ ] Web verze (Dioxus WASM nebo lore-server s vanilla JS frontendem)
 - [ ] Mobilní web (responsive layout, 1-panel na úzkém displeji)
-- [ ] Synchronizace/replikace (cr-sqlite nebo HTTP sync)
+- [ ] Synchronizace/replikace (cr-sqlite nebo HTTP sync nebo něco jiného)
 - [ ] API pro externí integraci (browser extension, CLI scripting)
 
 ### Tagy
