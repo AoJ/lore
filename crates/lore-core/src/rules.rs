@@ -152,39 +152,24 @@ fn is_tracking_param(key: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn rule(pattern: &str, match_type: &str, category: &str) -> ClassificationRule {
+        ClassificationRule {
+            pattern: pattern.to_string(),
+            match_type: match_type.to_string(),
+            category: category.to_string(),
+            note: String::new(),
+        }
+    }
+
     fn make_rules() -> Vec<ClassificationRule> {
         // Simulate what seed.sql would produce
         vec![
-            ClassificationRule {
-                pattern: "www.google.com/search".to_string(),
-                match_type: "url_prefix".to_string(),
-                category: "discard".to_string(),
-            },
-            ClassificationRule {
-                pattern: "accounts.google.com".to_string(),
-                match_type: "domain".to_string(),
-                category: "discard".to_string(),
-            },
-            ClassificationRule {
-                pattern: "www.linkedin.com/feed".to_string(),
-                match_type: "url_prefix".to_string(),
-                category: "discard".to_string(),
-            },
-            ClassificationRule {
-                pattern: "deepl.com".to_string(),
-                match_type: "domain_suffix".to_string(),
-                category: "discard".to_string(),
-            },
-            ClassificationRule {
-                pattern: "portal.azure.com".to_string(),
-                match_type: "domain".to_string(),
-                category: "discard".to_string(),
-            },
-            ClassificationRule {
-                pattern: "localhost".to_string(),
-                match_type: "domain".to_string(),
-                category: "local".to_string(),
-            },
+            rule("www.google.com/search", "url_prefix", "discard"),
+            rule("accounts.google.com", "domain", "discard"),
+            rule("www.linkedin.com/feed", "url_prefix", "discard"),
+            rule("deepl.com", "domain_suffix", "discard"),
+            rule("portal.azure.com", "domain", "discard"),
+            rule("localhost", "domain", "local"),
         ]
     }
 

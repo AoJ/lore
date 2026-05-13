@@ -1,12 +1,12 @@
 mod cli;
+mod print;
 
 use std::io::{BufRead, BufReader};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command};
-use lore_core::{db, migrations, rules, search, version};
-use url::Url;
+use lore_core::{db, migrations, search, version};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -15,11 +15,10 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Add { urls, batch } => {
             let conn = db::open(&db_path)?;
-            let classification_rules = db::load_rules(&conn)?;
             let mut count = 0u32;
 
             for raw in &urls {
-                if add_url(&conn, raw, None, &classification_rules)? {
+                if add_one(&conn, raw, None) {
                     count += 1;
                 }
             }
@@ -37,7 +36,7 @@ fn main() -> Result<()> {
                         Some((u, t)) => (u.trim(), Some(t.trim())),
                         None => (trimmed, None),
                     };
-                    if add_url(&conn, url_str, title, &classification_rules)? {
+                    if add_one(&conn, url_str, title) {
                         count += 1;
                     }
                 }
@@ -47,7 +46,11 @@ fn main() -> Result<()> {
         }
         Command::Search { query, limit } => {
             let conn = db::open(&db_path)?;
-            search::search(&conn, &query, limit)?;
+            // CLI searches across all spaces by default — pick the active one
+            // so the result matches what the desktop app would show.
+            let active = db::get_active_space(&conn)?;
+            let hits = search::search_web_pages(&conn, &query, active.id, limit)?;
+            print::search_hits(&query, &hits);
         }
         Command::List {
             category,
@@ -56,13 +59,15 @@ fn main() -> Result<()> {
             limit,
         } => {
             let conn = db::open(&db_path)?;
-            search::list(
+            let rows = search::list_pages_filtered(
                 &conn,
+                None,
                 category.as_deref(),
                 status.as_deref(),
                 domain.as_deref(),
                 limit,
             )?;
+            print::list_rows(&rows);
         }
         Command::DbVersion => {
             // Open the file as a raw connection — don't run migrations or
@@ -94,49 +99,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn add_url(
-    conn: &rusqlite::Connection,
-    raw_url: &str,
-    title: Option<&str>,
-    classification_rules: &[db::ClassificationRule],
-) -> Result<bool> {
-    let parsed = match Url::parse(raw_url) {
-        Ok(u) => u,
+/// `lore add` row handler — best-effort, prints status to stderr.
+fn add_one(conn: &rusqlite::Connection, raw_url: &str, title: Option<&str>) -> bool {
+    match db::archive_url(conn, raw_url, None, title, None) {
+        Ok(outcome) => {
+            eprintln!("[{}] {}", outcome.category, raw_url);
+            true
+        }
         Err(e) => {
             eprintln!("Invalid URL '{}': {}", raw_url, e);
-            return Ok(false);
+            false
         }
-    };
-
-    let normalized = rules::normalize_url(&parsed);
-    let domain = parsed.host_str().unwrap_or("unknown").to_string();
-    let category = rules::classify(&parsed, classification_rules);
-
-    let status = if category == "archive" {
-        "queued"
-    } else {
-        "skipped"
-    };
-
-    let id = db::insert_web_page(
-        conn,
-        &db::NewWebPage {
-            url: raw_url,
-            url_normalized: &normalized,
-            title,
-            domain: &domain,
-            category: &category,
-            status,
-            source: None,
-            space_id: None,
-        },
-    )?;
-
-    if id > 0 {
-        eprintln!("[{}] {}", category, raw_url);
-        Ok(true)
-    } else {
-        eprintln!("[exists] {}", raw_url);
-        Ok(false)
     }
 }

@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 use crate::state::AppState;
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
 
 #[component]
@@ -21,9 +20,9 @@ pub fn ListTrash() -> Element {
                 for item in store.trash_items.read().iter() {
                     {
                         let kind_label = match item.kind {
-                            data::TrashKind::Page => texts::KIND_PAGE,
-                            data::TrashKind::Note => texts::KIND_NOTE,
-                            data::TrashKind::File => texts::KIND_FILE,
+                            lore_core::db::TrashKind::Page => texts::KIND_PAGE,
+                            lore_core::db::TrashKind::Note => texts::KIND_NOTE,
+                            lore_core::db::TrashKind::File => texts::KIND_FILE,
                         };
                         let item_id = item.id;
                         let item_kind = item.kind.clone();
@@ -41,9 +40,9 @@ pub fn ListTrash() -> Element {
                                     button { class: "btn-sm",
                                         onclick: move |_| {
                                             let result = match item_kind {
-                                                data::TrashKind::Page => store.restore_page(&state, item_id),
-                                                data::TrashKind::Note => store.restore_note(&state, item_id),
-                                                data::TrashKind::File => store.restore_file(&state, item_id),
+                                                lore_core::db::TrashKind::Page => store.restore_page(&state, item_id),
+                                                lore_core::db::TrashKind::Note => store.restore_note(&state, item_id),
+                                                lore_core::db::TrashKind::File => store.restore_file(&state, item_id),
                                             };
                                             if result.is_ok() {
                                                 state.show_toast(texts::TOAST_RESTORED.to_string(), None);
@@ -54,9 +53,9 @@ pub fn ListTrash() -> Element {
                                     button { class: "btn-sm btn-danger",
                                         onclick: move |_| {
                                             match item_kind2 {
-                                                data::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).ok(); }
-                                                data::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).ok(); }
-                                                data::TrashKind::File => { store.delete_file_permanent(&state, item_id2).ok(); }
+                                                lore_core::db::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).ok(); }
+                                                lore_core::db::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).ok(); }
+                                                lore_core::db::TrashKind::File => { store.delete_file_permanent(&state, item_id2).ok(); }
                                             }
                                         },
                                         {texts::BTN_DELETE_FOREVER}

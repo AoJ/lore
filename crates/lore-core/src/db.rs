@@ -39,11 +39,14 @@ pub use space::{
     get_active_space, insert_space, list_all_spaces, list_spaces, rename_space, restore_space,
     space_stats, touch_space, trash_space, SpaceRow, SpaceStats,
 };
-pub use trash::{cleanup_old_trash, delete_space_permanent, trash_count};
+pub use trash::{
+    cleanup_old_trash, delete_space_permanent, list_trash, trash_count, TrashItem, TrashKind,
+};
 pub use web_page::{
-    check_urls_status, delete_page, ensure_page, find_page_by_url, insert_snapshot,
-    insert_web_page, load_rules, restore_page, trash_page, update_status,
-    update_status_with_error, ClassificationRule, NewWebPage,
+    archive_url, auto_archive_from_text, check_urls_status, delete_page, ensure_page,
+    find_page_by_url, get_page, insert_snapshot, insert_web_page, list_pages, load_rules,
+    restore_page, trash_page, update_status, update_status_with_error, ArchiveOutcome,
+    ClassificationRule, NewWebPage, WebPageDetail, WebPageRow, WebPageSnapshot,
 };
 
 const SEED: &str = include_str!("seed.sql");

@@ -8,7 +8,7 @@ use crate::texts;
 pub fn ContentPage(id: i64) -> Element {
     let mut state = use_context::<AppState>();
     let mut store = use_context::<DataStore>();
-    let page = use_signal(move || data::get_page(id));
+    let page = use_signal(move || data::get_page_view(id));
     let mut screenshot_expanded = use_signal(|| false);
 
     match page.read().as_ref() {

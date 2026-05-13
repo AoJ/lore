@@ -7,7 +7,7 @@ use crate::texts;
 pub fn ListSearch() -> Element {
     let mut state = use_context::<AppState>();
 
-    let mut page_results = use_signal(Vec::<data::PageRow>::new);
+    let mut page_results = use_signal(Vec::<lore_core::db::WebPageRow>::new);
     let mut note_results = use_signal(Vec::<lore_core::db::NoteRow>::new);
 
     let search_signal = state.search_query;
@@ -16,8 +16,14 @@ pub fn ListSearch() -> Element {
         let q = search_signal.read().clone();
         let s = *sid.read();
         if q.len() >= 2 {
-            page_results.set(data::search_pages(&q, s, 20).unwrap_or_default());
-            note_results.set(data::search_notes(&q, s, 20).unwrap_or_default());
+            if let Ok(conn) = data::open_db() {
+                page_results.set(
+                    lore_core::search::search_web_pages_brief(&conn, &q, s, 20).unwrap_or_default(),
+                );
+                note_results.set(
+                    lore_core::search::search_notes(&conn, &q, s, 20).unwrap_or_default(),
+                );
+            }
         } else {
             page_results.set(Vec::new());
             note_results.set(Vec::new());
@@ -53,10 +59,11 @@ pub fn ListSearch() -> Element {
                             let is_sel = matches!(&*state.selected.read(), crate::state::Selected::Page(pid) if *pid == page.id);
                             let cls = if is_sel { "list-item selected" } else { "list-item" };
                             let id = page.id;
+                            let title = page.title.clone().unwrap_or_else(|| texts::NO_TITLE.to_string());
                             rsx! {
                                 div { key: "p{page.id}", class: "{cls}",
                                     onclick: move |_| state.select_page(id),
-                                    div { class: "list-item-title", "{page.title}" }
+                                    div { class: "list-item-title", "{title}" }
                                     div { class: "list-item-meta",
                                         span { "{page.domain}" }
                                     }

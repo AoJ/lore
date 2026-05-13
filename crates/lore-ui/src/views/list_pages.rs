@@ -20,10 +20,11 @@ pub fn ListPages() -> Element {
                         let id = page.id;
                         let is_selected = matches!(&*state.selected.read(), Selected::Page(pid) if *pid == id);
                         let cls = if is_selected { "list-item selected" } else { "list-item" };
+                        let title = page.title.clone().unwrap_or_else(|| texts::NO_TITLE.to_string());
                         rsx! {
                             div { key: "{id}", class: "{cls}",
                                 onclick: move |_| state.selected.set(Selected::Page(id)),
-                                div { class: "list-item-title", "{page.title}" }
+                                div { class: "list-item-title", "{title}" }
                                 div { class: "list-item-meta",
                                     span { "{page.domain}" }
                                     span { class: "sep", "·" }

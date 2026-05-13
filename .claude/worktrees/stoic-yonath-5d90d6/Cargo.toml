@@ -1,3 +1,0 @@
-[workspace]
-members = ["crates/lore-core", "crates/lore-cli", "crates/lore-ui", "crates/lore-server", "crates/lore-worker"]
-resolver = "3"

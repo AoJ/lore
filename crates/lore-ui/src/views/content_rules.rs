@@ -4,7 +4,12 @@ use crate::texts;
 
 #[component]
 pub fn ContentRules() -> Element {
-    let rules = use_signal(|| data::load_rules().unwrap_or_default());
+    let rules = use_signal(|| {
+        data::open_db()
+            .ok()
+            .and_then(|c| lore_core::db::load_rules(&c).ok())
+            .unwrap_or_default()
+    });
 
     rsx! {
         section { class: "content-panel content-rules",

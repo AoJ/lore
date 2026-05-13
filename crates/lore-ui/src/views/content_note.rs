@@ -80,7 +80,7 @@ pub fn ContentNote(id: i64) -> Element {
         let note_id = id;
 
         // Set URLs for initial content
-        let initial_urls = data::extract_urls(&init_content);
+        let initial_urls = lore_core::url_extract::extract_urls(&init_content);
         if !initial_urls.is_empty() {
             store.set_current_note_urls(initial_urls);
         }
@@ -285,7 +285,7 @@ pub fn ContentNote(id: i64) -> Element {
                         store.cleanup_note_attachments(id, &md);
 
                         // Extract URLs, auto-archive, update indicators
-                        let urls = data::extract_urls(&md);
+                        let urls = lore_core::url_extract::extract_urls(&md);
                         if !urls.is_empty() {
                             let space_id = *state.space_id.read();
                             store.auto_archive_urls(&md, space_id);

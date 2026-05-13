@@ -31,6 +31,77 @@ pub fn delete_space_permanent(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum TrashKind {
+    Page,
+    Note,
+    File,
+}
+
+#[derive(Clone, Debug)]
+pub struct TrashItem {
+    pub id: i64,
+    pub title: String,
+    pub kind: TrashKind,
+    pub trashed_at: String,
+}
+
+/// Union of trashed pages, notes and files in a space, newest first.
+pub fn list_trash(conn: &Connection, space_id: i64) -> Result<Vec<TrashItem>> {
+    let mut items = Vec::new();
+
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(title, url), trashed_at FROM web_page \
+         WHERE trashed_at IS NOT NULL AND space_id = ?1 ORDER BY trashed_at DESC",
+    )?;
+    items.extend(
+        stmt.query_map([space_id], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::Page,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok()),
+    );
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, deleted_at FROM note \
+         WHERE deleted_at IS NOT NULL AND space_id = ?1 ORDER BY deleted_at DESC",
+    )?;
+    items.extend(
+        stmt.query_map([space_id], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::Note,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok()),
+    );
+
+    let mut stmt = conn.prepare(
+        "SELECT id, name, deleted_at FROM file \
+         WHERE deleted_at IS NOT NULL AND space_id = ?1 ORDER BY deleted_at DESC",
+    )?;
+    items.extend(
+        stmt.query_map([space_id], |row| {
+            Ok(TrashItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                kind: TrashKind::File,
+                trashed_at: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok()),
+    );
+
+    items.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at));
+    Ok(items)
+}
+
 /// Trash count across all entities (pages, notes, files) for a space.
 pub fn trash_count(conn: &Connection, space_id: i64) -> Result<i64> {
     conn.query_row(

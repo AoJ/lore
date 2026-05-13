@@ -4,14 +4,15 @@
 
 use dioxus::prelude::*;
 use std::collections::HashMap;
-use crate::data::{self, PageRow, TrashItem};
+use crate::data;
 use crate::state::{AppState, Section, Selected};
+use lore_core::db::{TrashItem, WebPageRow};
 
 /// Central data store, provided as Dioxus context alongside AppState.
 #[derive(Clone, Copy)]
 pub struct DataStore {
     // ---- Cached data (read by components) ----
-    pub pages: Signal<Vec<PageRow>>,
+    pub pages: Signal<Vec<WebPageRow>>,
     pub notes: Signal<Vec<lore_core::db::NoteRow>>,
     pub files: Signal<Vec<lore_core::db::FileRow>>,
     pub folders: Signal<Vec<lore_core::db::FolderRow>>,
@@ -108,7 +109,7 @@ impl DataStore {
         // Refresh list for current section
         match section {
             Section::AllPages => {
-                self.pages.set(data::list_pages(space_id, 200).unwrap_or_default());
+                self.pages.set(lore_core::db::list_pages(&conn, space_id, 200).unwrap_or_default());
             }
             Section::AllNotes => {
                 self.notes.set(lore_core::db::list_notes(&conn, None, space_id).unwrap_or_default());
@@ -120,7 +121,7 @@ impl DataStore {
                 self.files.set(lore_core::db::list_files(&conn, space_id).unwrap_or_default());
             }
             Section::Trash => {
-                self.trash_items.set(data::list_trash(space_id).unwrap_or_default());
+                self.trash_items.set(lore_core::db::list_trash(&conn, space_id).unwrap_or_default());
             }
             _ => {}
         }
@@ -229,9 +230,11 @@ impl DataStore {
 
     pub fn add_url(&mut self, state: &AppState, raw_url: &str) -> Result<String, String> {
         let space_id = *state.space_id.read();
-        let result = data::add_url(raw_url, space_id).map_err(|e| e.to_string())?;
+        let conn = data::open_db().map_err(|e| e.to_string())?;
+        let outcome = lore_core::db::archive_url(&conn, raw_url, Some(space_id), None, None)
+            .map_err(|e| e.to_string())?;
         self.refresh(state);
-        Ok(result)
+        Ok(format!("[{}] {}", outcome.category, raw_url))
     }
 
     // ---- Folder mutations ----
@@ -453,6 +456,8 @@ impl DataStore {
     // ---- Auto-archive URLs from note content ----
 
     pub fn auto_archive_urls(&self, text: &str, space_id: i64) {
-        data::auto_archive_urls(text, space_id);
+        if let Ok(conn) = data::open_db() {
+            lore_core::db::auto_archive_from_text(&conn, text, space_id).ok();
+        }
     }
 }

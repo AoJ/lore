@@ -2,6 +2,8 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::collections::HashMap;
 
+use crate::rules;
+
 pub struct NewWebPage<'a> {
     pub url: &'a str,
     pub url_normalized: &'a str,
@@ -147,15 +149,18 @@ pub fn ensure_page(
 }
 
 /// Classification rule from DB, ordered by priority descending.
+#[derive(Clone, Debug)]
 pub struct ClassificationRule {
     pub pattern: String,
     pub match_type: String,
     pub category: String,
+    pub note: String,
 }
 
 pub fn load_rules(conn: &Connection) -> Result<Vec<ClassificationRule>> {
     let mut stmt = conn.prepare(
-        "SELECT pattern, match_type, category FROM classification_rule ORDER BY priority DESC",
+        "SELECT pattern, match_type, category, COALESCE(note, '') \
+         FROM classification_rule ORDER BY priority DESC",
     )?;
     let rules = stmt
         .query_map([], |row| {
@@ -163,6 +168,7 @@ pub fn load_rules(conn: &Connection) -> Result<Vec<ClassificationRule>> {
                 pattern: row.get(0)?,
                 match_type: row.get(1)?,
                 category: row.get(2)?,
+                note: row.get(3)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -184,6 +190,169 @@ pub fn restore_page(conn: &Connection, page_id: i64) -> Result<()> {
         [page_id],
     )?;
     Ok(())
+}
+
+/// Web page summary returned by `list_pages` and search.
+#[derive(Clone, Debug)]
+pub struct WebPageRow {
+    pub id: i64,
+    pub title: Option<String>,
+    pub domain: String,
+    pub category: String,
+    pub status: String,
+    /// ISO date truncated to YYYY-MM-DD (matches `NoteRow.updated_at` convention).
+    pub created_at: String,
+}
+
+/// Full web_page record + latest snapshot, used by detail views.
+#[derive(Clone, Debug)]
+pub struct WebPageDetail {
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub category: String,
+    pub status: String,
+    pub created_at: String,
+    pub last_error: Option<String>,
+    pub snapshot: Option<WebPageSnapshot>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WebPageSnapshot {
+    pub size_bytes: i64,
+    pub plain_text_preview: Option<String>,
+    pub screenshot: Option<Vec<u8>>,
+}
+
+pub fn list_pages(conn: &Connection, space_id: i64, limit: usize) -> Result<Vec<WebPageRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, domain, category, status, created_at
+         FROM web_page WHERE trashed_at IS NULL AND space_id = ?1
+         ORDER BY created_at DESC, id DESC LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![space_id, limit as i64], |row| {
+            Ok(WebPageRow {
+                id: row.get(0)?,
+                title: row.get::<_, Option<String>>(1)?,
+                domain: row.get(2)?,
+                category: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get::<_, String>(5)?.chars().take(10).collect(),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
+    let (url, title, domain, category, status, created_at, last_error) = conn.query_row(
+        "SELECT url, title, domain, category, status, created_at, last_error \
+         FROM web_page WHERE id = ?1",
+        [id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        },
+    )?;
+
+    let snapshot = conn
+        .query_row(
+            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), screenshot \
+             FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
+            [id],
+            |row| {
+                Ok(WebPageSnapshot {
+                    size_bytes: row.get(0)?,
+                    plain_text_preview: row.get(1)?,
+                    screenshot: row.get(2)?,
+                })
+            },
+        )
+        .ok();
+
+    Ok(WebPageDetail {
+        url,
+        title,
+        domain,
+        category,
+        status,
+        created_at: created_at.chars().take(10).collect(),
+        last_error,
+        snapshot,
+    })
+}
+
+/// Outcome of `archive_url`: returns the row id plus the classifier category
+/// (e.g. "archive", "discard") so callers can show appropriate feedback.
+#[derive(Clone, Debug)]
+pub struct ArchiveOutcome {
+    pub id: i64,
+    pub category: String,
+}
+
+/// Parse, normalize and classify a raw URL, then insert into `web_page`.
+///
+/// - `space_id`: `None` leaves the column NULL (CLI batch import — startup
+///   bootstrap assigns these to the default space). `Some(id)` pins it.
+/// - `title`: optional human title (e.g. from a `URL<TAB>TITLE` batch line).
+/// - `source`: provenance string stored on the row — `"note"` for URLs
+///   extracted from note bodies, `None` for explicit user adds.
+///
+/// Category falls back to `"archive"` if no rule matches.
+pub fn archive_url(
+    conn: &Connection,
+    raw_url: &str,
+    space_id: Option<i64>,
+    title: Option<&str>,
+    source: Option<&str>,
+) -> Result<ArchiveOutcome> {
+    let parsed = url::Url::parse(raw_url)?;
+    let rules = load_rules(conn)?;
+    let normalized = rules::normalize_url(&parsed);
+    let domain = parsed.host_str().unwrap_or("unknown").to_string();
+    let category = rules::classify(&parsed, &rules);
+    let status = if category == "archive" { "queued" } else { "skipped" };
+
+    let id = insert_web_page(
+        conn,
+        &NewWebPage {
+            url: raw_url,
+            url_normalized: &normalized,
+            title,
+            domain: &domain,
+            category: &category,
+            status,
+            source,
+            space_id,
+        },
+    )?;
+    Ok(ArchiveOutcome { id, category })
+}
+
+/// Auto-archive every URL embedded in `text` that isn't already in the DB.
+/// Returns count of new pages queued. Errors during URL parse are skipped
+/// silently — best-effort, called from note save paths.
+pub fn auto_archive_from_text(conn: &Connection, text: &str, space_id: i64) -> Result<usize> {
+    let urls = crate::url_extract::extract_urls(text);
+    let mut queued = 0usize;
+    for url in urls {
+        if find_page_by_url(conn, &url)?.is_some() {
+            continue;
+        }
+        if archive_url(conn, &url, Some(space_id), None, Some("note")).is_ok() {
+            queued += 1;
+        }
+    }
+    Ok(queued)
 }
 
 /// Check archive status for multiple URLs at once
