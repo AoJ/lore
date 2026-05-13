@@ -34,6 +34,7 @@ pub struct ToastData {
 
 /// What to undo when the user clicks "Undo" in a toast
 #[derive(Clone, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum UndoAction {
     RestorePage(i64),
     RestoreNote(i64),
@@ -84,31 +85,12 @@ impl AppState {
         }
     }
 
-    pub fn navigate(&mut self, section: Section) {
-        self.section.set(section);
-        self.selected.set(Selected::None);
-        // Note: DataStore.poll() detects section change and refreshes automatically
-        // For instant update, caller can also call store.refresh() explicitly
-    }
-
     pub fn select_page(&mut self, id: i64) {
         self.selected.set(Selected::Page(id));
     }
 
     pub fn select_note(&mut self, id: i64) {
         self.selected.set(Selected::Note(id));
-    }
-
-    pub fn switch_space(&mut self, space_id: i64) {
-        self.space_id.set(space_id);
-        self.section.set(Section::AllPages);
-        self.selected.set(Selected::None);
-        self.space_dropdown_open.set(false);
-        // Touch space in DB
-        if let Ok(conn) = data::open_db() {
-            lore_core::db::touch_space(&conn, space_id).ok();
-        }
-        self.bump_refresh();
     }
 
     pub fn show_toast(&mut self, message: String, undo: Option<UndoAction>) {

@@ -40,7 +40,7 @@ pub struct DataStore {
 }
 
 impl DataStore {
-    pub fn new(space_id: i64) -> Self {
+    pub fn new(_space_id: i64) -> Self {
         let rev = data::get_revision();
         Self {
             pages: Signal::new(Vec::new()),
@@ -127,11 +127,10 @@ impl DataStore {
 
         // Refresh URL statuses for current note
         let urls = self.current_note_urls.read().clone();
-        if !urls.is_empty() {
-            if let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls) {
+        if !urls.is_empty()
+            && let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls) {
                 self.url_statuses.set(statuses);
             }
-        }
 
         self.revision.set(data::get_revision());
     }
@@ -141,12 +140,11 @@ impl DataStore {
     pub fn select_timeline_day(&mut self, state: &AppState, day: &str) {
         let space_id = *state.space_id.read();
         self.timeline_selected_day.set(Some(day.to_string()));
-        if let Ok(conn) = data::open_db() {
-            if let Ok((notes, pages)) = lore_core::db::activity_for_day(&conn, space_id, day) {
+        if let Ok(conn) = data::open_db()
+            && let Ok((notes, pages)) = lore_core::db::activity_for_day(&conn, space_id, day) {
                 self.timeline_day_notes.set(notes);
                 self.timeline_day_pages.set(pages);
             }
-        }
     }
 
     // ---- Navigation (immediate refresh on section/space change) ----
@@ -416,11 +414,10 @@ impl DataStore {
                 .find(|(_, c)| !c.is_ascii_digit())
                 .map(|(i, _)| i)
                 .unwrap_or(part.len());
-            if end > 0 {
-                if let Ok(id) = part[..end].parse::<i64>() {
+            if end > 0
+                && let Ok(id) = part[..end].parse::<i64>() {
                     used_ids.push(id);
                 }
-            }
         }
         if let Ok(conn) = data::open_db() {
             lore_core::db::cleanup_orphaned_attachments(&conn, note_id, &used_ids).ok();

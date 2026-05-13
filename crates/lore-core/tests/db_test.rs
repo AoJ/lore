@@ -1,5 +1,4 @@
 use lore_core::db;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn open_test_db() -> (TempDir, rusqlite::Connection) {
@@ -44,7 +43,7 @@ fn rename_space() {
 fn touch_space_updates_last_used() {
     let (_dir, conn) = open_test_db();
     let personal = db::get_active_space(&conn).unwrap();
-    let work_id = db::insert_space(&conn, "Work").unwrap();
+    let _work_id = db::insert_space(&conn, "Work").unwrap();
 
     // Touch Personal explicitly — set it to "future" to guarantee ordering
     conn.execute(
@@ -79,7 +78,7 @@ fn delete_space_removes_all_content() {
     let space_id = db::insert_space(&conn, "Doomed").unwrap();
 
     // Add content
-    let page_id = db::insert_web_page(&conn, &db::NewWebPage {
+    let _page_id = db::insert_web_page(&conn, &db::NewWebPage {
         url: "https://example.com",
         url_normalized: "example.com",
         title: Some("Example"),
@@ -90,7 +89,7 @@ fn delete_space_removes_all_content() {
         space_id: Some(space_id),
     }).unwrap();
     let note_id = db::insert_note(&conn, "Test", "Body", None, space_id).unwrap();
-    let folder_id = db::insert_folder(&conn, "Folder", None, space_id).unwrap();
+    let _folder_id = db::insert_folder(&conn, "Folder", None, space_id).unwrap();
 
     db::delete_space_permanent(&conn, space_id).unwrap();
 
@@ -158,7 +157,7 @@ fn folder_note_counts_per_space() {
     // Other space sees zero
     let other = db::insert_space(&conn, "Other").unwrap();
     let other_counts = db::folder_note_counts(&conn, other).unwrap();
-    assert!(other_counts.get(&folder_id).is_none());
+    assert!(!other_counts.contains_key(&folder_id));
 }
 
 // ---- Notes CRUD ----
@@ -604,11 +603,10 @@ fn extract_urls(text: &str) -> Vec<String> {
         let start = pos + 2;
         if let Some(end) = rest[start..].find(')') {
             let url = rest[start..start + end].trim();
-            if url.starts_with("http://") || url.starts_with("https://") {
-                if !urls.contains(&url.to_string()) {
+            if (url.starts_with("http://") || url.starts_with("https://"))
+                && !urls.contains(&url.to_string()) {
                     urls.push(url.to_string());
                 }
-            }
             rest = &rest[start + end..];
         } else {
             break;

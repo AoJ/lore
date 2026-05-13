@@ -110,14 +110,14 @@ pub fn ContentSpaces() -> Element {
                                     if is_deleted {
                                         button { class: "btn-sm",
                                             onclick: move |_| {
-                                                let conn = data::open_db().unwrap();
+                                                let _conn = data::open_db().unwrap();
                                                 store.restore_space(&state, sid).ok();
                                             },
                                             "Restore"
                                         }
                                         button { class: "btn-sm btn-danger",
                                             onclick: move |_| {
-                                                let conn = data::open_db().unwrap();
+                                                let _conn = data::open_db().unwrap();
                                                 store.delete_space_permanent(&state, sid).ok();
                                             },
                                             "Delete permanently"

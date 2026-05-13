@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 use crate::state::{AppState, Section};
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
 
 #[component]

@@ -14,6 +14,7 @@ pub fn ContentPage(id: i64) -> Element {
     match page.read().as_ref() {
         Ok(p) => rsx! {
             section { class: "content-panel content-page",
+                h1 { class: "page-title", "{p.title}" }
                 div { class: "page-url",
                     a { href: "{p.url}", target: "_blank", "{p.url}" }
                 }

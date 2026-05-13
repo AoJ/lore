@@ -14,8 +14,10 @@ pub fn db_path() -> PathBuf {
     PathBuf::from("lore.db")
 }
 
+/// Open a connection for runtime queries. Skips migration runner / seed —
+/// `main::app()` calls `lore_core::db::open` once at startup to bootstrap.
 pub fn open_db() -> Result<rusqlite::Connection> {
-    lore_core::db::open(&db_path())
+    lore_core::db::open_existing(&db_path())
 }
 
 // ---- Page types & queries ----
@@ -25,7 +27,6 @@ pub struct PageRow {
     pub id: i64,
     pub title: String,
     pub domain: String,
-    pub category: String,
     pub status: String,
     pub created_at: String,
 }
@@ -48,7 +49,7 @@ pub struct PageDetailData {
 pub fn list_pages(space_id: i64, limit: usize) -> Result<Vec<PageRow>> {
     let conn = open_db()?;
     let mut stmt = conn.prepare(
-        "SELECT id, url, title, domain, category, status, created_at
+        "SELECT id, url, title, domain, status, created_at
          FROM web_page WHERE trashed_at IS NULL AND space_id = ?1
          ORDER BY created_at DESC, id DESC LIMIT ?2",
     )?;
@@ -60,9 +61,8 @@ pub fn list_pages(space_id: i64, limit: usize) -> Result<Vec<PageRow>> {
                     .get::<_, Option<String>>(2)?
                     .unwrap_or_else(|| crate::texts::NO_TITLE.to_string()),
                 domain: row.get(3)?,
-                category: row.get(4)?,
-                status: row.get(5)?,
-                created_at: row.get::<_, String>(6)?.chars().take(10).collect(),
+                status: row.get(4)?,
+                created_at: row.get::<_, String>(5)?.chars().take(10).collect(),
             })
         })?
         .filter_map(|r| r.ok())
@@ -172,7 +172,7 @@ pub fn search_pages(query: &str, space_id: i64, limit: usize) -> Result<Vec<Page
     };
 
     let mut stmt = conn.prepare(
-        "SELECT wp.id, wp.url, wp.title, wp.domain, wp.category
+        "SELECT wp.id, wp.url, wp.title, wp.domain
          FROM web_page_fts fts
          JOIN web_page_snapshot wps ON wps.id = fts.rowid
          JOIN web_page wp ON wp.id = wps.web_page_id
@@ -187,7 +187,6 @@ pub fn search_pages(query: &str, space_id: i64, limit: usize) -> Result<Vec<Page
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 domain: row.get(3)?,
-                category: row.get(4)?,
                 status: String::new(),
                 created_at: String::new(),
             })
@@ -423,8 +422,8 @@ pub fn auto_archive_urls(text: &str, space_id: i64) {
 
     let urls = extract_urls(text);
     for url in &urls {
-        if lore_core::db::find_page_by_url(&conn, url).ok().flatten().is_none() {
-            if let Ok(parsed) = url::Url::parse(url) {
+        if lore_core::db::find_page_by_url(&conn, url).ok().flatten().is_none()
+            && let Ok(parsed) = url::Url::parse(url) {
                 let normalized = lore_core::rules::normalize_url(&parsed);
                 let domain = parsed.host_str().unwrap_or("unknown").to_string();
                 let category = lore_core::rules::classify(&parsed, &rules);
@@ -440,7 +439,6 @@ pub fn auto_archive_urls(text: &str, space_id: i64) {
                     space_id: Some(space_id),
                 }).ok();
             }
-        }
     }
 }
 
@@ -454,11 +452,10 @@ pub fn extract_urls(text: &str) -> Vec<String> {
         let start = pos + 2;
         if let Some(end) = rest[start..].find(')') {
             let url = rest[start..start + end].trim();
-            if url.starts_with("http://") || url.starts_with("https://") {
-                if !urls.contains(&url.to_string()) {
+            if (url.starts_with("http://") || url.starts_with("https://"))
+                && !urls.contains(&url.to_string()) {
                     urls.push(url.to_string());
                 }
-            }
             rest = &rest[start + end..];
         } else {
             break;

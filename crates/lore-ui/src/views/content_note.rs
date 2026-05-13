@@ -72,7 +72,7 @@ pub fn ContentNote(id: i64) -> Element {
         }
     }).unwrap_or_default();
 
-    let mut content = use_signal(move || initial_content);
+    let content = use_signal(move || initial_content);
 
     // Initialize Milkdown with note ID + set initial URLs
     {
@@ -156,13 +156,11 @@ pub fn ContentNote(id: i64) -> Element {
             // Find all https://attachment.lore.invalid/ID references and resolve to data URIs
             let mut att_map = std::collections::HashMap::new();
             for part in init_md.split("https://attachment.lore.invalid/") {
-                if let Some(end_pos) = part.find(')') {
-                    if let Ok(att_id) = part[..end_pos].parse::<i64>() {
-                        if let Some(data_uri) = store.get_attachment_data_uri(att_id) {
+                if let Some(end_pos) = part.find(')')
+                    && let Ok(att_id) = part[..end_pos].parse::<i64>()
+                        && let Some(data_uri) = store.get_attachment_data_uri(att_id) {
                             att_map.insert(att_id.to_string(), data_uri);
                         }
-                    }
-                }
             }
             if !att_map.is_empty() {
                 let entries: Vec<String> = att_map.iter()
@@ -331,11 +329,10 @@ pub fn ContentNote(id: i64) -> Element {
                                 .set_directory(&default_dir)
                                 .save_file()
                                 .await;
-                            if let Some(h) = handle {
-                                if h.write(&bytes).await.is_ok() {
+                            if let Some(h) = handle
+                                && h.write(&bytes).await.is_ok() {
                                     state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
                                 }
-                            }
                         });
                     },
                 }
@@ -359,8 +356,8 @@ pub fn ContentNote(id: i64) -> Element {
                             let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
                             Some((name, mime, bytes))
                         })();
-                        if let Some((name, mime, bytes)) = parsed {
-                            if let Ok((att_id, outcome)) = store.upload_attachment(id, &name, &mime, &bytes) {
+                        if let Some((name, mime, bytes)) = parsed
+                            && let Ok((att_id, outcome)) = store.upload_attachment(id, &name, &mime, &bytes) {
                                 let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
                                 let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
                                 let js = format!(
@@ -368,8 +365,8 @@ pub fn ContentNote(id: i64) -> Element {
                                     method, method, escaped_name, att_id
                                 );
                                 document::eval(&js);
-                                if mime.starts_with("image/") {
-                                    if let Some(uri) = store.get_attachment_data_uri(att_id) {
+                                if mime.starts_with("image/")
+                                    && let Some(uri) = store.get_attachment_data_uri(att_id) {
                                         let resolve_js = format!(
                                             "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
                                             att_id,
@@ -377,7 +374,6 @@ pub fn ContentNote(id: i64) -> Element {
                                         );
                                         document::eval(&resolve_js);
                                     }
-                                }
                                 match outcome {
                                     lore_core::db::InsertAttachmentOutcome::DedupedActive => {
                                         state.show_toast(texts::TOAST_ATTACHMENT_DEDUPED.to_string(), None);
@@ -389,7 +385,6 @@ pub fn ContentNote(id: i64) -> Element {
                                 }
                                 store.refresh(&state);
                             }
-                        }
                     },
                 }
 
@@ -487,8 +482,8 @@ pub fn ContentNote(id: i64) -> Element {
                                 let name = file_data.name();
                                 let mime = file_data.content_type()
                                     .unwrap_or_else(|| data::mime_from_extension(&name));
-                                if let Ok(bytes) = file_data.read_bytes().await {
-                                    if let Ok((att_id, outcome)) = store.upload_attachment(note_id, &name, &mime, &bytes) {
+                                if let Ok(bytes) = file_data.read_bytes().await
+                                    && let Ok((att_id, outcome)) = store.upload_attachment(note_id, &name, &mime, &bytes) {
                                         match outcome {
                                             lore_core::db::InsertAttachmentOutcome::DedupedActive => deduped += 1,
                                             lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => revived += 1,
@@ -501,8 +496,8 @@ pub fn ContentNote(id: i64) -> Element {
                                             method, method, escaped_name, att_id
                                         );
                                         document::eval(&js);
-                                        if mime.starts_with("image/") {
-                                            if let Some(uri) = store.get_attachment_data_uri(att_id) {
+                                        if mime.starts_with("image/")
+                                            && let Some(uri) = store.get_attachment_data_uri(att_id) {
                                                 let resolve_js = format!(
                                                     "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
                                                     att_id,
@@ -510,9 +505,7 @@ pub fn ContentNote(id: i64) -> Element {
                                                 );
                                                 document::eval(&resolve_js);
                                             }
-                                        }
                                     }
-                                }
                             }
                             store.refresh(&state);
                             if revived > 0 {
@@ -568,8 +561,8 @@ pub fn ContentNote(id: i64) -> Element {
                                                                         method, method, escaped, aid
                                                                     );
                                                                     document::eval(&js);
-                                                                    if mime.starts_with("image/") {
-                                                                        if let Some(uri) = store.get_attachment_data_uri(aid) {
+                                                                    if mime.starts_with("image/")
+                                                                        && let Some(uri) = store.get_attachment_data_uri(aid) {
                                                                             let resolve_js = format!(
                                                                                 "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",
                                                                                 aid,
@@ -577,7 +570,6 @@ pub fn ContentNote(id: i64) -> Element {
                                                                             );
                                                                             document::eval(&resolve_js);
                                                                         }
-                                                                    }
                                                                     state.show_toast(texts::TOAST_ATTACHMENT_RESTORED.to_string(), None);
                                                                 }
                                                             },
@@ -708,59 +700,4 @@ fn folder_path(folders: &[lore_core::db::FolderRow], folder_id: Option<i64>) -> 
     }
     parts.reverse();
     Some(parts.join(" / "))
-}
-
-fn auto_archive_urls(text: &str, space_id: i64) {
-    let conn = match data::open_db() {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let rules = lore_core::db::load_rules(&conn).unwrap_or_default();
-
-    // Extract URLs from markdown links [text](url) and bare URLs
-    let mut urls = Vec::new();
-
-    // Pattern 1: [text](url)
-    let mut rest = text;
-    while let Some(pos) = rest.find("](") {
-        let start = pos + 2;
-        if let Some(end) = rest[start..].find(')') {
-            let url = rest[start..start + end].trim();
-            if url.starts_with("http://") || url.starts_with("https://") {
-                urls.push(url.to_string());
-            }
-            rest = &rest[start + end..];
-        } else {
-            break;
-        }
-    }
-
-    // Pattern 2: bare URLs (https://... not inside markdown link)
-    for word in text.split_whitespace() {
-        let word = word.trim_matches(|c: char| c == '(' || c == ')' || c == '<' || c == '>');
-        if (word.starts_with("http://") || word.starts_with("https://")) && !urls.contains(&word.to_string()) {
-            urls.push(word.to_string());
-        }
-    }
-
-    for url in &urls {
-        if lore_core::db::find_page_by_url(&conn, url).ok().flatten().is_none() {
-            if let Ok(parsed) = url::Url::parse(url) {
-                let normalized = lore_core::rules::normalize_url(&parsed);
-                let domain = parsed.host_str().unwrap_or("unknown").to_string();
-                let category = lore_core::rules::classify(&parsed, &rules);
-                let status = if category == "archive" { "queued" } else { "skipped" };
-                lore_core::db::insert_web_page(&conn, &lore_core::db::NewWebPage {
-                    url,
-                    url_normalized: &normalized,
-                    title: None,
-                    domain: &domain,
-                    category: &category,
-                    status,
-                    source: Some("note"),
-                    space_id: Some(space_id),
-                }).ok();
-            }
-        }
-    }
 }

@@ -28,7 +28,6 @@ pub fn ListFiles() -> Element {
                 accept: "*/*",
                 style: "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;",
                 onchange: move |evt: FormEvent| {
-                    let space_id = *state.space_id.read();
                     let files = evt.files();
                     if !files.is_empty() {
                         spawn(async move {
@@ -40,26 +39,17 @@ pub fn ListFiles() -> Element {
                                 let name = file_data.name();
                                 let mime = file_data.content_type()
                                     .unwrap_or_else(|| data::mime_from_extension(&name));
-                                if let Ok(bytes) = file_data.read_bytes().await {
-                                    if let Ok(conn) = data::open_db() {
-                                        if let Ok((id, outcome)) = lore_core::db::insert_file(
-                                            &conn,
-                                            &name,
-                                            Some(&mime),
-                                            &bytes,
-                                            space_id,
-                                        ) {
-                                            last_id = Some(id);
-                                            match outcome {
-                                                lore_core::db::InsertFileOutcome::RevivedFromTrash => revived += 1,
-                                                lore_core::db::InsertFileOutcome::DedupedActive => deduped += 1,
-                                                lore_core::db::InsertFileOutcome::Inserted => {}
-                                            }
-                                        }
+                                if let Ok(bytes) = file_data.read_bytes().await
+                                    && let Ok((id, outcome)) = store.upload_file(&state, &name, Some(&mime), &bytes)
+                                {
+                                    last_id = Some(id);
+                                    match outcome {
+                                        lore_core::db::InsertFileOutcome::RevivedFromTrash => revived += 1,
+                                        lore_core::db::InsertFileOutcome::DedupedActive => deduped += 1,
+                                        lore_core::db::InsertFileOutcome::Inserted => {}
                                     }
                                 }
                             }
-                            store.refresh(&state);
                             if let Some(id) = last_id {
                                 state.selected.set(crate::state::Selected::File(id));
                             }

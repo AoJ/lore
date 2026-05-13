@@ -1,0 +1,280 @@
+/* ================================================================
+   lore — Editor styles (Milkdown overrides + URL indicators)
+   ================================================================ */
+
+/* Editor container — grows with content. .content-panel-container scrolls. */
+.milkdown-wrapper {
+    min-height: 50vh;
+}
+
+/* Override defaults to match our design tokens */
+.milkdown .editor,
+.milkdown .ProseMirror {
+    white-space: pre-wrap;
+    font-family: var(--font-sans) !important;
+    font-size: var(--font-size-sm) !important;
+    color: var(--color-text) !important;
+    line-height: 1.5;
+    padding: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+.milkdown .editor p,
+.milkdown .ProseMirror p {
+    margin: 0 0 0.35em 0;
+}
+
+.milkdown .editor h1,
+.milkdown .editor h2,
+.milkdown .editor h3,
+.milkdown .ProseMirror h1,
+.milkdown .ProseMirror h2,
+.milkdown .ProseMirror h3 {
+    font-family: var(--font-sans);
+    color: var(--color-text);
+    margin: 0.6em 0 0.3em 0;
+}
+
+.milkdown .editor h1, .milkdown .ProseMirror h1 { font-size: var(--font-size-lg); }
+.milkdown .editor h2, .milkdown .ProseMirror h2 { font-size: var(--font-size-base); font-weight: 600; }
+.milkdown .editor h3, .milkdown .ProseMirror h3 { font-size: var(--font-size-sm); font-weight: 600; }
+
+.milkdown .editor code, .milkdown .ProseMirror code {
+    font-family: var(--font-mono);
+    background: #f5f5f5;
+    padding: 0.1em 0.25em;
+    border-radius: var(--radius);
+    font-size: 0.85em;
+}
+
+.milkdown .editor pre, .milkdown .ProseMirror pre {
+    font-family: var(--font-mono);
+    background: #f5f5f5;
+    padding: var(--spacing-sm);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: var(--font-size-xs);
+}
+
+.milkdown .editor blockquote, .milkdown .ProseMirror blockquote {
+    border-left: 2px solid var(--color-border);
+    padding-left: var(--spacing-sm);
+    color: var(--color-muted);
+    margin: 0.3em 0;
+}
+
+.milkdown .editor ul, .milkdown .editor ol,
+.milkdown .ProseMirror ul, .milkdown .ProseMirror ol {
+    padding-left: 1.25em;
+    margin: 0.2em 0;
+}
+
+.milkdown .editor li, .milkdown .ProseMirror li {
+    margin: 0.1em 0;
+}
+
+.milkdown .editor hr, .milkdown .ProseMirror hr {
+    border: none;
+    border-top: 1px solid var(--color-border-light);
+    margin: 0.5em 0;
+}
+
+/* ---- Inline images ---- */
+.milkdown .editor img,
+.milkdown .ProseMirror img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius);
+    margin: var(--spacing-xs) 0;
+}
+
+/* ---- File attachment blocks ----
+   Custom Milkdown markView (see js/index.js → buildLinkMarkView) renders
+   <a class="file-attachment-block"> with badge/name/meta/×. Layout matches
+   the row in Files list panel (ext · name · date · size · checksum). */
+.milkdown .editor a.file-attachment-block,
+.milkdown .ProseMirror a.file-attachment-block {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin: var(--spacing-sm) 0;
+    color: var(--color-text);
+    background: var(--color-sidebar);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius);
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.milkdown .editor a.file-attachment-block:hover,
+.milkdown .ProseMirror a.file-attachment-block:hover {
+    background: var(--color-hover);
+    border-color: var(--color-accent);
+    text-decoration: none;
+}
+
+/* Suppress the generic URL-indicator dot for attachment blocks. */
+.milkdown .editor a.file-attachment-block::before,
+.milkdown .ProseMirror a.file-attachment-block::before {
+    content: none;
+}
+
+.milkdown a.file-attachment-block .file-ext-badge {
+    flex-shrink: 0;
+}
+
+.milkdown a.file-attachment-block .file-attachment-name {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.milkdown a.file-attachment-block .file-attachment-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.milkdown a.file-attachment-block .file-attachment-close {
+    background: transparent;
+    border: none;
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0 var(--spacing-xs);
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: all 0.12s;
+}
+
+.milkdown a.file-attachment-block .file-attachment-close:hover {
+    color: var(--color-danger);
+    opacity: 1;
+}
+
+/* ---- URL indicators ---- */
+.milkdown .editor a {
+    color: var(--color-accent);
+    text-decoration: none;
+    position: relative;
+    padding-left: 0.9em;
+}
+
+.milkdown .editor a::before {
+    content: '';
+    display: inline-block;
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--color-muted); /* default: external/unknown */
+}
+
+.milkdown .editor a.url-archived::before {
+    background: #34c759; /* green */
+}
+
+.milkdown .editor a.url-queued::before {
+    background: #ffcc00; /* yellow */
+}
+
+.milkdown .editor a.url-external::before {
+    background: var(--color-muted); /* gray */
+}
+
+.milkdown .editor a.url-failed::before {
+    background: var(--color-danger); /* red */
+}
+
+.milkdown .editor a:hover {
+    text-decoration: underline;
+}
+
+/* URL status list (below editor) */
+.url-status-list {
+    border-top: 1px solid var(--color-border-light);
+    padding: var(--spacing-xs) 0;
+    margin-top: var(--spacing-xs);
+}
+
+.url-status-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+    padding: 0.1rem 0;
+}
+
+.url-status-item a {
+    color: var(--color-muted);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.url-status-item a:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+}
+
+.url-status-dot {
+    flex-shrink: 0;
+    font-size: 0.5rem;
+    line-height: 1;
+}
+
+.url-status-item.archived .url-status-dot { color: #34c759; }
+.url-status-item.queued .url-status-dot { color: #ffcc00; }
+.url-status-item.external .url-status-dot { color: var(--color-muted); }
+.url-status-item.failed .url-status-dot { color: var(--color-danger); }
+
+/* Milkdown toolbar styling */
+.milkdown-menu,
+.milkdown .milkdown-menu {
+    border-bottom: 1px solid var(--color-border-light);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+
+/* Dirty indicator — unsaved changes */
+.dirty-indicator {
+    position: absolute;
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    font-size: 0.5rem;
+    color: var(--color-muted);
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.content-note {
+    position: relative;
+}
+
+/* Bridge textarea — hidden */
+#milkdown-bridge {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}

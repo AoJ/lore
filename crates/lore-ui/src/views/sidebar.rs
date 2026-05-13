@@ -214,11 +214,10 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                 } else if evt.key() == Key::Escape {
                     if is_new {
                         store.delete_space_permanent(&state, space_id).ok();
-                        if let Ok(conn) = data::open_db() {
-                            if let Ok(s) = lore_core::db::get_active_space(&conn) {
+                        if let Ok(conn) = data::open_db()
+                            && let Ok(s) = lore_core::db::get_active_space(&conn) {
                                 store.switch_space(&mut state,s.id);
                             }
-                        }
                     }
                     state.renaming.set(None);
                     store.refresh(&state);

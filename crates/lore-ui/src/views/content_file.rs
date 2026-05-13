@@ -112,11 +112,10 @@ pub fn ContentFile(id: i64) -> Element {
                                     .set_directory(&default_dir)
                                     .save_file()
                                     .await;
-                                if let Some(h) = handle {
-                                    if h.write(&bytes).await.is_ok() {
+                                if let Some(h) = handle
+                                    && h.write(&bytes).await.is_ok() {
                                         state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
                                     }
-                                }
                             });
                         }
                     },

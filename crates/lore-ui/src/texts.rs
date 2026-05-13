@@ -1,8 +1,7 @@
-/// All user-visible UI strings in one place.
-/// Allows easy renaming, localization, and consistency.
+//! All user-visible UI strings in one place.
+//! Allows easy renaming, localization, and consistency.
 
 // ---- Sidebar ----
-pub const APP_TITLE: &str = "lore";
 pub const NAV_WEBS: &str = "Webs";
 pub const NAV_NOTES: &str = "Notes";
 pub const NAV_FILES: &str = "Files";
@@ -36,7 +35,6 @@ pub const BTN_OPEN_BROWSER: &str = "Open in browser";
 pub const BTN_DELETE: &str = "Delete";
 pub const BTN_RESTORE: &str = "Restore";
 pub const BTN_DELETE_FOREVER: &str = "Delete forever";
-pub const BTN_EMPTY_TRASH: &str = "Empty trash";
 pub const BTN_UPLOAD: &str = "Upload";
 pub const BTN_SAVE_TO_DOWNLOADS: &str = "Download";
 
@@ -44,13 +42,11 @@ pub const LABEL_CONTENT_PREVIEW: &str = "Content preview";
 
 // ---- Note editor ----
 pub const PLACEHOLDER_NOTE_TITLE: &str = "Untitled note";
-pub const PLACEHOLDER_NOTE_BODY: &str = "Start writing...";
 
 // ---- Search ----
 pub const PLACEHOLDER_SEARCH: &str = "Type to search...";
 pub const SEARCH_GROUP_PAGES: &str = "Web Pages";
 pub const SEARCH_GROUP_NOTES: &str = "Notes";
-pub const SEARCH_GROUP_FILES: &str = "Files";
 
 // ---- Empty states ----
 pub const EMPTY_SELECT: &str = "Select an item to view it here.";
@@ -72,7 +68,6 @@ pub const TOAST_FILE_TRASH: &str = "File moved to trash.";
 pub const TOAST_FILE_SAVED: &str = "File saved.";
 pub const TOAST_RESTORED: &str = "Restored.";
 pub const TOAST_UNDO: &str = "Undo";
-pub const TOAST_ALREADY_EXISTS: &str = "Already exists";
 pub const TOAST_FILE_RESTORED_FROM_TRASH: &str = "File restored from trash.";
 pub const TOAST_FILE_DEDUPED: &str = "File already exists, using existing.";
 pub const TOAST_ATTACHMENT_RESTORED: &str = "Attachment restored.";

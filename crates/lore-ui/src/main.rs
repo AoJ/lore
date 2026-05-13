@@ -29,6 +29,30 @@ fn main() {
 }
 
 fn app() -> Element {
+    // Bootstrap DB once: opens connection, applies migrations, seeds defaults.
+    // If this fails (corrupted DB, schema from newer build, FS permissions, …)
+    // we must render an actionable error instead of a blank window.
+    let db_path = data::db_path();
+    let bootstrap = lore_core::db::open(&db_path);
+
+    rsx! {
+        document::Style { {TOKENS_CSS} }
+        document::Style { {APP_CSS} }
+        document::Style { {EDITOR_CSS} }
+        match bootstrap {
+            Ok(_conn) => rsx! { BootedApp {} },
+            Err(e) => rsx! {
+                StartupError {
+                    path: db_path.display().to_string(),
+                    message: format!("{:#}", e),
+                }
+            },
+        }
+    }
+}
+
+#[component]
+fn BootedApp() -> Element {
     let state = AppState::new();
     let mut store = store::DataStore::new(*state.space_id.read());
     store.refresh(&state);
@@ -37,12 +61,26 @@ fn app() -> Element {
     use_context_provider(|| store);
 
     rsx! {
-        document::Style { {TOKENS_CSS} }
-        document::Style { {APP_CSS} }
-        document::Style { {EDITOR_CSS} }
         script { {MILKDOWN_JS} }
         script { "document.addEventListener('DOMContentLoaded', function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}); setTimeout(function() {{ var el = document.querySelector('.app-keyboard-trap'); if (el) el.focus(); }}, 100);" }
         AppLayout {}
+    }
+}
+
+#[component]
+fn StartupError(path: String, message: String) -> Element {
+    rsx! {
+        div { class: "startup-error",
+            h1 { "lore — startup failed" }
+            p { "The database could not be opened." }
+            p { class: "startup-error-path", "Path: ", code { "{path}" } }
+            pre { class: "startup-error-msg", "{message}" }
+            p {
+                "If the DB was written by a newer build, install the matching version. "
+                "If it's corrupted, restore from a backup or remove it to start fresh "
+                "(this will lose data)."
+            }
+        }
     }
 }
 
@@ -165,21 +203,19 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
                             .set_directory(&default_dir)
                             .save_file()
                             .await;
-                        if let Some(h) = handle {
-                            if h.write(&bytes).await.is_ok() {
+                        if let Some(h) = handle
+                            && h.write(&bytes).await.is_ok() {
                                 state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
                             }
-                        }
                     });
                 }
             }
         }
         // Cmd+U — upload file (Files section only)
-        Key::Character(ref ch) if ch == "u" && cmd => {
-            if *state.section.read() == Section::AllFiles {
+        Key::Character(ref ch) if ch == "u" && cmd
+            && *state.section.read() == Section::AllFiles => {
                 dioxus::document::eval("document.getElementById('file-upload-input').click()");
             }
-        }
         // Cmd+D — trash selected
         Key::Character(ref ch) if ch == "d" && cmd => {
             trash_selected(&mut state, &mut store);
@@ -242,24 +278,21 @@ fn create_new_note(state: &mut AppState, store: &mut store::DataStore) {
 fn trash_selected(state: &mut AppState, store: &mut store::DataStore) {
     let selected = state.selected.read().clone();
     match selected {
-        Selected::Page(id) => {
-            if store.trash_page(state, id).is_ok() {
+        Selected::Page(id)
+            if store.trash_page(state, id).is_ok() => {
                 state.show_toast(texts::TOAST_MOVED_TRASH.to_string(), Some(state::UndoAction::RestorePage(id)));
                 state.selected.set(Selected::None);
             }
-        }
-        Selected::Note(id) => {
-            if store.trash_note(state, id).is_ok() {
+        Selected::Note(id)
+            if store.trash_note(state, id).is_ok() => {
                 state.show_toast(texts::TOAST_NOTE_TRASH.to_string(), Some(state::UndoAction::RestoreNote(id)));
                 state.selected.set(Selected::None);
             }
-        }
-        Selected::File(id) => {
-            if store.trash_file(state, id).is_ok() {
+        Selected::File(id)
+            if store.trash_file(state, id).is_ok() => {
                 state.show_toast(texts::TOAST_FILE_TRASH.to_string(), Some(state::UndoAction::RestoreFile(id)));
                 state.selected.set(Selected::None);
             }
-        }
         _ => {}
     }
 }
@@ -275,7 +308,7 @@ fn move_selection(state: &mut AppState, direction: i32) {
     match section {
         Section::AllPages => {
             let ids = page_ids_ordered(space_id);
-            navigate_ids(&ids, &current, direction, state, |id| Selected::Page(id));
+            navigate_ids(&ids, &current, direction, state, Selected::Page);
         }
         Section::AllNotes | Section::Folder(_) => {
             let folder_id = match &section {
@@ -283,7 +316,7 @@ fn move_selection(state: &mut AppState, direction: i32) {
                 _ => None,
             };
             let ids = note_ids_ordered(folder_id, space_id);
-            navigate_ids(&ids, &current, direction, state, |id| Selected::Note(id));
+            navigate_ids(&ids, &current, direction, state, Selected::Note);
         }
         Section::Settings => {
             state.selected.set(Selected::SettingsRules);
