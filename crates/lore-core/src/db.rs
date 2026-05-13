@@ -3,7 +3,8 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
-const SCHEMA: &str = include_str!("schema.sql");
+use crate::migrations;
+
 const SEED: &str = include_str!("seed.sql");
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -11,103 +12,18 @@ pub fn open(path: &Path) -> Result<Connection> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
-    let conn =
+    let mut conn =
         Connection::open(path).with_context(|| format!("opening database {}", path.display()))?;
-    conn.execute_batch(SCHEMA)
-        .context("initializing database schema")?;
 
-    // Migration: add deleted_at to space if missing
-    let has_space_deleted: bool = conn
-        .prepare("SELECT 1 FROM pragma_table_info('space') WHERE name='deleted_at'")
-        .and_then(|mut s| s.exists([]))
-        .unwrap_or(false);
-    if !has_space_deleted {
-        conn.execute_batch("ALTER TABLE space ADD COLUMN deleted_at TEXT;").ok();
-    }
+    // Connection-level PRAGMAs. journal_mode is per-DB but applying it on every
+    // open is a no-op once set; foreign_keys is per-connection and must be set
+    // every time. Both must run *outside* any transaction (SQLite forbids
+    // journal_mode changes inside one), so they live here, not in migrations.
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+        .context("setting connection pragmas")?;
 
-    // Migration: add size/hash/deleted_at to note_attachment if missing
-    let has_att_size: bool = conn
-        .prepare("SELECT 1 FROM pragma_table_info('note_attachment') WHERE name='size'")
-        .and_then(|mut s| s.exists([]))
-        .unwrap_or(false);
-    if !has_att_size {
-        conn.execute_batch(
-            "ALTER TABLE note_attachment ADD COLUMN size INTEGER NOT NULL DEFAULT 0;\
-             ALTER TABLE note_attachment ADD COLUMN hash TEXT NOT NULL DEFAULT '';\
-             ALTER TABLE note_attachment ADD COLUMN deleted_at TEXT;",
-        )
-        .ok();
-        // Backfill size/hash for existing rows
-        let ids: Vec<i64> = conn
-            .prepare("SELECT id FROM note_attachment WHERE hash = ''")
-            .and_then(|mut s| {
-                s.query_map([], |r| r.get::<_, i64>(0))
-                    .map(|it| it.filter_map(|r| r.ok()).collect())
-            })
-            .unwrap_or_default();
-        for id in ids {
-            if let Ok(bytes) = conn.query_row(
-                "SELECT data FROM note_attachment WHERE id = ?1",
-                [id],
-                |r| r.get::<_, Vec<u8>>(0),
-            ) {
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let hash = format!("{:x}", hasher.finalize());
-                conn.execute(
-                    "UPDATE note_attachment SET size = ?1, hash = ?2 WHERE id = ?3",
-                    rusqlite::params![bytes.len() as i64, hash, id],
-                )
-                .ok();
-            }
-        }
-    }
-    // Index on deleted_at — created here (after migration) so it works both for
-    // fresh installs and for migrated old DBs that just gained the column.
-    conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_note_attachment_deleted ON note_attachment(deleted_at);",
-    )
-    .ok();
-
-    // Migration: rewrite legacy `lore://attachment/N` URLs to `https://attachment.lore.invalid/N`.
-    // The custom `lore://` scheme wasn't recognized as a hyperlink by Milkdown's
-    // markdown parser → links rendered as raw text. The HTTPS host name is bogus
-    // (`.invalid` is reserved by RFC 2606 to never resolve) but lets Milkdown
-    // render an <a> tag we can intercept via a click handler in the editor.
-    // REPLACE is idempotent — running on already-migrated bodies is a no-op.
-    conn.execute(
-        "UPDATE note SET \
-            body  = REPLACE(body,  'lore://attachment/', 'https://attachment.lore.invalid/'), \
-            title = REPLACE(title, 'lore://attachment/', 'https://attachment.lore.invalid/') \
-         WHERE body LIKE '%lore://attachment/%' OR title LIKE '%lore://attachment/%'",
-        [],
-    )
-    .ok();
-    // Un-escape brackets/parens around attachment links that Milkdown serialized
-    // as plain text back when it didn't recognize lore:// as a URL scheme.
-    let re = regex::Regex::new(
-        r"\\\[([^\]\\]*)\\?\]\\\((https://attachment\.lore\.invalid/\d+)\\?\)",
-    ).expect("static regex");
-    let rows: Vec<(i64, String, String)> = conn
-        .prepare("SELECT id, title, body FROM note WHERE body LIKE '%attachment.lore.invalid/%' OR title LIKE '%attachment.lore.invalid/%'")
-        .and_then(|mut s| {
-            s.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
-                .map(|it| it.filter_map(|r| r.ok()).collect())
-        })
-        .unwrap_or_default();
-    for (id, title, body) in rows {
-        let fixed_title = re.replace_all(&title, "[$1]($2)").into_owned();
-        let fixed_body = re.replace_all(&body, "[$1]($2)").into_owned();
-        if fixed_title != title || fixed_body != body {
-            conn.execute(
-                "UPDATE note SET title = ?1, body = ?2 WHERE id = ?3",
-                rusqlite::params![fixed_title, fixed_body, id],
-            ).ok();
-        }
-    }
-
-    // Ensure revision counter is seeded (existing DBs may not have it)
-    conn.execute("INSERT OR IGNORE INTO db_revision (id, revision) VALUES (1, 0)", []).ok();
+    // Apply schema migrations (or refuse if DB is from a newer build).
+    migrations::apply(&mut conn).context("applying DB migrations")?;
 
     // Seed default space if none exists
     let space_count: i64 = conn.query_row("SELECT COUNT(*) FROM space", [], |row| row.get(0))?;

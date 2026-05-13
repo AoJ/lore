@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command};
-use lore_core::{db, rules, search};
+use lore_core::{db, migrations, rules, search, version};
 use url::Url;
 
 fn main() -> Result<()> {
@@ -63,6 +63,31 @@ fn main() -> Result<()> {
                 domain.as_deref(),
                 limit,
             )?;
+        }
+        Command::DbVersion => {
+            // Open the file as a raw connection — don't run migrations or
+            // refuse-on-newer logic, we just want to read the version.
+            let conn = rusqlite::Connection::open(&db_path)
+                .with_context(|| format!("opening database {}", db_path.display()))?;
+            let current = migrations::current_version(&conn)
+                .context("reading PRAGMA user_version")?;
+            println!("lore       {}", version::full());
+            println!("DB path    {}", db_path.display());
+            println!("DB version {}", current);
+            println!("expected   {}", migrations::EXPECTED_VERSION);
+            if current > migrations::EXPECTED_VERSION {
+                println!("status     newer than this build (refused)");
+            } else if current < migrations::EXPECTED_VERSION {
+                println!("status     pending migrations");
+            } else {
+                println!("status     up to date");
+            }
+        }
+        Command::Migrate => {
+            // db::open() runs migrations as a side effect; this gives us
+            // exactly what we want without spinning up the rest of the app.
+            let _ = db::open(&db_path)?;
+            println!("DB at {} is now v{}", db_path.display(), migrations::EXPECTED_VERSION);
         }
     }
 

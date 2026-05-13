@@ -130,11 +130,38 @@ SQLite at `~/.local/share/lore/lore.db` by default.
 
 Override: `--db <path>` or `LORE_DB` env var.
 
-Tables:
-- `web_page` -- URL, title, domain, category, status, timestamps
-- `web_page_snapshot` -- versioned snapshots (HTML, plain text, screenshot)
-- `web_page_fts` -- FTS5 full-text search index
-- `classification_rule` -- URL classification rules (pattern, match_type, category, priority)
+For a current map of all tables and columns see
+[`crates/lore-core/SCHEMA.md`](crates/lore-core/SCHEMA.md).
+
+### Schema versioning and migrations
+
+The DB stores its schema version in SQLite's `PRAGMA user_version`. Each
+build of lore embeds an `EXPECTED_VERSION` in `crates/lore-core/src/migrations.rs`
+and on every connection open:
+
+- `db_version > expected` → app refuses to start (don't downgrade silently)
+- `db_version < expected` → pending migrations are applied, each in its own
+  transaction
+- pre-versioning DB (`user_version = 0` but tables exist) → stamped to
+  `expected` on first open
+
+Migrations live in `crates/lore-core/migrations/NNNN_description.sql`,
+embedded into the binary via `include_str!`. Migrations needing Rust code
+(SHA256 backfill, regex rewrites) are registered as `Step::Code` entries in
+the runner. **Linear forward-only**: never edit or reorder past migrations,
+only append.
+
+```
+make db-version    # show current and expected versions for $DB
+make migrate       # apply pending migrations (no UI)
+```
+
+Add a new migration:
+1. Create `crates/lore-core/migrations/NNNN_what_changes.sql` (or write a
+   Rust function for code migrations)
+2. Append it to `MIGRATIONS` in `src/migrations.rs`
+3. Bump `EXPECTED_VERSION`
+4. Update `SCHEMA.md` to reflect the new state
 
 ## Roadmap
 

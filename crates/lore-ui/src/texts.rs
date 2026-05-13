@@ -79,6 +79,13 @@ pub const TOAST_ATTACHMENT_RESTORED: &str = "Attachment restored.";
 pub const TOAST_ATTACHMENT_DEDUPED: &str = "Already attached, linking existing.";
 pub const TOAST_ATTACHMENT_REVIVED: &str = "Attachment restored from removed list.";
 
+// ---- Schema mismatch banner (bottom-right, next to revision indicator) ----
+pub const SCHEMA_OUTDATED_LABEL: &str = "DB upgraded — restart required";
+pub const SCHEMA_OUTDATED_TOOLTIP: &str =
+    "The database schema was updated by another process. \
+     This window is still running on the old schema and \
+     should be restarted to load the new structure.";
+
 // ---- Trash item labels ----
 pub const KIND_PAGE: &str = "page";
 pub const KIND_NOTE: &str = "note";

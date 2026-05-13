@@ -20,6 +20,10 @@ pub struct DataStore {
     pub trash_count: Signal<i64>,
     pub note_counts: Signal<HashMap<i64, i64>>,
     pub revision: Signal<i64>,
+    /// True when the on-disk DB was migrated to a newer version while this
+    /// app instance is still running on the old schema. Polled separately
+    /// from data revision; clearing requires app restart.
+    pub schema_outdated: Signal<bool>,
     pub heatmap: Signal<Vec<(String, i64)>>,  // (YYYY-MM-DD, count)
     pub timeline_selected_day: Signal<Option<String>>,
     pub timeline_day_notes: Signal<Vec<lore_core::db::NoteRow>>,
@@ -48,6 +52,7 @@ impl DataStore {
             trash_count: Signal::new(0),
             note_counts: Signal::new(HashMap::new()),
             revision: Signal::new(rev),
+            schema_outdated: Signal::new(false),
             heatmap: Signal::new(Vec::new()),
             timeline_selected_day: Signal::new(None),
             timeline_day_notes: Signal::new(Vec::new()),
@@ -58,8 +63,19 @@ impl DataStore {
         }
     }
 
-    /// Called from polling loop — checks DB revision only.
+    /// Called from polling loop — checks DB revision and schema version.
     pub fn poll(&mut self, state: &AppState) {
+        // Schema version check first: if the DB was migrated by another
+        // process (CLI `lore migrate`, a newer build, …) we set a flag for
+        // the UI banner. We don't try to recover — the live connections were
+        // opened against the old schema and queries would start failing on
+        // any new column. User has to restart.
+        let on_disk = data::db_schema_version();
+        let known = lore_core::migrations::EXPECTED_VERSION;
+        if on_disk != known && !*self.schema_outdated.read() {
+            self.schema_outdated.set(true);
+        }
+
         let new_rev = data::get_revision();
         if new_rev != *self.last_poll_rev.read() {
             self.last_poll_rev.set(new_rev);

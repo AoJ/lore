@@ -64,4 +64,9 @@ pub enum Command {
         #[arg(short, long, default_value = "50")]
         limit: usize,
     },
+    /// Print DB schema version (current and expected by this build)
+    DbVersion,
+    /// Apply pending migrations and exit (no UI, no seed work beyond what
+    /// db::open already does)
+    Migrate,
 }

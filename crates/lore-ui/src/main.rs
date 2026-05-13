@@ -115,8 +115,17 @@ fn RevisionIndicator() -> Element {
     });
 
     let rev = store.revision;
+    let outdated = *store.schema_outdated.read();
     rsx! {
-        div { class: "revision-indicator", "r{rev}" }
+        div { class: "revision-indicator",
+            if outdated {
+                span { class: "schema-warning",
+                    title: crate::texts::SCHEMA_OUTDATED_TOOLTIP,
+                    "{crate::texts::SCHEMA_OUTDATED_LABEL}"
+                }
+            }
+            span { "r{rev}" }
+        }
     }
 }
 

@@ -93,7 +93,7 @@
 - [x] File-block render v těle poznámky — `[name](https://lore.local/attachment/N)` zobrazuje se jako šedá full-width karta s 📎 ikonou; klik otevře nativní save dialog. URL prefix migrace ze starého `lore://attachment/N` (Milkdown ho neuznával jako schéma) + regex unescape pro escapované markdown linky.
 - [x] Dedup attachmentů per-note: stejný `name + hash` → reuse ID + insert dalšího odkazu, stejný hash + jiný název = nový soubor (renamed verze)
 - [x] **JS build setup pro `milkdown.js`** — `crates/lore-ui/js/` s package.json + index.js (plain JS) + build.mjs (esbuild). Make cíle `js-install`, `js-build`, `js-watch`, `js-clean`. README sekce. Bundle output → `assets/milkdown.js` (committed pro repeatable Rust build). Migrace z minified bundle na zdrojový kód, žádné manuální editace minifikátu.
-- [ ] **Plný Milkdown custom node pro file blok** (závisí na předchozím) — místo CSS-only block stylingu přes URL prefix udělat custom ProseMirror node `fileAttachment` s vlastním rendererem: ext badge vlevo, filename, metadata vpravo (velikost, datum, checksum), × tlačítko pro odpojení. Markdown serializace `[name](https://attachment.lore.invalid/N)` zůstane stejná → kompatibilita s plain markdown exportem.
+- [x] **Plný Milkdown custom render pro file blok** — implementováno jako **markView na `link` marku** (ne jako vlastní ProseMirror Node, jak původně plánováno). `js/index.js → buildLinkMarkView` renderuje `<a class="file-attachment-block">` s ext badge vlevo, filename (contentDOM, ProseMirror spravuje text), metadata vpravo (date · size · hash přes `setAttachmentMeta`), × tlačítkem pro odpojení (smaže link mark z dokumentu, soubor zůstane). CSS v `assets/editor.css`. Markdown serializace zůstává `[name](https://attachment.lore.invalid/N)` → plain markdown export funguje bez custom node↔markdown serializátoru.
 
 ### Soubory (modul Files)
 - [x] DB tabulka `file` (id, name, mime_type, size, hash, data BLOB, created_at, deleted_at)
@@ -138,17 +138,8 @@
 ### Infrastruktura / Build / DB management
 *Vyplynulo z incidentu 2026-04-29, kdy nová verze kódu tiše selhala na startu kvůli rozdílu schématu a aplikace běžela bez dat — chyba byla swallow-nutá.*
 
-- [ ] **Verzované DB schéma**
-  - Sloupec `schema_version` (nebo tabulka `meta`) v DB
-  - Aplikace zná `EXPECTED_VERSION` v kódu
-  - Při startu: pokud `db.version < expected` → spustit migrace postupně (1→2→3…), commit verze
-  - Pokud `db.version > expected` → **odmítnout start** s jasnou hláškou ("DB schéma v{X}, tato verze aplikace zná jen v{Y} — spusť novější aplikaci")
-  - Pokud `db.version == expected` → start
-- [ ] **Centrální místo pro migrace**
-  - Adresář `crates/lore-core/migrations/NNN_popis.sql` (např. `001_initial.sql`, `002_add_attachment_size_hash.sql`)
-  - Embed přes `include_dir!` nebo `include_str!` per soubor
-  - Linear forward-only — žádné down-migrace zatím
-  - `schema.sql` přestane být zdrojem pravdy → bude jen současný snapshot pro fresh install (generovaný / udržovaný)
+- [x] **Verzované DB schéma** — `PRAGMA user_version` + `EXPECTED_VERSION` v `crates/lore-core/src/migrations.rs`. Při startu: pokud `db > expected` odmítne start, pokud `db < expected` aplikuje chybějící migrace v transakcích. Legacy bridge: pre-versioning DB (`user_version=0` + tabulky existují) se stampne na expected.
+- [x] **Centrální místo pro migrace** — `crates/lore-core/migrations/NNNN_popis.sql` embedované přes `include_str!`. Dual-path: SQL soubory + Rust `Step::Code` funkce pro migrace co potřebují kód (SHA256 backfill, regex rewrite). `schema.sql` smazán (zdroj pravdy = migrace + lidský `SCHEMA.md`).
 - [ ] **Error handling při startu**
   - Selhání `db::open()` musí být vidět: hláška v dialog boxu / error overlay v UI místo prázdného okna
   - Žádné `.ok()` ani `.unwrap_or_default()` na startup-critical operace — místo toho propagovat až do mainu a zobrazit
@@ -156,7 +147,6 @@
 - [ ] **Log management**
   - `tracing` crate s `tracing-subscriber` (env-filter)
   - Levely: `error`, `warn`, `info` (default), `debug`, `trace`
-  - File output do `~/Library/Logs/lore/lore.log` s rotací (např. denní)
   - `RUST_LOG=lore=debug` přepíše level
   - Případně overlay v UI s posledními N error/warn hláškami (collapsible panel?)
 - [ ] **Makefile jako jediná pravda pro spouštění**
@@ -167,6 +157,13 @@
   - Přepsat sekci "Build" → "Spuštění a vývoj" s odkazy na Makefile cíle
   - Doplnit "DB & migrace" sekci popisující versioning a kde leží migrační skripty
   - Doplnit "Logování a debug" sekci s `RUST_LOG`, umístěním logu, jak nahlásit chybu
+- [ ] **Správa DB spojení** *(zjištěno 2026-05-13)*
+  - Současný stav: `data::open_db()` otevírá nové `Connection` při každém volání. Polling smyčka v UI (každé 2s) tak generuje ~60 spojení/min: jedno raw pro `PRAGMA user_version`, druhé přes `db::open()` (PRAGMA + migrační runner + dotaz na `db_revision`). Plus všechny ad-hoc otevření v event handlerech a `use_signal` initech. Funguje, ale není to ideální — zbytečný CPU/syscall overhead, migrační runner se zbytečně spouští při každém dotazu, vytváří se subtle race window mezi otevřením spojení a SELECT (cizí proces může mezitím zvednout verzi).
+  - **Návrh 1 — Skip migrate při každém open (nejlevnější):** Rozdělit `db::open()` na `migrate_and_open()` (jednou při startu, ze CLI a workeru) a `open_existing()` (jen `Connection::open` + per-connection PRAGMAs, žádný migration runner, žádný seed). Polling a všechny ad-hoc dotazy používají `open_existing()`. Migrace patří k bootstrap, ne ke každému dotazu. Malá změna (~10 řádků v `db.rs`), velký logický přínos.
+  - **Návrh 2 — Cached connection per polling loop:** Držet jeden `Connection` v Dioxus signalu / `RefCell` / `thread_local!`, polling ho používá místo opakovaného otevírání. Komplikace: rusqlite `Connection` není `Send` — bylo by potřeba `tokio::sync::Mutex<Connection>` nebo thread-local. Přínos: zero open/close overhead při polling.
+  - **Návrh 3 — Connection pool (`r2d2_sqlite`):** Pool má smysl při paralelních HTTP requestech (`lore-server`), pro single-threadovou desktop polling smyčku je to overkill.
+  - **Návrh 4 — Status quo:** SQLite v WAL módu je rychlý na otevření (desítky µs lokálně), zatím se to nikde neprojevuje. Pokud se ukáže že tohle není bottleneck, nedělat nic.
+  - **Doporučení:** udělat #1 (skip migrate při open) jako levný win. K #2 sáhnout až když začneme dělat transakce přes víc operací (např. batch import) nebo se ukáže reálné zpomalení. #3 přijde do hry až s `lore-server` paralelizací.
 
 ---
 

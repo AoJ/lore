@@ -39,6 +39,14 @@ test:
 	cargo test --workspace
 
 
+# DB schema management
+db-version:
+	cargo run -q -p lore-cli -- --db $(DB) db-version
+
+migrate:
+	cargo run -q -p lore-cli -- --db $(DB) migrate
+
+
 lint:
 	cargo clippy --workspace
 	cargo fmt --all -- --check
@@ -52,4 +60,4 @@ clean:
 	cargo clean
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt clean \
-        js-install js-build js-watch js-clean
+        js-install js-build js-watch js-clean db-version migrate

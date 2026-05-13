@@ -402,6 +402,17 @@ pub fn get_revision() -> i64 {
         .unwrap_or(0)
 }
 
+/// Read PRAGMA user_version directly (raw connection, no migrations, no
+/// refuse-on-newer). Used by the polling loop to detect a schema upgrade
+/// happening underneath us — going through `open_db()` would fail outright
+/// if another process has bumped the DB past `EXPECTED_VERSION`.
+pub fn db_schema_version() -> u32 {
+    rusqlite::Connection::open(db_path())
+        .ok()
+        .and_then(|c| c.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0)).ok())
+        .unwrap_or(0)
+}
+
 /// Extract URLs from text and auto-archive them
 pub fn auto_archive_urls(text: &str, space_id: i64) {
     let conn = match open_db() {

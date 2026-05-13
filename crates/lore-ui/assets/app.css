@@ -1189,6 +1189,23 @@ details summary {
     opacity: 0.5;
     z-index: 50;
     pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+/* Schema-mismatch warning sits left of the revision counter. Pill is opaque
+ * (full opacity) and clickable so the title tooltip works on hover. */
+.revision-indicator .schema-warning {
+    pointer-events: auto;
+    opacity: 1;
+    background: #f4a300;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: var(--font-sans);
+    font-weight: 500;
+    cursor: help;
 }
 
 .toast-close {
