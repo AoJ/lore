@@ -36,3 +36,80 @@ pub fn folder_path(folders: &[FolderRow], folder_id: Option<i64>) -> Option<Stri
     parts.reverse();
     Some(parts.join(" / "))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(id: i64, name: &str, parent_id: Option<i64>) -> FolderRow {
+        FolderRow {
+            id,
+            name: name.to_string(),
+            parent_id,
+            sort_order: 0,
+            space_id: Some(1),
+        }
+    }
+
+    #[test]
+    fn flat_tree_listed_in_order() {
+        let folders = vec![folder(1, "A", None), folder(2, "B", None)];
+        let tree = build_folder_tree(&folders, None, 0);
+        assert_eq!(
+            tree,
+            vec![(1, "A".into(), 0), (2, "B".into(), 0)],
+        );
+    }
+
+    #[test]
+    fn nested_children_get_increasing_depth() {
+        let folders = vec![
+            folder(1, "Work", None),
+            folder(2, "Projects", Some(1)),
+            folder(3, "Lore", Some(2)),
+            folder(4, "Personal", None),
+        ];
+        let tree = build_folder_tree(&folders, None, 0);
+        assert_eq!(
+            tree,
+            vec![
+                (1, "Work".into(), 0),
+                (2, "Projects".into(), 1),
+                (3, "Lore".into(), 2),
+                (4, "Personal".into(), 0),
+            ],
+        );
+    }
+
+    #[test]
+    fn folder_path_returns_none_for_root() {
+        let folders = vec![folder(1, "A", None)];
+        assert_eq!(folder_path(&folders, None), None);
+    }
+
+    #[test]
+    fn folder_path_returns_none_for_missing_id() {
+        let folders = vec![folder(1, "A", None)];
+        assert_eq!(folder_path(&folders, Some(999)), None);
+    }
+
+    #[test]
+    fn folder_path_joins_breadcrumb() {
+        let folders = vec![
+            folder(1, "Work", None),
+            folder(2, "Projects", Some(1)),
+            folder(3, "Lore", Some(2)),
+        ];
+        assert_eq!(
+            folder_path(&folders, Some(3)),
+            Some("Work / Projects / Lore".to_string()),
+        );
+    }
+
+    #[test]
+    fn folder_path_for_root_level_folder_is_name_only() {
+        let folders = vec![folder(7, "Inbox", None)];
+        assert_eq!(folder_path(&folders, Some(7)), Some("Inbox".to_string()));
+    }
+}
+

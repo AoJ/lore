@@ -267,3 +267,82 @@ fn json_extract(json: &str, key: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_title_body_empty_string() {
+        assert_eq!(split_title_body(""), (String::new(), String::new()));
+    }
+
+    #[test]
+    fn split_title_body_title_only() {
+        assert_eq!(
+            split_title_body("Just a title"),
+            ("Just a title".into(), String::new()),
+        );
+    }
+
+    #[test]
+    fn split_title_body_title_and_body() {
+        assert_eq!(
+            split_title_body("Title\nBody line 1\nBody line 2"),
+            ("Title".into(), "Body line 1\nBody line 2".into()),
+        );
+    }
+
+    #[test]
+    fn split_title_body_empty_first_line() {
+        assert_eq!(
+            split_title_body("\nbody"),
+            (String::new(), "body".into()),
+        );
+    }
+
+    #[test]
+    fn json_extract_simple_value() {
+        let payload = r#"{"name":"foo.txt","size":42}"#;
+        assert_eq!(json_extract(payload, "name"), Some("foo.txt".into()));
+    }
+
+    #[test]
+    fn json_extract_missing_key_returns_none() {
+        let payload = r#"{"name":"foo.txt"}"#;
+        assert_eq!(json_extract(payload, "absent"), None);
+    }
+
+    #[test]
+    fn json_extract_handles_escaped_quote() {
+        let payload = r#"{"name":"He said \"hi\""}"#;
+        assert_eq!(json_extract(payload, "name"), Some("He said \"hi\"".into()));
+    }
+
+    #[test]
+    fn json_extract_handles_escaped_backslash_and_newline() {
+        let payload = r#"{"path":"C:\\tmp\\a.txt","tail":"line1\nline2"}"#;
+        assert_eq!(
+            json_extract(payload, "path"),
+            Some(r"C:\tmp\a.txt".to_string()),
+        );
+        assert_eq!(
+            json_extract(payload, "tail"),
+            Some("line1\nline2".into()),
+        );
+    }
+
+    #[test]
+    fn json_extract_picks_first_occurrence() {
+        // Naive scanner just finds the first `"key":"` so this is expected.
+        let payload = r#"{"k":"a","k":"b"}"#;
+        assert_eq!(json_extract(payload, "k"), Some("a".into()));
+    }
+
+    #[test]
+    fn json_extract_truncated_value_returns_none() {
+        // No closing quote — should not panic.
+        let payload = r#"{"name":"unclosed"#;
+        assert_eq!(json_extract(payload, "name"), None);
+    }
+}

@@ -178,3 +178,69 @@ pub fn open_in_browser(url: &str) {
         let _ = std::process::Command::new("xdg-open").arg(url).spawn();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_file_size_bytes_under_1k() {
+        assert_eq!(format_file_size(0), "0 B");
+        assert_eq!(format_file_size(999), "999 B");
+    }
+
+    #[test]
+    fn format_file_size_kilobytes() {
+        assert_eq!(format_file_size(1_000), "1.0 KB");
+        assert_eq!(format_file_size(1_500), "1.5 KB");
+        assert_eq!(format_file_size(999_999), "1000.0 KB");
+    }
+
+    #[test]
+    fn format_file_size_megabytes() {
+        assert_eq!(format_file_size(1_000_000), "1.0 MB");
+        assert_eq!(format_file_size(12_300_000), "12.3 MB");
+    }
+
+    #[test]
+    fn format_file_size_gigabytes() {
+        assert_eq!(format_file_size(1_000_000_000), "1.0 GB");
+        assert_eq!(format_file_size(2_500_000_000), "2.5 GB");
+    }
+
+    #[test]
+    fn format_size_short_thresholds_match_get_page_view() {
+        // The page-detail formatter uses strict `>` (not `>=`) so 1000 stays as B.
+        assert_eq!(format_size_short(500), "500 B");
+        assert_eq!(format_size_short(1_500), "1.5 KB");
+        assert_eq!(format_size_short(1_500_000), "1.5 MB");
+    }
+
+    #[test]
+    fn file_extension_uppercases_and_strips_dot() {
+        assert_eq!(file_extension("doc.pdf"), "PDF");
+        assert_eq!(file_extension("photo.JPG"), "JPG");
+        assert_eq!(file_extension("a/b/c.tar.gz"), "GZ");
+    }
+
+    #[test]
+    fn file_extension_no_extension_returns_fallback() {
+        assert_eq!(file_extension("README"), "FILE");
+        assert_eq!(file_extension(""), "FILE");
+    }
+
+    #[test]
+    fn mime_from_extension_known_types() {
+        assert_eq!(mime_from_extension("doc.pdf"), "application/pdf");
+        assert_eq!(mime_from_extension("img.PNG"), "image/png");
+        assert_eq!(mime_from_extension("img.jpeg"), "image/jpeg");
+        assert_eq!(mime_from_extension("page.html"), "text/html");
+        assert_eq!(mime_from_extension("data.json"), "application/json");
+    }
+
+    #[test]
+    fn mime_from_extension_unknown_falls_back_to_octet_stream() {
+        assert_eq!(mime_from_extension("noext"), "application/octet-stream");
+        assert_eq!(mime_from_extension("foo.xyzzy"), "application/octet-stream");
+    }
+}

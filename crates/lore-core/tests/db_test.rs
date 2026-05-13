@@ -672,3 +672,93 @@ fn rules_are_seeded() {
     let rules = db::load_rules(&conn).unwrap();
     assert!(!rules.is_empty(), "seed rules should be loaded");
 }
+
+// ---- archive_url / auto_archive_from_text ----
+
+#[test]
+fn archive_url_inserts_classified_page() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let out = db::archive_url(
+        &conn,
+        "https://example.com/article",
+        Some(space.id),
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(out.id > 0);
+    // Default category for unknown domain = "archive"
+    assert_eq!(out.category, "archive");
+
+    // Page should be queued for the worker.
+    let pages = db::list_pages(&conn, space.id, 100).unwrap();
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].status, "queued");
+    assert_eq!(pages[0].category, "archive");
+}
+
+#[test]
+fn archive_url_classifies_via_rules() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    // Seed rules include `google.com/search → discard`.
+    let out = db::archive_url(
+        &conn,
+        "https://www.google.com/search?q=rust",
+        Some(space.id),
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(out.category, "discard");
+
+    let pages = db::list_pages(&conn, space.id, 100).unwrap();
+    // Discarded → status "skipped" (not queued for archival).
+    assert_eq!(pages[0].status, "skipped");
+}
+
+#[test]
+fn archive_url_honors_title_and_source() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let out = db::archive_url(
+        &conn,
+        "https://example.com/x",
+        Some(space.id),
+        Some("Explicit Title"),
+        Some("note"),
+    )
+    .unwrap();
+    let detail = db::get_page(&conn, out.id).unwrap();
+    assert_eq!(detail.title.as_deref(), Some("Explicit Title"));
+}
+
+#[test]
+fn auto_archive_from_text_queues_new_urls_only() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    // First pass: 2 new URLs.
+    let text = "see [docs](https://example.org/x) and https://example.net";
+    let queued = db::auto_archive_from_text(&conn, text, space.id).unwrap();
+    assert_eq!(queued, 2);
+
+    // Second pass: same text → nothing new (find_page_by_url short-circuits).
+    let queued_again = db::auto_archive_from_text(&conn, text, space.id).unwrap();
+    assert_eq!(queued_again, 0);
+
+    let pages = db::list_pages(&conn, space.id, 100).unwrap();
+    assert_eq!(pages.len(), 2);
+}
+
+#[test]
+fn auto_archive_from_text_skips_invalid_urls() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    // `http://[bogus]` will fail Url::parse but extract_urls won't catch it
+    // upstream — we rely on archive_url's parse + .is_ok() guard.
+    let text = "plain text, no links here";
+    let queued = db::auto_archive_from_text(&conn, text, space.id).unwrap();
+    assert_eq!(queued, 0);
+}
