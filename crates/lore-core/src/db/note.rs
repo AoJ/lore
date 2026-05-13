@@ -1,7 +1,13 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-pub fn insert_note(conn: &Connection, title: &str, body: &str, folder_id: Option<i64>, space_id: i64) -> Result<i64> {
+pub fn insert_note(
+    conn: &Connection,
+    title: &str,
+    body: &str,
+    folder_id: Option<i64>,
+    space_id: i64,
+) -> Result<i64> {
     conn.execute(
         "INSERT INTO note (title, body, folder_id, space_id) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![title, body, folder_id, space_id],
@@ -76,8 +82,13 @@ pub struct NoteRow {
     pub updated_at: String,
 }
 
-pub fn list_notes(conn: &Connection, folder_id: Option<i64>, space_id: i64) -> Result<Vec<NoteRow>> {
-    let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(fid) = folder_id {
+pub fn list_notes(
+    conn: &Connection,
+    folder_id: Option<i64>,
+    space_id: i64,
+) -> Result<Vec<NoteRow>> {
+    let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(fid) = folder_id
+    {
         (
             "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note WHERE deleted_at IS NULL AND folder_id = ?1 AND space_id = ?2 ORDER BY updated_at DESC".to_string(),
             vec![Box::new(fid) as Box<dyn rusqlite::types::ToSql>, Box::new(space_id)],
@@ -138,9 +149,10 @@ pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
 pub fn restore_note_safe(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute("UPDATE note SET deleted_at = NULL WHERE id = ?1", [note_id])?;
     // Check if folder still exists
-    let folder_id: Option<i64> = conn.query_row(
-        "SELECT folder_id FROM note WHERE id = ?1", [note_id], |r| r.get(0),
-    )?;
+    let folder_id: Option<i64> =
+        conn.query_row("SELECT folder_id FROM note WHERE id = ?1", [note_id], |r| {
+            r.get(0)
+        })?;
     if let Some(fid) = folder_id {
         let exists: bool = conn
             .prepare("SELECT 1 FROM note_folder WHERE id = ?1")?
@@ -153,7 +165,11 @@ pub fn restore_note_safe(conn: &Connection, note_id: i64) -> Result<()> {
 }
 
 /// Find notes that reference a given URL in their body text
-pub fn find_notes_referencing_url(conn: &Connection, url: &str, space_id: i64) -> Result<Vec<(i64, String)>> {
+pub fn find_notes_referencing_url(
+    conn: &Connection,
+    url: &str,
+    space_id: i64,
+) -> Result<Vec<(i64, String)>> {
     let pattern = format!("%{}%", url);
     let mut stmt = conn.prepare(
         "SELECT id, title FROM note WHERE body LIKE ?1 AND space_id = ?2 AND deleted_at IS NULL ORDER BY updated_at DESC",

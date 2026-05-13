@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::state::AppState;
 use crate::store::DataStore;
+use dioxus::prelude::*;
 use std::collections::HashMap;
 
 #[component]
@@ -9,7 +9,8 @@ pub fn ListTimeline() -> Element {
     let mut store = use_context::<DataStore>();
     let heatmap = store.heatmap.read();
 
-    let day_counts: HashMap<&str, i64> = heatmap.iter()
+    let day_counts: HashMap<&str, i64> = heatmap
+        .iter()
         .map(|(day, count)| (day.as_str(), *count))
         .collect();
 

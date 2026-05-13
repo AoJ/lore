@@ -40,9 +40,13 @@ const MIGRATIONS: &[Step] = &[
     Step::Sql(include_str!("../migrations/0002_space_deleted_at.sql")),
     Step::Sql(include_str!("../migrations/0003_file_table.sql")),
     Step::Code(m0004_attachment_size_hash),
-    Step::Sql(include_str!("../migrations/0005_rewrite_attachment_urls.sql")),
+    Step::Sql(include_str!(
+        "../migrations/0005_rewrite_attachment_urls.sql"
+    )),
     Step::Code(m0006_unescape_attachment_links),
-    Step::Sql(include_str!("../migrations/0007_revision_triggers_completion.sql")),
+    Step::Sql(include_str!(
+        "../migrations/0007_revision_triggers_completion.sql"
+    )),
 ];
 
 /// Read the current schema version of the DB.
@@ -155,10 +159,9 @@ fn m0004_attachment_size_hash(conn: &Connection) -> Result<()> {
 /// serialized as plain text back when it didn't recognize `lore://` as a URL
 /// scheme.
 fn m0006_unescape_attachment_links(conn: &Connection) -> Result<()> {
-    let re = regex::Regex::new(
-        r"\\\[([^\]\\]*)\\?\]\\\((https://attachment\.lore\.invalid/\d+)\\?\)",
-    )
-    .expect("static regex");
+    let re =
+        regex::Regex::new(r"\\\[([^\]\\]*)\\?\]\\\((https://attachment\.lore\.invalid/\d+)\\?\)")
+            .expect("static regex");
 
     let rows: Vec<(i64, String, String)> = {
         let mut stmt = conn.prepare(

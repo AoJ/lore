@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::state::{AppState, Selected};
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ListSettings() -> Element {

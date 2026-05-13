@@ -100,7 +100,10 @@ pub fn trash_space(conn: &Connection, space_id: i64) -> Result<()> {
 }
 
 pub fn restore_space(conn: &Connection, space_id: i64) -> Result<()> {
-    conn.execute("UPDATE space SET deleted_at = NULL WHERE id = ?1", [space_id])?;
+    conn.execute(
+        "UPDATE space SET deleted_at = NULL WHERE id = ?1",
+        [space_id],
+    )?;
     Ok(())
 }
 
@@ -115,19 +118,23 @@ pub struct SpaceStats {
 pub fn space_stats(conn: &Connection, space_id: i64) -> Result<SpaceStats> {
     let page_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM web_page WHERE space_id = ?1 AND trashed_at IS NULL",
-        [space_id], |r| r.get(0),
+        [space_id],
+        |r| r.get(0),
     )?;
     let note_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM note WHERE space_id = ?1 AND deleted_at IS NULL",
-        [space_id], |r| r.get(0),
+        [space_id],
+        |r| r.get(0),
     )?;
     let file_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM file WHERE space_id = ?1 AND deleted_at IS NULL",
-        [space_id], |r| r.get(0),
+        [space_id],
+        |r| r.get(0),
     )?;
     let file_size_bytes: i64 = conn.query_row(
         "SELECT COALESCE(SUM(size), 0) FROM file WHERE space_id = ?1 AND deleted_at IS NULL",
-        [space_id], |r| r.get(0),
+        [space_id],
+        |r| r.get(0),
     )?;
     let pages_size_bytes: i64 = conn.query_row(
         "SELECT COALESCE(SUM(LENGTH(wps.html_content) + LENGTH(COALESCE(wps.plain_text,'')) + LENGTH(COALESCE(wps.screenshot,''))), 0)

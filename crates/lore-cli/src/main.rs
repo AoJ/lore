@@ -74,8 +74,8 @@ fn main() -> Result<()> {
             // refuse-on-newer logic, we just want to read the version.
             let conn = rusqlite::Connection::open(&db_path)
                 .with_context(|| format!("opening database {}", db_path.display()))?;
-            let current = migrations::current_version(&conn)
-                .context("reading PRAGMA user_version")?;
+            let current =
+                migrations::current_version(&conn).context("reading PRAGMA user_version")?;
             println!("lore       {}", version::full());
             println!("DB path    {}", db_path.display());
             println!("DB version {}", current);
@@ -92,7 +92,11 @@ fn main() -> Result<()> {
             // db::open() runs migrations as a side effect; this gives us
             // exactly what we want without spinning up the rest of the app.
             let _ = db::open(&db_path)?;
-            println!("DB at {} is now v{}", db_path.display(), migrations::EXPECTED_VERSION);
+            println!(
+                "DB at {} is now v{}",
+                db_path.display(),
+                migrations::EXPECTED_VERSION
+            );
         }
     }
 

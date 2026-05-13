@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
+use crate::data;
 use crate::state::{AppState, Selected};
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ListFiles() -> Element {

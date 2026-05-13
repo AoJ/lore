@@ -17,36 +17,35 @@ pub mod space;
 pub mod trash;
 pub mod web_page;
 
-pub use activity::{activity_by_day, activity_for_day, PageRef};
+pub use activity::{PageRef, activity_by_day, activity_for_day};
 pub use attachment::{
-    cleanup_orphaned_attachments, delete_attachments_for_note, get_attachment,
-    get_attachment_data, insert_attachment, list_attachment_ids_for_note, list_attachments,
-    list_removed_attachments, restore_attachment, AttachmentRow, InsertAttachmentOutcome,
+    AttachmentRow, InsertAttachmentOutcome, cleanup_orphaned_attachments,
+    delete_attachments_for_note, get_attachment, get_attachment_data, insert_attachment,
+    list_attachment_ids_for_note, list_attachments, list_removed_attachments, restore_attachment,
 };
 pub use file::{
-    delete_file_permanent, get_file, get_file_data, insert_file, list_files, list_trashed_files,
-    restore_file, trash_file, FileRow, InsertFileOutcome,
+    FileRow, InsertFileOutcome, delete_file_permanent, get_file, get_file_data, insert_file,
+    list_files, list_trashed_files, restore_file, trash_file,
 };
 pub use folder::{
-    delete_folder, folder_note_counts, insert_folder, list_folders, rename_folder, FolderRow,
+    FolderRow, delete_folder, folder_note_counts, insert_folder, list_folders, rename_folder,
 };
 pub use note::{
-    delete_note_permanent, find_notes_referencing_url, get_note, insert_note, list_notes,
-    move_note_to_folder, restore_note, restore_note_safe, trash_note, update_note, NoteData,
-    NoteRow,
+    NoteData, NoteRow, delete_note_permanent, find_notes_referencing_url, get_note, insert_note,
+    list_notes, move_note_to_folder, restore_note, restore_note_safe, trash_note, update_note,
 };
 pub use space::{
-    get_active_space, insert_space, list_all_spaces, list_spaces, rename_space, restore_space,
-    space_stats, touch_space, trash_space, SpaceRow, SpaceStats,
+    SpaceRow, SpaceStats, get_active_space, insert_space, list_all_spaces, list_spaces,
+    rename_space, restore_space, space_stats, touch_space, trash_space,
 };
 pub use trash::{
-    cleanup_old_trash, delete_space_permanent, list_trash, trash_count, TrashItem, TrashKind,
+    TrashItem, TrashKind, cleanup_old_trash, delete_space_permanent, list_trash, trash_count,
 };
 pub use web_page::{
+    ArchiveOutcome, ClassificationRule, NewWebPage, WebPageDetail, WebPageRow, WebPageSnapshot,
     archive_url, auto_archive_from_text, check_urls_status, delete_page, ensure_page,
     find_page_by_url, get_page, insert_snapshot, insert_web_page, list_pages, load_rules,
-    restore_page, trash_page, update_status, update_status_with_error, ArchiveOutcome,
-    ClassificationRule, NewWebPage, WebPageDetail, WebPageRow, WebPageSnapshot,
+    restore_page, trash_page, update_status, update_status_with_error,
 };
 
 const SEED: &str = include_str!("seed.sql");
@@ -86,9 +85,18 @@ pub fn open(path: &Path) -> Result<Connection> {
         )?;
         // Assign all existing content to default space
         let default_id: i64 = conn.last_insert_rowid();
-        conn.execute("UPDATE web_page SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
-        conn.execute("UPDATE note SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
-        conn.execute("UPDATE note_folder SET space_id = ?1 WHERE space_id IS NULL", [default_id])?;
+        conn.execute(
+            "UPDATE web_page SET space_id = ?1 WHERE space_id IS NULL",
+            [default_id],
+        )?;
+        conn.execute(
+            "UPDATE note SET space_id = ?1 WHERE space_id IS NULL",
+            [default_id],
+        )?;
+        conn.execute(
+            "UPDATE note_folder SET space_id = ?1 WHERE space_id IS NULL",
+            [default_id],
+        )?;
     }
 
     // Seed classification rules if table is empty
@@ -105,6 +113,8 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 /// Get the current global revision number. Incremented by DB triggers on every change.
 pub fn get_revision(conn: &Connection) -> Result<i64> {
-    conn.query_row("SELECT revision FROM db_revision WHERE id = 1", [], |r| r.get(0))
-        .map_err(Into::into)
+    conn.query_row("SELECT revision FROM db_revision WHERE id = 1", [], |r| {
+        r.get(0)
+    })
+    .map_err(Into::into)
 }

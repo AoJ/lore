@@ -53,12 +53,7 @@ pub fn get_attachment_data(conn: &Connection, attachment_id: i64) -> Result<(Str
     conn.query_row(
         "SELECT mime_type, data FROM note_attachment WHERE id = ?1",
         [attachment_id],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
-            ))
-        },
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
     )
     .map_err(Into::into)
 }
@@ -69,17 +64,23 @@ pub fn delete_attachments_for_note(conn: &Connection, note_id: i64) -> Result<()
 }
 
 pub fn list_attachment_ids_for_note(conn: &Connection, note_id: i64) -> Result<Vec<i64>> {
-    let mut stmt = conn.prepare(
-        "SELECT id FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NULL",
-    )?;
-    let ids = stmt.query_map([note_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
+    let mut stmt =
+        conn.prepare("SELECT id FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NULL")?;
+    let ids = stmt
+        .query_map([note_id], |r| r.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(ids)
 }
 
 /// Soft-delete attachments not referenced in current markdown body.
 /// Sets `deleted_at = now`. Hard-delete is performed by `cleanup_old_trash`
 /// after retention period expires.
-pub fn cleanup_orphaned_attachments(conn: &Connection, note_id: i64, used_ids: &[i64]) -> Result<usize> {
+pub fn cleanup_orphaned_attachments(
+    conn: &Connection,
+    note_id: i64,
+    used_ids: &[i64],
+) -> Result<usize> {
     let all_ids = list_attachment_ids_for_note(conn, note_id)?;
     let mut deleted = 0;
     for id in &all_ids {
@@ -126,7 +127,8 @@ pub fn list_attachments(conn: &Connection, note_id: i64) -> Result<Vec<Attachmen
          FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NULL \
          ORDER BY created_at",
     )?;
-    let rows = stmt.query_map([note_id], map_attachment_row)?
+    let rows = stmt
+        .query_map([note_id], map_attachment_row)?
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
@@ -139,7 +141,8 @@ pub fn list_removed_attachments(conn: &Connection, note_id: i64) -> Result<Vec<A
          FROM note_attachment WHERE note_id = ?1 AND deleted_at IS NOT NULL \
          ORDER BY deleted_at DESC",
     )?;
-    let rows = stmt.query_map([note_id], map_attachment_row)?
+    let rows = stmt
+        .query_map([note_id], map_attachment_row)?
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
@@ -158,6 +161,9 @@ pub fn get_attachment(conn: &Connection, id: i64) -> Result<AttachmentRow> {
 /// Clear `deleted_at` so the attachment is available again. Caller is
 /// responsible for inserting the markdown reference back into the note body.
 pub fn restore_attachment(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("UPDATE note_attachment SET deleted_at = NULL WHERE id = ?1", [id])?;
+    conn.execute(
+        "UPDATE note_attachment SET deleted_at = NULL WHERE id = ?1",
+        [id],
+    )?;
     Ok(())
 }

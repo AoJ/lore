@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::state::{AppState, Section};
 use crate::store::DataStore;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ListNotes() -> Element {
@@ -15,12 +15,13 @@ pub fn ListNotes() -> Element {
     };
 
     let title = match &section {
-        Section::Folder(_) => {
-            store.folders.read().iter()
-                .find(|f| Some(f.id) == folder_id)
-                .map(|f| f.name.clone())
-                .unwrap_or(texts::LIST_NOTES.to_string())
-        }
+        Section::Folder(_) => store
+            .folders
+            .read()
+            .iter()
+            .find(|f| Some(f.id) == folder_id)
+            .map(|f| f.name.clone())
+            .unwrap_or(texts::LIST_NOTES.to_string()),
         _ => texts::LIST_NOTES.to_string(),
     };
 

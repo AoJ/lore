@@ -2,11 +2,11 @@
 //! Components read from signals here, never call DB directly.
 //! Mutations go through store methods which update DB + signals atomically.
 
-use dioxus::prelude::*;
-use std::collections::HashMap;
 use crate::data;
 use crate::state::{AppState, Section, Selected};
+use dioxus::prelude::*;
 use lore_core::db::{TrashItem, WebPageRow};
+use std::collections::HashMap;
 
 /// Central data store, provided as Dioxus context alongside AppState.
 #[derive(Clone, Copy)]
@@ -25,7 +25,7 @@ pub struct DataStore {
     /// app instance is still running on the old schema. Polled separately
     /// from data revision; clearing requires app restart.
     pub schema_outdated: Signal<bool>,
-    pub heatmap: Signal<Vec<(String, i64)>>,  // (YYYY-MM-DD, count)
+    pub heatmap: Signal<Vec<(String, i64)>>, // (YYYY-MM-DD, count)
     pub timeline_selected_day: Signal<Option<String>>,
     pub timeline_day_notes: Signal<Vec<lore_core::db::NoteRow>>,
     pub timeline_day_pages: Signal<Vec<(i64, String)>>,
@@ -96,32 +96,43 @@ impl DataStore {
         };
 
         // Always refresh: spaces, folders, counts, trash
-        self.spaces.set(lore_core::db::list_spaces(&conn).unwrap_or_default());
-        self.folders.set(lore_core::db::list_folders(&conn, space_id).unwrap_or_default());
-        self.note_counts.set(lore_core::db::folder_note_counts(&conn, space_id).unwrap_or_default());
-        self.trash_count.set(lore_core::db::trash_count(&conn, space_id).unwrap_or(0));
+        self.spaces
+            .set(lore_core::db::list_spaces(&conn).unwrap_or_default());
+        self.folders
+            .set(lore_core::db::list_folders(&conn, space_id).unwrap_or_default());
+        self.note_counts
+            .set(lore_core::db::folder_note_counts(&conn, space_id).unwrap_or_default());
+        self.trash_count
+            .set(lore_core::db::trash_count(&conn, space_id).unwrap_or(0));
 
         // Heatmap
         if matches!(section, Section::Timeline) {
-            self.heatmap.set(lore_core::db::activity_by_day(&conn, space_id, 30).unwrap_or_default());
+            self.heatmap
+                .set(lore_core::db::activity_by_day(&conn, space_id, 30).unwrap_or_default());
         }
 
         // Refresh list for current section
         match section {
             Section::AllPages => {
-                self.pages.set(lore_core::db::list_pages(&conn, space_id, 200).unwrap_or_default());
+                self.pages
+                    .set(lore_core::db::list_pages(&conn, space_id, 200).unwrap_or_default());
             }
             Section::AllNotes => {
-                self.notes.set(lore_core::db::list_notes(&conn, None, space_id).unwrap_or_default());
+                self.notes
+                    .set(lore_core::db::list_notes(&conn, None, space_id).unwrap_or_default());
             }
             Section::Folder(folder_id) => {
-                self.notes.set(lore_core::db::list_notes(&conn, Some(folder_id), space_id).unwrap_or_default());
+                self.notes.set(
+                    lore_core::db::list_notes(&conn, Some(folder_id), space_id).unwrap_or_default(),
+                );
             }
             Section::AllFiles => {
-                self.files.set(lore_core::db::list_files(&conn, space_id).unwrap_or_default());
+                self.files
+                    .set(lore_core::db::list_files(&conn, space_id).unwrap_or_default());
             }
             Section::Trash => {
-                self.trash_items.set(lore_core::db::list_trash(&conn, space_id).unwrap_or_default());
+                self.trash_items
+                    .set(lore_core::db::list_trash(&conn, space_id).unwrap_or_default());
             }
             _ => {}
         }
@@ -129,9 +140,10 @@ impl DataStore {
         // Refresh URL statuses for current note
         let urls = self.current_note_urls.read().clone();
         if !urls.is_empty()
-            && let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls) {
-                self.url_statuses.set(statuses);
-            }
+            && let Ok(statuses) = lore_core::db::check_urls_status(&conn, &urls)
+        {
+            self.url_statuses.set(statuses);
+        }
 
         self.revision.set(data::get_revision());
     }
@@ -142,10 +154,11 @@ impl DataStore {
         let space_id = *state.space_id.read();
         self.timeline_selected_day.set(Some(day.to_string()));
         if let Ok(conn) = data::open_db()
-            && let Ok((notes, pages)) = lore_core::db::activity_for_day(&conn, space_id, day) {
-                self.timeline_day_notes.set(notes);
-                self.timeline_day_pages.set(pages);
-            }
+            && let Ok((notes, pages)) = lore_core::db::activity_for_day(&conn, space_id, day)
+        {
+            self.timeline_day_notes.set(notes);
+            self.timeline_day_pages.set(pages);
+        }
     }
 
     // ---- Navigation (immediate refresh on section/space change) ----
@@ -179,7 +192,8 @@ impl DataStore {
     pub fn create_note(&mut self, state: &AppState, folder_id: Option<i64>) -> Result<i64, String> {
         let space_id = *state.space_id.read();
         let conn = data::open_db().map_err(|e| e.to_string())?;
-        let id = lore_core::db::insert_note(&conn, "", "", folder_id, space_id).map_err(|e| e.to_string())?;
+        let id = lore_core::db::insert_note(&conn, "", "", folder_id, space_id)
+            .map_err(|e| e.to_string())?;
         self.refresh(state);
         Ok(id)
     }
@@ -198,7 +212,12 @@ impl DataStore {
         Ok(())
     }
 
-    pub fn move_note(&mut self, state: &AppState, note_id: i64, folder_id: Option<i64>) -> Result<(), String> {
+    pub fn move_note(
+        &mut self,
+        state: &AppState,
+        note_id: i64,
+        folder_id: Option<i64>,
+    ) -> Result<(), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::move_note_to_folder(&conn, note_id, folder_id).map_err(|e| e.to_string())?;
         self.refresh(state);
@@ -239,15 +258,26 @@ impl DataStore {
 
     // ---- Folder mutations ----
 
-    pub fn create_folder(&mut self, state: &AppState, name: &str, parent_id: Option<i64>) -> Result<i64, String> {
+    pub fn create_folder(
+        &mut self,
+        state: &AppState,
+        name: &str,
+        parent_id: Option<i64>,
+    ) -> Result<i64, String> {
         let space_id = *state.space_id.read();
         let conn = data::open_db().map_err(|e| e.to_string())?;
-        let id = lore_core::db::insert_folder(&conn, name, parent_id, space_id).map_err(|e| e.to_string())?;
+        let id = lore_core::db::insert_folder(&conn, name, parent_id, space_id)
+            .map_err(|e| e.to_string())?;
         self.refresh(state);
         Ok(id)
     }
 
-    pub fn rename_folder(&mut self, state: &AppState, folder_id: i64, name: &str) -> Result<(), String> {
+    pub fn rename_folder(
+        &mut self,
+        state: &AppState,
+        folder_id: i64,
+        name: &str,
+    ) -> Result<(), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::rename_folder(&conn, folder_id, name).map_err(|e| e.to_string())?;
         self.refresh(state);
@@ -270,7 +300,12 @@ impl DataStore {
         Ok(id)
     }
 
-    pub fn rename_space(&mut self, state: &AppState, space_id: i64, name: &str) -> Result<(), String> {
+    pub fn rename_space(
+        &mut self,
+        state: &AppState,
+        space_id: i64,
+        name: &str,
+    ) -> Result<(), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::rename_space(&conn, space_id, name).map_err(|e| e.to_string())?;
         self.refresh(state);
@@ -291,7 +326,11 @@ impl DataStore {
         Ok(())
     }
 
-    pub fn delete_space_permanent(&mut self, state: &AppState, space_id: i64) -> Result<(), String> {
+    pub fn delete_space_permanent(
+        &mut self,
+        state: &AppState,
+        space_id: i64,
+    ) -> Result<(), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::delete_space_permanent(&conn, space_id).map_err(|e| e.to_string())?;
         self.refresh(state);
@@ -316,9 +355,13 @@ impl DataStore {
 
     // ---- File mutations ----
 
-    pub fn upload_file(&mut self, state: &AppState, name: &str, mime_type: Option<&str>, data: &[u8])
-        -> Result<(i64, lore_core::db::InsertFileOutcome), String>
-    {
+    pub fn upload_file(
+        &mut self,
+        state: &AppState,
+        name: &str,
+        mime_type: Option<&str>,
+        data: &[u8],
+    ) -> Result<(i64, lore_core::db::InsertFileOutcome), String> {
         let space_id = *state.space_id.read();
         let conn = data::open_db().map_err(|e| e.to_string())?;
         let result = lore_core::db::insert_file(&conn, name, mime_type, data, space_id)
@@ -382,19 +425,29 @@ impl DataStore {
 
     // ---- Attachments (images + file blocks) ----
 
-    pub fn upload_image(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8])
-        -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String>
-    {
+    pub fn upload_image(
+        &mut self,
+        note_id: i64,
+        name: &str,
+        mime_type: &str,
+        data: &[u8],
+    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
-        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data).map_err(|e| e.to_string())
+        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data)
+            .map_err(|e| e.to_string())
     }
 
     /// Upload a generic file as a note attachment (file-block, not inline image).
-    pub fn upload_attachment(&mut self, note_id: i64, name: &str, mime_type: &str, data: &[u8])
-        -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String>
-    {
+    pub fn upload_attachment(
+        &mut self,
+        note_id: i64,
+        name: &str,
+        mime_type: &str,
+        data: &[u8],
+    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
-        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data).map_err(|e| e.to_string())
+        lore_core::db::insert_attachment(&conn, note_id, name, mime_type, data)
+            .map_err(|e| e.to_string())
     }
 
     pub fn get_attachment_data_uri(&self, attachment_id: i64) -> Option<String> {
@@ -418,9 +471,10 @@ impl DataStore {
                 .map(|(i, _)| i)
                 .unwrap_or(part.len());
             if end > 0
-                && let Ok(id) = part[..end].parse::<i64>() {
-                    used_ids.push(id);
-                }
+                && let Ok(id) = part[..end].parse::<i64>()
+            {
+                used_ids.push(id);
+            }
         }
         if let Ok(conn) = data::open_db() {
             lore_core::db::cleanup_orphaned_attachments(&conn, note_id, &used_ids).ok();
@@ -443,9 +497,11 @@ impl DataStore {
 
     /// Restore a soft-deleted attachment. Returns the attachment row so caller
     /// can re-insert the markdown reference at the right place in the note.
-    pub fn restore_attachment(&mut self, state: &AppState, attachment_id: i64)
-        -> Result<lore_core::db::AttachmentRow, String>
-    {
+    pub fn restore_attachment(
+        &mut self,
+        state: &AppState,
+        attachment_id: i64,
+    ) -> Result<lore_core::db::AttachmentRow, String> {
         let conn = data::open_db().map_err(|e| e.to_string())?;
         lore_core::db::restore_attachment(&conn, attachment_id).map_err(|e| e.to_string())?;
         let row = lore_core::db::get_attachment(&conn, attachment_id).map_err(|e| e.to_string())?;

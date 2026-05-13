@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ContentEmpty() -> Element {

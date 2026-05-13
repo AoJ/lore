@@ -320,7 +320,11 @@ pub fn archive_url(
     let normalized = rules::normalize_url(&parsed);
     let domain = parsed.host_str().unwrap_or("unknown").to_string();
     let category = rules::classify(&parsed, &rules);
-    let status = if category == "archive" { "queued" } else { "skipped" };
+    let status = if category == "archive" {
+        "queued"
+    } else {
+        "skipped"
+    };
 
     let id = insert_web_page(
         conn,
@@ -359,14 +363,18 @@ pub fn auto_archive_from_text(conn: &Connection, text: &str, space_id: i64) -> R
 pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<HashMap<String, String>> {
     let mut map = HashMap::new();
     for url in urls {
-        if let Ok(Some(status)) = conn.query_row(
-            "SELECT status FROM web_page WHERE url = ?1 OR url_normalized = ?1",
-            [url],
-            |row| row.get::<_, String>(0),
-        ).map(Some).or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        }) {
+        if let Ok(Some(status)) = conn
+            .query_row(
+                "SELECT status FROM web_page WHERE url = ?1 OR url_normalized = ?1",
+                [url],
+                |row| row.get::<_, String>(0),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+        {
             map.insert(url.clone(), status);
         }
     }

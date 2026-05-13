@@ -122,8 +122,9 @@ lore-worker --db <path> [url]     # archive queued pages or one specific URL
 ```
 make build              # build all crates
 make test               # run cargo test --workspace
-make check              # lint + check-arch + tests (pre-PR)
+make check              # lint + check-arch + audit + tests (pre-PR)
 make check-arch         # sentrux check (.sentrux/rules.toml)
+make audit              # cargo-deny: licenses, advisories, duplicates
 make desktop            # run Dioxus desktop app
 make serve              # run web server (axum)
 make worker             # run archive worker
@@ -133,6 +134,19 @@ make js-build           # rebuild crates/lore-ui/assets/milkdown.js
 ```
 
 Database defaults to `./db.sqlite`; override with `DB=` or `LORE_DB=`.
+
+### Dependency policy (`deny.toml`)
+
+- License allow-list (MIT, Apache-2.0, BSD-*, MPL-2.0, ISC, CC0, Unicode-3.0,
+  Zlib, BSL-1.0, CDLA-Permissive-2.0). Anything else fails — keeps GPL/AGPL/LGPL
+  out of the tree.
+- RustSec advisories are checked; `ignore` lists `unmaintained` IDs from the
+  Linux GTK3 stack (Dioxus transitive) and chromiumoxide. Revisit when Dioxus
+  moves off GTK3.
+- Workspace crates are marked `publish = false` so cargo-deny skips them for
+  license/source checks.
+- Duplicate versions and wildcard deps are `warn` only (wide Dioxus+axum+
+  chromiumoxide tree → 29 duplicates currently, expected).
 
 ## Organizational model
 

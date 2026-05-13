@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
+use crate::data;
 use crate::state::{AppState, Selected, UndoAction};
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ContentFile(id: i64) -> Element {
@@ -10,7 +10,9 @@ pub fn ContentFile(id: i64) -> Element {
     let mut store = use_context::<DataStore>();
 
     let conn = data::open_db().ok();
-    let file = conn.as_ref().and_then(|c| lore_core::db::get_file(c, id).ok());
+    let file = conn
+        .as_ref()
+        .and_then(|c| lore_core::db::get_file(c, id).ok());
 
     let Some(file) = file else {
         return rsx! {
@@ -20,7 +22,10 @@ pub fn ContentFile(id: i64) -> Element {
         };
     };
 
-    let mime = file.mime_type.as_deref().unwrap_or("application/octet-stream");
+    let mime = file
+        .mime_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
     let is_image = mime.starts_with("image/");
     let is_pdf = mime == "application/pdf";
 

@@ -154,7 +154,10 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
         let note_id = id;
         let mut store = store;
         use_drop(move || {
-            let js = format!("window.loreEditor && window.loreEditor.cleanup({});", note_id);
+            let js = format!(
+                "window.loreEditor && window.loreEditor.cleanup({});",
+                note_id
+            );
             document::eval(&js);
             store.clear_current_note_urls();
         });
@@ -169,12 +172,17 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
                 if !statuses.is_empty() {
                     let json_entries: Vec<String> = statuses
                         .iter()
-                        .map(|(url, status)| format!("\"{}\":\"{}\"", url.replace('"', "\\\""), status))
+                        .map(|(url, status)| {
+                            format!("\"{}\":\"{}\"", url.replace('"', "\\\""), status)
+                        })
                         .collect();
                     let json = format!("{{{}}}", json_entries.join(","));
                     // Delay to let Milkdown render links first
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let js = format!("window.loreEditor && window.loreEditor.updateUrlStatuses({});", json);
+                    let js = format!(
+                        "window.loreEditor && window.loreEditor.updateUrlStatuses({});",
+                        json
+                    );
                     document::eval(&js);
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;

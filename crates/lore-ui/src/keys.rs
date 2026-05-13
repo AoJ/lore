@@ -3,4 +3,4 @@
 
 // Navigation in list
 pub const NAV_DOWN: (&str, bool) = ("j", true); // Ctrl+J
-pub const NAV_UP: (&str, bool) = ("k", true);   // Ctrl+K
+pub const NAV_UP: (&str, bool) = ("k", true); // Ctrl+K

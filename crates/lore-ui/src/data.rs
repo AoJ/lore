@@ -42,7 +42,10 @@ pub fn get_revision() -> i64 {
 pub fn db_schema_version() -> u32 {
     rusqlite::Connection::open(db_path())
         .ok()
-        .and_then(|c| c.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0)).ok())
+        .and_then(|c| {
+            c.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+                .ok()
+        })
         .unwrap_or(0)
 }
 
@@ -86,7 +89,9 @@ pub fn get_page_view(id: i64) -> Result<PageDetailView> {
     };
     Ok(PageDetailView {
         url: p.url,
-        title: p.title.unwrap_or_else(|| crate::texts::NO_TITLE.to_string()),
+        title: p
+            .title
+            .unwrap_or_else(|| crate::texts::NO_TITLE.to_string()),
         domain: p.domain,
         category: p.category,
         status: p.status,
@@ -141,29 +146,29 @@ pub fn mime_from_extension(name: &str) -> String {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     match ext.as_str() {
-        "pdf"  => "application/pdf",
-        "png"  => "image/png",
+        "pdf" => "application/pdf",
+        "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
-        "gif"  => "image/gif",
+        "gif" => "image/gif",
         "webp" => "image/webp",
-        "svg"  => "image/svg+xml",
+        "svg" => "image/svg+xml",
         "avif" => "image/avif",
-        "txt"  => "text/plain",
-        "md"   => "text/markdown",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
         "html" | "htm" => "text/html",
         "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "doc"  => "application/msword",
-        "xls"  => "application/vnd.ms-excel",
-        "zip"  => "application/zip",
-        "gz"   => "application/gzip",
+        "doc" => "application/msword",
+        "xls" => "application/vnd.ms-excel",
+        "zip" => "application/zip",
+        "gz" => "application/gzip",
         "json" => "application/json",
-        "xml"  => "application/xml",
-        "csv"  => "text/csv",
-        "mp4"  => "video/mp4",
-        "mp3"  => "audio/mpeg",
-        _      => "application/octet-stream",
+        "xml" => "application/xml",
+        "csv" => "text/csv",
+        "mp4" => "video/mp4",
+        "mp3" => "audio/mpeg",
+        _ => "application/octet-stream",
     }
     .to_string()
 }

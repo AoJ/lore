@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
+use crate::data::{self, format_file_size};
 use crate::state::AppState;
 use crate::store::DataStore;
-use crate::data::{self, format_file_size};
+use dioxus::prelude::*;
 
 #[component]
 pub fn ContentSpaces() -> Element {
@@ -18,9 +18,14 @@ pub fn ContentSpaces() -> Element {
         let spaces = lore_core::db::list_all_spaces(&conn).unwrap_or_default();
         let mut items = Vec::new();
         for s in &spaces {
-            let stats = lore_core::db::space_stats(&conn, s.id).unwrap_or(lore_core::db::SpaceStats {
-                page_count: 0, note_count: 0, file_count: 0, file_size_bytes: 0, pages_size_bytes: 0,
-            });
+            let stats =
+                lore_core::db::space_stats(&conn, s.id).unwrap_or(lore_core::db::SpaceStats {
+                    page_count: 0,
+                    note_count: 0,
+                    file_count: 0,
+                    file_size_bytes: 0,
+                    pages_size_bytes: 0,
+                });
             items.push(SpaceWithStats {
                 id: s.id,
                 name: s.name.clone(),

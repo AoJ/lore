@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::state::AppState;
 use crate::store::DataStore;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ListTrash() -> Element {

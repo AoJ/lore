@@ -65,8 +65,17 @@ check-arch:
 	sentrux check
 
 
+# Dependency audit — licenses, advisories, duplicates (deny.toml).
+audit:
+	@command -v cargo-deny >/dev/null || { \
+		echo "cargo-deny not installed. Install: cargo install --locked cargo-deny"; \
+		exit 1; \
+	}
+	cargo deny check
+
+
 # Combined pre-PR check.
-check: lint check-arch
+check: lint check-arch audit
 	cargo test --workspace
 
 
@@ -74,5 +83,5 @@ clean:
 	cargo clean
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
-        check check-arch clean js-install js-build js-watch js-clean \
+        check check-arch audit clean js-install js-build js-watch js-clean \
         db-version migrate

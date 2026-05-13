@@ -221,7 +221,11 @@ fn split_title_body(text: &str) -> (String, String) {
 /// via the +Attach button.
 pub(super) fn insert_attachment_ref(store: &mut DataStore, att_id: i64, name: &str, mime: &str) {
     let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
-    let method = if mime.starts_with("image/") { "insertImage" } else { "insertFile" };
+    let method = if mime.starts_with("image/") {
+        "insertImage"
+    } else {
+        "insertFile"
+    };
     let js = format!(
         "window.loreEditor && window.loreEditor.{} && window.loreEditor.{}('{}', 'https://attachment.lore.invalid/{}');",
         method, method, escaped_name, att_id
@@ -295,10 +299,7 @@ mod tests {
 
     #[test]
     fn split_title_body_empty_first_line() {
-        assert_eq!(
-            split_title_body("\nbody"),
-            (String::new(), "body".into()),
-        );
+        assert_eq!(split_title_body("\nbody"), (String::new(), "body".into()),);
     }
 
     #[test]
@@ -326,10 +327,7 @@ mod tests {
             json_extract(payload, "path"),
             Some(r"C:\tmp\a.txt".to_string()),
         );
-        assert_eq!(
-            json_extract(payload, "tail"),
-            Some("line1\nline2".into()),
-        );
+        assert_eq!(json_extract(payload, "tail"), Some("line1\nline2".into()),);
     }
 
     #[test]

@@ -30,7 +30,12 @@ pub fn list_folders(conn: &Connection, space_id: i64) -> Result<Vec<FolderRow>> 
     Ok(rows)
 }
 
-pub fn insert_folder(conn: &Connection, name: &str, parent_id: Option<i64>, space_id: i64) -> Result<i64> {
+pub fn insert_folder(
+    conn: &Connection,
+    name: &str,
+    parent_id: Option<i64>,
+    space_id: i64,
+) -> Result<i64> {
     conn.execute(
         "INSERT INTO note_folder (name, parent_id, space_id) VALUES (?1, ?2, ?3)",
         rusqlite::params![name, parent_id, space_id],

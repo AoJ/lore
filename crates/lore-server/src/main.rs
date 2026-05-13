@@ -1,10 +1,10 @@
 use std::sync::Mutex;
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
@@ -29,11 +29,10 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(3000);
 
-    let static_dir = std::env::var("LORE_STATIC")
-        .unwrap_or_else(|_| {
-            let manifest = env!("CARGO_MANIFEST_DIR");
-            format!("{}/static", manifest)
-        });
+    let static_dir = std::env::var("LORE_STATIC").unwrap_or_else(|_| {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        format!("{}/static", manifest)
+    });
 
     let app = Router::new()
         .route("/api/pages", get(list_pages))
@@ -115,7 +114,9 @@ async fn list_pages(
     sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ?{}", idx));
     bind_params.push(Box::new(limit as i64));
 
-    let mut stmt = conn.prepare(&sql).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let refs: Vec<&dyn rusqlite::types::ToSql> = bind_params.iter().map(|p| p.as_ref()).collect();
 
     let rows: Vec<PageRow> = stmt
@@ -305,16 +306,11 @@ async fn add_page(
 ) -> Result<Json<AddPageResponse>, (StatusCode, String)> {
     let conn = state.db.lock().unwrap();
 
-    let parsed = url::Url::parse(&req.url).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("Invalid URL: {}", e),
-        )
-    })?;
+    let parsed = url::Url::parse(&req.url)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid URL: {}", e)))?;
 
-    let rules = lore_core::db::load_rules(&conn).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-    })?;
+    let rules = lore_core::db::load_rules(&conn)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let normalized = lore_core::rules::normalize_url(&parsed);
     let domain = parsed.host_str().unwrap_or("unknown").to_string();

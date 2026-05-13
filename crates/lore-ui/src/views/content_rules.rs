@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::data;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ContentRules() -> Element {

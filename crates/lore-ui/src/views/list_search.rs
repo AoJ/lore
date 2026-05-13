@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use crate::state::AppState;
 use crate::data;
+use crate::state::AppState;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ListSearch() -> Element {
@@ -20,9 +20,8 @@ pub fn ListSearch() -> Element {
                 page_results.set(
                     lore_core::search::search_web_pages_brief(&conn, &q, s, 20).unwrap_or_default(),
                 );
-                note_results.set(
-                    lore_core::search::search_notes(&conn, &q, s, 20).unwrap_or_default(),
-                );
+                note_results
+                    .set(lore_core::search::search_notes(&conn, &q, s, 20).unwrap_or_default());
             }
         } else {
             page_results.set(Vec::new());

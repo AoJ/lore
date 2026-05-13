@@ -55,10 +55,7 @@ mod tests {
     fn flat_tree_listed_in_order() {
         let folders = vec![folder(1, "A", None), folder(2, "B", None)];
         let tree = build_folder_tree(&folders, None, 0);
-        assert_eq!(
-            tree,
-            vec![(1, "A".into(), 0), (2, "B".into(), 0)],
-        );
+        assert_eq!(tree, vec![(1, "A".into(), 0), (2, "B".into(), 0)],);
     }
 
     #[test]
@@ -112,4 +109,3 @@ mod tests {
         assert_eq!(folder_path(&folders, Some(7)), Some("Inbox".to_string()));
     }
 }
-

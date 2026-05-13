@@ -65,7 +65,10 @@ fn trash_and_restore_space() {
     assert!(!active.iter().any(|s| s.id == space_id));
     // Should appear in all list
     let all = db::list_all_spaces(&conn).unwrap();
-    assert!(all.iter().any(|s| s.id == space_id && s.deleted_at.is_some()));
+    assert!(
+        all.iter()
+            .any(|s| s.id == space_id && s.deleted_at.is_some())
+    );
 
     db::restore_space(&conn, space_id).unwrap();
     let active = db::list_spaces(&conn).unwrap();
@@ -78,16 +81,20 @@ fn delete_space_removes_all_content() {
     let space_id = db::insert_space(&conn, "Doomed").unwrap();
 
     // Add content
-    let _page_id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://example.com",
-        url_normalized: "example.com",
-        title: Some("Example"),
-        domain: "example.com",
-        category: "archive",
-        status: "queued",
-        source: None,
-        space_id: Some(space_id),
-    }).unwrap();
+    let _page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://example.com",
+            url_normalized: "example.com",
+            title: Some("Example"),
+            domain: "example.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space_id),
+        },
+    )
+    .unwrap();
     let note_id = db::insert_note(&conn, "Test", "Body", None, space_id).unwrap();
     let _folder_id = db::insert_folder(&conn, "Folder", None, space_id).unwrap();
 
@@ -95,9 +102,12 @@ fn delete_space_removes_all_content() {
 
     // Verify everything is gone
     let pages: Vec<i64> = conn
-        .prepare("SELECT id FROM web_page WHERE space_id = ?1").unwrap()
-        .query_map([space_id], |r| r.get(0)).unwrap()
-        .filter_map(|r| r.ok()).collect();
+        .prepare("SELECT id FROM web_page WHERE space_id = ?1")
+        .unwrap()
+        .query_map([space_id], |r| r.get(0))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
     assert!(pages.is_empty());
 
     assert!(db::get_note(&conn, note_id).is_err());
@@ -199,7 +209,10 @@ fn note_in_folder() {
 
     // Root notes (no folder) should be empty — our note is in a folder
     let root = db::list_notes(&conn, None, space.id).unwrap();
-    assert!(root.is_empty(), "note in folder should not appear in root listing");
+    assert!(
+        root.is_empty(),
+        "note in folder should not appear in root listing"
+    );
 }
 
 #[test]
@@ -248,16 +261,20 @@ fn trash_and_restore_note() {
 fn trash_and_restore_page() {
     let (_dir, conn) = open_test_db();
     let space = db::get_active_space(&conn).unwrap();
-    let id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://test.com",
-        url_normalized: "test.com",
-        title: Some("Test"),
-        domain: "test.com",
-        category: "archive",
-        status: "archived",
-        source: None,
-        space_id: Some(space.id),
-    }).unwrap();
+    let id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://test.com",
+            url_normalized: "test.com",
+            title: Some("Test"),
+            domain: "test.com",
+            category: "archive",
+            status: "archived",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
 
     db::trash_page(&conn, id).unwrap();
     assert!(db::trash_count(&conn, space.id).unwrap() > 0);
@@ -331,7 +348,11 @@ fn delete_nested_folder_moves_notes_to_grandparent() {
     db::delete_folder(&conn, parent).unwrap();
 
     let n = db::get_note(&conn, note).unwrap();
-    assert_eq!(n.folder_id, Some(grandparent), "should move to grandparent, not root");
+    assert_eq!(
+        n.folder_id,
+        Some(grandparent),
+        "should move to grandparent, not root"
+    );
 }
 
 #[test]
@@ -468,16 +489,20 @@ fn rename_folder() {
 fn insert_page_and_snapshot() {
     let (_dir, conn) = open_test_db();
     let space = db::get_active_space(&conn).unwrap();
-    let id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://example.com/page",
-        url_normalized: "example.com/page",
-        title: Some("Example Page"),
-        domain: "example.com",
-        category: "archive",
-        status: "queued",
-        source: None,
-        space_id: Some(space.id),
-    }).unwrap();
+    let id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://example.com/page",
+            url_normalized: "example.com/page",
+            title: Some("Example Page"),
+            domain: "example.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
 
     db::update_status(&conn, id, "fetching").unwrap();
 
@@ -491,23 +516,28 @@ fn insert_page_and_snapshot() {
 fn update_status_with_error() {
     let (_dir, conn) = open_test_db();
     let space = db::get_active_space(&conn).unwrap();
-    let id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://fail.com",
-        url_normalized: "fail.com",
-        title: None,
-        domain: "fail.com",
-        category: "archive",
-        status: "queued",
-        source: None,
-        space_id: Some(space.id),
-    }).unwrap();
+    let id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://fail.com",
+            url_normalized: "fail.com",
+            title: None,
+            domain: "fail.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
 
     db::update_status_with_error(&conn, id, "failed", "Connection timeout").unwrap();
 
-    let error: Option<String> = conn.query_row(
-        "SELECT last_error FROM web_page WHERE id = ?1", [id],
-        |r| r.get(0)
-    ).unwrap();
+    let error: Option<String> = conn
+        .query_row("SELECT last_error FROM web_page WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
     assert_eq!(error.unwrap(), "Connection timeout");
 }
 
@@ -515,16 +545,20 @@ fn update_status_with_error() {
 fn cleanup_old_trash() {
     let (_dir, conn) = open_test_db();
     let space = db::get_active_space(&conn).unwrap();
-    let id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://old.com",
-        url_normalized: "old.com",
-        title: Some("Old"),
-        domain: "old.com",
-        category: "archive",
-        status: "archived",
-        source: None,
-        space_id: Some(space.id),
-    }).unwrap();
+    let id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://old.com",
+            url_normalized: "old.com",
+            title: Some("Old"),
+            domain: "old.com",
+            category: "archive",
+            status: "archived",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
 
     // Manually set trashed_at to 60 days ago
     conn.execute(
@@ -536,7 +570,11 @@ fn cleanup_old_trash() {
     assert_eq!(cleaned, 1);
 
     // Page should be permanently gone
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM web_page WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM web_page WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
     assert_eq!(count, 0);
 }
 
@@ -570,16 +608,20 @@ fn revision_increments_on_page_changes() {
     let space = db::get_active_space(&conn).unwrap();
     let r0 = db::get_revision(&conn).unwrap();
 
-    let page_id = db::insert_web_page(&conn, &db::NewWebPage {
-        url: "https://rev-test.com",
-        url_normalized: "rev-test.com",
-        title: Some("Rev"),
-        domain: "rev-test.com",
-        category: "archive",
-        status: "queued",
-        source: None,
-        space_id: Some(space.id),
-    }).unwrap();
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://rev-test.com",
+            url_normalized: "rev-test.com",
+            title: Some("Rev"),
+            domain: "rev-test.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
     let r1 = db::get_revision(&conn).unwrap();
     assert!(r1 > r0);
 
@@ -604,17 +646,30 @@ fn extract_urls(text: &str) -> Vec<String> {
         if let Some(end) = rest[start..].find(')') {
             let url = rest[start..start + end].trim();
             if (url.starts_with("http://") || url.starts_with("https://"))
-                && !urls.contains(&url.to_string()) {
-                    urls.push(url.to_string());
-                }
+                && !urls.contains(&url.to_string())
+            {
+                urls.push(url.to_string());
+            }
             rest = &rest[start + end..];
         } else {
             break;
         }
     }
     for word in text.split_whitespace() {
-        let word = word.trim_matches(|c: char| c == '(' || c == ')' || c == '<' || c == '>' || c == '"' || c == '\'' || c == ',' || c == ';' || c == '.');
-        if (word.starts_with("http://") || word.starts_with("https://")) && !urls.contains(&word.to_string()) {
+        let word = word.trim_matches(|c: char| {
+            c == '('
+                || c == ')'
+                || c == '<'
+                || c == '>'
+                || c == '"'
+                || c == '\''
+                || c == ','
+                || c == ';'
+                || c == '.'
+        });
+        if (word.starts_with("http://") || word.starts_with("https://"))
+            && !urls.contains(&word.to_string())
+        {
             urls.push(word.to_string());
         }
     }
@@ -625,7 +680,10 @@ fn extract_urls(text: &str) -> Vec<String> {
 fn extract_urls_markdown_links() {
     let text = "Check [Rust](https://rust-lang.org) and [Docs](https://doc.rust-lang.org/book)";
     let urls = extract_urls(text);
-    assert_eq!(urls, vec!["https://rust-lang.org", "https://doc.rust-lang.org/book"]);
+    assert_eq!(
+        urls,
+        vec!["https://rust-lang.org", "https://doc.rust-lang.org/book"]
+    );
 }
 
 #[test]

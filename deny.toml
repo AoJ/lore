@@ -1,0 +1,84 @@
+# cargo-deny config. Run via `make audit` or `cargo deny check`.
+# Schema v2 — see https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Restrict the dep graph to the targets we actually build for.
+targets = [
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "wasm32-unknown-unknown" },
+]
+
+[advisories]
+# RustSec advisory DB. Fail the build on any unpatched vulnerability;
+# warn (don't fail) on yanked crates.
+version = 2
+yanked = "warn"
+# `unmaintained` advisories from transitive deps we can't upgrade alone.
+# Revisit when Dioxus moves off GTK3 (gtk-rs is the bulk of these) and
+# when chromiumoxide drops fxhash / async-std / paste.
+ignore = [
+    "RUSTSEC-2024-0370", # proc-macro-error (via gtk3-macros, glib-macros)
+    "RUSTSEC-2024-0411", # gtk-rs GTK3 bindings (atk)
+    "RUSTSEC-2024-0412", # gtk-rs GTK3 bindings (gdk)
+    "RUSTSEC-2024-0413", # gtk-rs GTK3 bindings (gdk-pixbuf)
+    "RUSTSEC-2024-0414", # gtk-rs GTK3 bindings (gdkwayland-sys)
+    "RUSTSEC-2024-0415", # gtk-rs GTK3 bindings (gdkx11)
+    "RUSTSEC-2024-0416", # gtk-rs GTK3 bindings (gtk)
+    "RUSTSEC-2024-0418", # gtk-rs GTK3 bindings (gtk-sys)
+    "RUSTSEC-2024-0419", # gtk-rs GTK3 bindings (gtk3-macros)
+    "RUSTSEC-2024-0420", # gtk-rs GTK3 bindings (pango)
+    "RUSTSEC-2024-0436", # paste (proc-macro)
+    "RUSTSEC-2025-0052", # fxhash (via chromiumoxide deps)
+    "RUSTSEC-2025-0057", # async-std (via chromiumoxide deps)
+]
+
+[licenses]
+# Allow-list: any license not listed here will fail. Keeps copyleft (GPL,
+# AGPL, LGPL, SSPL) out of the dep tree.
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "Zlib",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0", # webpki-roots
+]
+# Some crates ship without SPDX metadata; allow narrow per-crate overrides
+# when triaged manually.
+exceptions = []
+# Confidence threshold for license auto-detection.
+confidence-threshold = 0.8
+
+# Workspace crates are not published; skip license check for them.
+[licenses.private]
+ignore = true
+
+[bans]
+# Wide UI/server dep tree (Dioxus + axum + chromiumoxide) → many crates
+# have multiple in-tree versions. Warn for now; tighten case-by-case when
+# we audit duplicates.
+multiple-versions = "warn"
+wildcards = "warn"
+# Internal `lore-core = { path = "..." }` deps look like wildcards but
+# are workspace-local — opt out of that check.
+allow-wildcard-paths = true
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# Only allow crates.io (plus explicitly-allowed git sources, none yet).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

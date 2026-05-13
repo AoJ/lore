@@ -32,7 +32,11 @@ pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Ve
 }
 
 /// Get notes and pages active on a specific day
-pub fn activity_for_day(conn: &Connection, space_id: i64, day: &str) -> Result<(Vec<NoteRow>, Vec<PageRef>)> {
+pub fn activity_for_day(
+    conn: &Connection,
+    space_id: i64,
+    day: &str,
+) -> Result<(Vec<NoteRow>, Vec<PageRef>)> {
     // Notes updated on this day
     let mut stmt = conn.prepare(
         "SELECT id, title, SUBSTR(body, 1, 100), folder_id, updated_at FROM note

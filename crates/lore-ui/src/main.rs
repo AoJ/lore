@@ -1,10 +1,10 @@
 use dioxus::prelude::*;
 
+mod data;
+mod keys;
 mod state;
 mod store;
-mod data;
 mod texts;
-mod keys;
 mod views;
 
 use state::{AppState, Section, Selected};
@@ -181,14 +181,14 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
 
     match (ch, ctrl, cmd, shift) {
         (c, true, _, _) if c == keys::NAV_DOWN.0 => move_selection(&mut state, 1),
-        (c, true, _, _) if c == keys::NAV_UP.0   => move_selection(&mut state, -1),
-        ("s", _, true,  _) => save_selected_file(state),
-        ("u", _, true,  _) if *state.section.read() == Section::AllFiles => {
+        (c, true, _, _) if c == keys::NAV_UP.0 => move_selection(&mut state, -1),
+        ("s", _, true, _) => save_selected_file(state),
+        ("u", _, true, _) if *state.section.read() == Section::AllFiles => {
             dioxus::document::eval("document.getElementById('file-upload-input').click()");
         }
-        ("d", _, true,  _) => trash_selected(&mut state, &mut store),
-        ("n", _, true,  false) => create_new_note(&mut state, &mut store),
-        ("N", _, true,  true)  => create_new_space(&mut state, &mut store),
+        ("d", _, true, _) => trash_selected(&mut state, &mut store),
+        ("n", _, true, false) => create_new_note(&mut state, &mut store),
+        ("N", _, true, true) => create_new_space(&mut state, &mut store),
         ("F" | "f", _, true, true) => create_new_folder(&mut state, &mut store),
         (c, true, _, _) if is_digit_1_to_9(c) => switch_space_by_index(&mut state, &mut store, c),
         _ => {}
@@ -211,10 +211,16 @@ fn switch_space_by_index(state: &mut AppState, store: &mut store::DataStore, ch:
 /// Save the currently-selected file to disk via a native dialog.
 /// No-op if selection isn't a file or DB lookup fails.
 fn save_selected_file(mut state: AppState) {
-    let Selected::File(id) = *state.selected.read() else { return };
+    let Selected::File(id) = *state.selected.read() else {
+        return;
+    };
     let Ok(conn) = data::open_db() else { return };
-    let Ok(file) = lore_core::db::get_file(&conn, id) else { return };
-    let Ok((_, bytes)) = lore_core::db::get_file_data(&conn, id) else { return };
+    let Ok(file) = lore_core::db::get_file(&conn, id) else {
+        return;
+    };
+    let Ok((_, bytes)) = lore_core::db::get_file_data(&conn, id) else {
+        return;
+    };
     let name = file.name;
     spawn(async move {
         // Small delay so WKWebView finishes processing the keydown event
@@ -237,14 +243,18 @@ fn save_selected_file(mut state: AppState) {
 fn create_new_space(state: &mut AppState, store: &mut store::DataStore) {
     if let Ok(new_id) = store.create_space(state, "") {
         store.switch_space(state, new_id);
-        state.renaming.set(Some(state::Renaming::Space(new_id, String::new())));
+        state
+            .renaming
+            .set(Some(state::Renaming::Space(new_id, String::new())));
         state.space_dropdown_open.set(true);
     }
 }
 
 fn create_new_folder(state: &mut AppState, store: &mut store::DataStore) {
     if let Ok(fid) = store.create_folder(state, "", None) {
-        state.renaming.set(Some(state::Renaming::Folder(fid, String::new())));
+        state
+            .renaming
+            .set(Some(state::Renaming::Folder(fid, String::new())));
     }
 }
 
@@ -267,21 +277,27 @@ fn create_new_note(state: &mut AppState, store: &mut store::DataStore) {
 fn trash_selected(state: &mut AppState, store: &mut store::DataStore) {
     let selected = state.selected.read().clone();
     match selected {
-        Selected::Page(id)
-            if store.trash_page(state, id).is_ok() => {
-                state.show_toast(texts::TOAST_MOVED_TRASH.to_string(), Some(state::UndoAction::RestorePage(id)));
-                state.selected.set(Selected::None);
-            }
-        Selected::Note(id)
-            if store.trash_note(state, id).is_ok() => {
-                state.show_toast(texts::TOAST_NOTE_TRASH.to_string(), Some(state::UndoAction::RestoreNote(id)));
-                state.selected.set(Selected::None);
-            }
-        Selected::File(id)
-            if store.trash_file(state, id).is_ok() => {
-                state.show_toast(texts::TOAST_FILE_TRASH.to_string(), Some(state::UndoAction::RestoreFile(id)));
-                state.selected.set(Selected::None);
-            }
+        Selected::Page(id) if store.trash_page(state, id).is_ok() => {
+            state.show_toast(
+                texts::TOAST_MOVED_TRASH.to_string(),
+                Some(state::UndoAction::RestorePage(id)),
+            );
+            state.selected.set(Selected::None);
+        }
+        Selected::Note(id) if store.trash_note(state, id).is_ok() => {
+            state.show_toast(
+                texts::TOAST_NOTE_TRASH.to_string(),
+                Some(state::UndoAction::RestoreNote(id)),
+            );
+            state.selected.set(Selected::None);
+        }
+        Selected::File(id) if store.trash_file(state, id).is_ok() => {
+            state.show_toast(
+                texts::TOAST_FILE_TRASH.to_string(),
+                Some(state::UndoAction::RestoreFile(id)),
+            );
+            state.selected.set(Selected::None);
+        }
         _ => {}
     }
 }
@@ -350,7 +366,9 @@ fn navigate_ids(
     state: &mut AppState,
     make_selected: impl Fn(i64) -> Selected,
 ) {
-    if ids.is_empty() { return; }
+    if ids.is_empty() {
+        return;
+    }
     let current_id = match current {
         Selected::Page(id) | Selected::Note(id) | Selected::File(id) => Some(*id),
         _ => None,

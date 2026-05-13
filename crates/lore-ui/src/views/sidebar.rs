@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
+use crate::data;
 use crate::state::{AppState, Section};
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn Sidebar() -> Element {
@@ -16,7 +16,9 @@ pub fn Sidebar() -> Element {
     let on_add_url = move |evt: FormEvent| {
         evt.prevent_default();
         let raw_url = url_input.read().trim().to_string();
-        if raw_url.is_empty() { return; }
+        if raw_url.is_empty() {
+            return;
+        }
         match store.add_url(&state, &raw_url) {
             Ok(msg) => {
                 status_msg.set(Some(msg));
@@ -28,16 +30,19 @@ pub fn Sidebar() -> Element {
 
     let section = state.section.read().clone();
     let dropdown_open = *state.space_dropdown_open.read();
-    let active_space_name = store.spaces.read().iter()
+    let active_space_name = store
+        .spaces
+        .read()
+        .iter()
         .find(|s| s.id == space_id)
         .map(|s| s.name.clone())
         .unwrap_or("Space".to_string());
 
     // Build folder tree (already filtered by space in DB query)
-    let space_folders: Vec<FolderData> = store.folders.read().iter()
-        .map(FolderData::from)
-        .collect();
-    let root_folders: Vec<&FolderData> = space_folders.iter()
+    let space_folders: Vec<FolderData> =
+        store.folders.read().iter().map(FolderData::from).collect();
+    let root_folders: Vec<&FolderData> = space_folders
+        .iter()
         .filter(|f| f.parent_id.is_none())
         .collect();
 
@@ -168,7 +173,11 @@ fn active_class(active: bool) -> &'static str {
 
 #[component]
 fn SidebarItem(label: String, active: bool, onclick: EventHandler<MouseEvent>) -> Element {
-    let cls = if active { "sidebar-item active" } else { "sidebar-item" };
+    let cls = if active {
+        "sidebar-item active"
+    } else {
+        "sidebar-item"
+    };
     rsx! {
         div { class: "{cls}", onclick: move |evt| onclick.call(evt),
             "{label}"
@@ -280,7 +289,12 @@ struct FolderData {
 
 impl From<&lore_core::db::FolderRow> for FolderData {
     fn from(f: &lore_core::db::FolderRow) -> Self {
-        Self { id: f.id, name: f.name.clone(), parent_id: f.parent_id, space_id: f.space_id }
+        Self {
+            id: f.id,
+            name: f.name.clone(),
+            parent_id: f.parent_id,
+            space_id: f.space_id,
+        }
     }
 }
 
@@ -298,11 +312,18 @@ fn FolderTreeItem(
     let mut expanded = use_signal(|| true);
     let mut menu_open = use_signal(|| false);
     let is_active = active_section == Section::Folder(folder_id);
-    let children: Vec<_> = all_folders.iter().filter(|f| f.parent_id == Some(folder_id)).collect();
+    let children: Vec<_> = all_folders
+        .iter()
+        .filter(|f| f.parent_id == Some(folder_id))
+        .collect();
     let has_children = !children.is_empty();
     let count = note_counts.get(&folder_id).copied().unwrap_or(0);
 
-    let cls = if is_active { "sidebar-item folder-item active" } else { "sidebar-item folder-item" };
+    let cls = if is_active {
+        "sidebar-item folder-item active"
+    } else {
+        "sidebar-item folder-item"
+    };
     let indent = format!("{}rem", depth as f32 * 0.75);
     let is_renaming = matches!(&*state.renaming.read(), Some(crate::state::Renaming::Folder(rid, _)) if *rid == folder_id);
 

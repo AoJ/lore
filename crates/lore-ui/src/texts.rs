@@ -76,8 +76,7 @@ pub const TOAST_ATTACHMENT_REVIVED: &str = "Attachment restored from removed lis
 
 // ---- Schema mismatch banner (bottom-right, next to revision indicator) ----
 pub const SCHEMA_OUTDATED_LABEL: &str = "DB upgraded — restart required";
-pub const SCHEMA_OUTDATED_TOOLTIP: &str =
-    "The database schema was updated by another process. \
+pub const SCHEMA_OUTDATED_TOOLTIP: &str = "The database schema was updated by another process. \
      This window is still running on the old schema and \
      should be restarted to load the new structure.";
 

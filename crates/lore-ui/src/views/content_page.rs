@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
+use crate::data;
 use crate::state::{AppState, UndoAction};
 use crate::store::DataStore;
-use crate::data;
 use crate::texts;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ContentPage(id: i64) -> Element {

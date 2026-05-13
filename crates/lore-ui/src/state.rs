@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::data;
+use dioxus::prelude::*;
 
 /// Which sidebar section is active
 #[derive(Clone, Debug, PartialEq)]
@@ -44,8 +44,8 @@ pub enum UndoAction {
 /// What's being renamed inline
 #[derive(Clone, Debug, PartialEq)]
 pub enum Renaming {
-    Space(i64, String),    // (space_id, current_name)
-    Folder(i64, String),   // (folder_id, current_name)
+    Space(i64, String),  // (space_id, current_name)
+    Folder(i64, String), // (folder_id, current_name)
 }
 
 /// Global application state, provided via Dioxus context
