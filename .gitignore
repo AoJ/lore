@@ -1,5 +1,5 @@
 target
 wip/
 db.sqlite
-.sentrux/
+.sentrux/baseline.json
 .claude/

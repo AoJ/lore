@@ -56,8 +56,23 @@ fmt:
 	cargo fmt --all
 
 
+# Architecture gate — fails CI if rules in .sentrux/rules.toml are violated.
+check-arch:
+	@command -v sentrux >/dev/null || { \
+		echo "sentrux CLI not installed. Install: brew install sentrux"; \
+		exit 1; \
+	}
+	sentrux check
+
+
+# Combined pre-PR check.
+check: lint check-arch
+	cargo test --workspace
+
+
 clean:
 	cargo clean
 
-.PHONY: build release desktop desktop-release serve worker test lint fmt clean \
-        js-install js-build js-watch js-clean db-version migrate
+.PHONY: build release desktop desktop-release serve worker test lint fmt \
+        check check-arch clean js-install js-build js-watch js-clean \
+        db-version migrate

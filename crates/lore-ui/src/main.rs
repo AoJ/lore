@@ -169,80 +169,69 @@ fn RevisionIndicator() -> Element {
 
 fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::DataStore) {
     let key = evt.key();
-    let modifiers = evt.modifiers();
-    let cmd = modifiers.meta();
-    let ctrl = modifiers.ctrl();
-    let shift = modifiers.shift();
+    let m = evt.modifiers();
+    let cmd = m.meta();
+    let ctrl = m.ctrl();
+    let shift = m.shift();
 
-    match key {
-        // Ctrl+J / Ctrl+K — navigate list (always works)
-        Key::Character(ref ch) if ch == keys::NAV_DOWN.0 && ctrl => {
-            move_selection(&mut state, 1);
+    let ch = match key {
+        Key::Character(ref c) => c.as_str(),
+        _ => return,
+    };
+
+    match (ch, ctrl, cmd, shift) {
+        (c, true, _, _) if c == keys::NAV_DOWN.0 => move_selection(&mut state, 1),
+        (c, true, _, _) if c == keys::NAV_UP.0   => move_selection(&mut state, -1),
+        ("s", _, true,  _) => save_selected_file(state),
+        ("u", _, true,  _) if *state.section.read() == Section::AllFiles => {
+            dioxus::document::eval("document.getElementById('file-upload-input').click()");
         }
-        Key::Character(ref ch) if ch == keys::NAV_UP.0 && ctrl => {
-            move_selection(&mut state, -1);
-        }
-        // Cmd+S — save selected file to disk via native dialog
-        Key::Character(ref ch) if ch == "s" && cmd => {
-            if let Selected::File(id) = *state.selected.read() {
-                let conn = data::open_db().ok();
-                let file_name = conn.as_ref()
-                    .and_then(|c| lore_core::db::get_file(c, id).ok())
-                    .map(|f| f.name);
-                let file_data = conn.as_ref()
-                    .and_then(|c| lore_core::db::get_file_data(c, id).ok())
-                    .map(|(_, b)| b);
-                if let (Some(name), Some(bytes)) = (file_name, file_data) {
-                    spawn(async move {
-                        // Small delay so WKWebView finishes processing the keydown event
-                        // before the native panel takes focus (otherwise dialog flashes).
-                        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-                        let default_dir = dirs::download_dir().unwrap_or_default();
-                        let handle = rfd::AsyncFileDialog::new()
-                            .set_file_name(&name)
-                            .set_directory(&default_dir)
-                            .save_file()
-                            .await;
-                        if let Some(h) = handle
-                            && h.write(&bytes).await.is_ok() {
-                                state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
-                            }
-                    });
-                }
-            }
-        }
-        // Cmd+U — upload file (Files section only)
-        Key::Character(ref ch) if ch == "u" && cmd
-            && *state.section.read() == Section::AllFiles => {
-                dioxus::document::eval("document.getElementById('file-upload-input').click()");
-            }
-        // Cmd+D — trash selected
-        Key::Character(ref ch) if ch == "d" && cmd => {
-            trash_selected(&mut state, &mut store);
-        }
-        // Cmd+N — new note
-        Key::Character(ref ch) if ch == "n" && cmd && !shift => {
-            create_new_note(&mut state, &mut store);
-        }
-        // Cmd+Shift+N — new space
-        Key::Character(ref ch) if ch == "N" && cmd && shift => {
-            create_new_space(&mut state, &mut store);
-        }
-        // Cmd+Shift+F — new folder
-        Key::Character(ref ch) if (ch == "F" || ch == "f") && cmd && shift => {
-            create_new_folder(&mut state, &mut store);
-        }
-        // Ctrl+1..9 — switch space
-        Key::Character(ref ch) if ctrl && ch.len() == 1 && ch.as_bytes()[0] >= b'1' && ch.as_bytes()[0] <= b'9' => {
-            let idx = (ch.as_bytes()[0] - b'1') as usize;
-            let conn = data::open_db().unwrap();
-            let spaces = lore_core::db::list_spaces(&conn).unwrap_or_default();
-            if let Some(space) = spaces.get(idx) {
-                store.switch_space(&mut state,space.id);
-            }
-        }
+        ("d", _, true,  _) => trash_selected(&mut state, &mut store),
+        ("n", _, true,  false) => create_new_note(&mut state, &mut store),
+        ("N", _, true,  true)  => create_new_space(&mut state, &mut store),
+        ("F" | "f", _, true, true) => create_new_folder(&mut state, &mut store),
+        (c, true, _, _) if is_digit_1_to_9(c) => switch_space_by_index(&mut state, &mut store, c),
         _ => {}
     }
+}
+
+fn is_digit_1_to_9(s: &str) -> bool {
+    s.len() == 1 && matches!(s.as_bytes()[0], b'1'..=b'9')
+}
+
+fn switch_space_by_index(state: &mut AppState, store: &mut store::DataStore, ch: &str) {
+    let idx = (ch.as_bytes()[0] - b'1') as usize;
+    let Ok(conn) = data::open_db() else { return };
+    let spaces = lore_core::db::list_spaces(&conn).unwrap_or_default();
+    if let Some(space) = spaces.get(idx) {
+        store.switch_space(state, space.id);
+    }
+}
+
+/// Save the currently-selected file to disk via a native dialog.
+/// No-op if selection isn't a file or DB lookup fails.
+fn save_selected_file(mut state: AppState) {
+    let Selected::File(id) = *state.selected.read() else { return };
+    let Ok(conn) = data::open_db() else { return };
+    let Ok(file) = lore_core::db::get_file(&conn, id) else { return };
+    let Ok((_, bytes)) = lore_core::db::get_file_data(&conn, id) else { return };
+    let name = file.name;
+    spawn(async move {
+        // Small delay so WKWebView finishes processing the keydown event
+        // before the native panel takes focus (otherwise dialog flashes).
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        let default_dir = dirs::download_dir().unwrap_or_default();
+        let handle = rfd::AsyncFileDialog::new()
+            .set_file_name(&name)
+            .set_directory(&default_dir)
+            .save_file()
+            .await;
+        if let Some(h) = handle
+            && h.write(&bytes).await.is_ok()
+        {
+            state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+        }
+    });
 }
 
 fn create_new_space(state: &mut AppState, store: &mut store::DataStore) {

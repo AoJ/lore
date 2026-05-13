@@ -1,0 +1,103 @@
+# Architectural rules for lore — checked by `sentrux check` / check_rules MCP.
+#
+# Invariant: `lore-core` is the only crate everyone else may depend on.
+# The four binaries (ui, server, worker, cli) MUST NOT depend on each other.
+
+# Architecture-wide invariant. Sentrux flags 1 "cycle" involving lore-core
+# db.rs + a few lore-ui files, but the DSM shows above_diagonal=0 (no real
+# cycles). The phantom edge comes from the `pub use submodule::*` re-export
+# pattern in db.rs paired with `super::sibling::xxx` references. Tolerated
+# at 1 so future real cycles still fail the gate.
+[constraints]
+max_cycles = 1
+
+# Rust-specific checks. We deliberately do NOT set these globally — the
+# `crates/lore-ui/assets/milkdown.js` bundle is a third-party Milkdown build
+# whose internals we can't refactor.
+[language.rust.constraints]
+max_cc       = 25   # Per-function cyclomatic complexity ceiling.
+max_fn_lines = 200  # Dioxus `#[component]` fns are mostly rsx! markup,
+                    # so 200 leaves room for typical panel components.
+no_god_files = false
+
+# Layers. `order` defines hierarchy — lower order is "deeper" and cannot
+# depend on higher-order layers.
+
+[[layers]]
+name  = "core"
+paths = ["crates/lore-core/*"]
+order = 0
+
+[[layers]]
+name  = "binary"
+paths = [
+  "crates/lore-ui/*",
+  "crates/lore-server/*",
+  "crates/lore-worker/*",
+  "crates/lore-cli/*",
+]
+order = 1
+
+# Boundaries: explicit cross-crate forbids that the layer order alone can't
+# express. Binaries are all `order=1` peers — `order` would still allow
+# `ui → server` etc., which we want to ban.
+
+[[boundaries]]
+from   = "crates/lore-ui/*"
+to     = "crates/lore-server/*"
+reason = "UI is desktop-only; must not depend on the HTTP server crate."
+
+[[boundaries]]
+from   = "crates/lore-ui/*"
+to     = "crates/lore-worker/*"
+reason = "UI is desktop-only; worker is a separate process — communicate via DB."
+
+[[boundaries]]
+from   = "crates/lore-ui/*"
+to     = "crates/lore-cli/*"
+reason = "UI must not pull in the CLI binary."
+
+[[boundaries]]
+from   = "crates/lore-server/*"
+to     = "crates/lore-ui/*"
+reason = "Server is headless; must not link against the Dioxus UI."
+
+[[boundaries]]
+from   = "crates/lore-server/*"
+to     = "crates/lore-worker/*"
+reason = "Server and worker are separate processes — communicate via DB."
+
+[[boundaries]]
+from   = "crates/lore-server/*"
+to     = "crates/lore-cli/*"
+reason = "Server must not pull in the CLI binary."
+
+[[boundaries]]
+from   = "crates/lore-worker/*"
+to     = "crates/lore-ui/*"
+reason = "Worker is headless; must not link against Dioxus."
+
+[[boundaries]]
+from   = "crates/lore-worker/*"
+to     = "crates/lore-server/*"
+reason = "Worker communicates with server only through DB, not via imports."
+
+[[boundaries]]
+from   = "crates/lore-worker/*"
+to     = "crates/lore-cli/*"
+reason = "Worker must not pull in the CLI binary."
+
+[[boundaries]]
+from   = "crates/lore-cli/*"
+to     = "crates/lore-ui/*"
+reason = "CLI must not link against the Dioxus UI."
+
+[[boundaries]]
+from   = "crates/lore-cli/*"
+to     = "crates/lore-server/*"
+reason = "CLI must not depend on the HTTP server."
+
+[[boundaries]]
+from   = "crates/lore-cli/*"
+to     = "crates/lore-worker/*"
+reason = "CLI must not depend on the rendering worker."
