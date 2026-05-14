@@ -66,10 +66,14 @@ pub fn current() -> Arc<dyn Backend> {
 
 /// Async data-access surface used by `DataStore` and a few UI helpers
 /// (keyboard nav, file save dialog). Each method maps 1:1 to one DB call
-/// today; future `HttpBackend` will map each to one server endpoint.
+/// (desktop, `LocalBackend`) or one server endpoint (web, `HttpBackend`).
 ///
-/// `Send + Sync` is required so `Arc<dyn Backend>` works across spawned tasks.
-#[async_trait]
+/// `Send + Sync` supertraits keep `Arc<dyn Backend>` storable in the
+/// process-wide `OnceLock`. `?Send` on the returned futures: the web
+/// variant calls `gloo-net`, whose `JsFuture`-backed responses are
+/// `!Send`. Dioxus's `spawn` doesn't require Send (it uses a LocalSet on
+/// desktop too), so dropping the constraint costs us nothing.
+#[async_trait(?Send)]
 pub trait Backend: Send + Sync {
     // ---- Bootstrap ----
 

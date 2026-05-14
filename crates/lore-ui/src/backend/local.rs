@@ -43,7 +43,7 @@ impl LocalBackend {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Backend for LocalBackend {
     // ---- Bootstrap ----
 
