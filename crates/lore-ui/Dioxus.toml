@@ -1,0 +1,9 @@
+[application]
+# Display name (used in the generated index.html title fallback and the
+# CLI banner). The Cargo binary is `lore-desktop`; dx picks that up
+# automatically from `[[bin]]` and rebuilds it for `wasm32-unknown-unknown`
+# under `--platform web`.
+name = "lore"
+
+[web.app]
+title = "lore"

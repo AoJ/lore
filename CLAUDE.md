@@ -86,10 +86,27 @@ when `open()` (the boot path) actually fails.
 - **Web version**: `lore-server` (axum) exposes the `Backend` trait surface
   1:1 over `POST /api/<method>` JSON RPC. Per-request `db::open_existing`
   against the same SQLite file the desktop opens (W1 phase: shared DB on
-  localhost for dev). `HttpBackend` (W3) is the WASM counterpart to
-  `LocalBackend`. Binary blobs ride as base64 strings in JSON via
-  `lore_core::serde_b64`; streaming octet-stream endpoints are a later
-  optimization.
+  localhost for dev). The browser-side client is a Dioxus WASM bundle
+  built via `dx` (`make web`) that mounts the same component tree as
+  desktop; the only platform difference is which `Backend` impl gets
+  registered (`LocalBackend` for desktop, `HttpBackend` for web).
+  Binary blobs ride as base64 strings in JSON via `lore_core::serde_b64`;
+  streaming octet-stream endpoints are a later optimization.
+- **Build targets**: `lore-ui` has cargo features `desktop` (default,
+  pulls rusqlite/rfd/dirs/tokio) and `web` (gloo-net/gloo-timers/
+  wasm-bindgen-futures). `lore-core` mirrors this via its `sqlite`
+  feature — WASM builds use `--no-default-features` to drop rusqlite +
+  migrations + the SQL-touching functions; types and `BackendError`
+  remain. `dx build --platform web` automatically passes
+  `--no-default-features --features web`.
+- **Smoke test (W3e)**: `make serve` (boots `lore-server` on port 3000,
+  serves WASM bundle + API), then in the browser open
+  `http://localhost:3000/`. Optionally `make desktop` in parallel —
+  both clients see the same DB (per `LORE_DB` env or default
+  `./db.sqlite`). Validate: notes list refreshes between clients;
+  create-note on one shows on the other on the next poll tick (2 s);
+  errors render with the structured `BackendError.code` (4xx/5xx body
+  is JSON, frontend matches on code).
 - **Error envelope**: every server response — handler error, route fallback,
   JSON-rejection — serializes `lore_core::error::BackendError` as
   `{ "code": "<snake_case>", "message": "..." }`. Codes are
@@ -146,6 +163,7 @@ make worker             # run archive worker
 make migrate            # apply pending DB migrations
 make db-version         # show DB version
 make js-build           # rebuild crates/lore-ui/assets/milkdown.js
+make web                # build WASM bundle via dx, stage in lore-server/static/
 ```
 
 Database defaults to `./db.sqlite`; override with `DB=` or `LORE_DB=`.

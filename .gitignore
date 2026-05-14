@@ -5,3 +5,6 @@ db.sqlite
 .claude/
 mutants.out/
 mutants.out.old/
+# `make web` stages the dx output here for `lore-server`'s ServeDir to
+# pick up at runtime; the source-of-truth is target/dx/, not this dir.
+crates/lore-server/static/

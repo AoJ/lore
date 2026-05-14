@@ -32,6 +32,28 @@ desktop-release:
 serve:
 	LORE_DB=$(DB) cargo run -p lore-server
 
+
+# Web frontend bundle. Builds `lore-ui` for `wasm32-unknown-unknown` via
+# the Dioxus CLI (`dx`) and stages the output where `lore-server`'s
+# `ServeDir` fallback expects it. Resulting in: open `http://localhost:3000`
+# after `make serve` to talk to the web UI.
+WEB_BUILD_OUT := target/dx/lore-desktop/release/web/public
+SERVER_STATIC := crates/lore-server/static
+
+web:
+	@command -v dx >/dev/null || { \
+		echo "dx (Dioxus CLI) not installed. Install: cargo install --locked dioxus-cli"; \
+		exit 1; \
+	}
+	cd crates/lore-ui && dx build --release --platform web
+	@mkdir -p $(SERVER_STATIC)
+	@rm -rf $(SERVER_STATIC)/*
+	cp -r $(WEB_BUILD_OUT)/. $(SERVER_STATIC)/
+	@echo "Web bundle ready in $(SERVER_STATIC)/. Run \`make serve\` and open http://localhost:3000/"
+
+web-clean:
+	rm -rf $(WEB_BUILD_OUT) $(SERVER_STATIC)/*
+
 worker:
 	LORE_DB=$(DB) cargo run -p lore-worker -- --db $(DB)
 
@@ -105,4 +127,4 @@ clean:
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
         check check-arch audit mutants verify clean js-install js-build \
-        js-watch js-clean db-version migrate
+        js-watch js-clean db-version migrate web web-clean
