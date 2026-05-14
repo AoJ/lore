@@ -451,12 +451,18 @@ window.loreEditor = {
   },
 };
 
-// Walk text nodes in `doc` until we've accumulated `textOffset` characters
-// of plain content. Returns the PM doc position at exactly that point
-// (inside the appropriate text node). Anchors at the first text node when
-// `textOffset <= 0` and at `doc.content.size` past the last char. Matches
-// the semantics of `Node.textContent` (no inter-block separators), so
-// callers diffing on `textContent` and feeding the offsets here line up.
+// Walk `doc` until we've accumulated `textOffset` characters of the same
+// plain content that `Node.textContent` produces. Returns the PM doc
+// position at exactly that point. Anchors at the first text node when
+// `textOffset <= 0` and at `doc.content.size` past the last char.
+//
+// Must mirror `textBetween(0, size, "")`: text nodes contribute their
+// characters, leaf nodes contribute `type.spec.leafText` if defined (e.g.
+// Milkdown's hard_break contributes "\n"). Block boundaries contribute
+// nothing. Missing the leafText path was an off-by-N bug — any prefix
+// crossing a hard_break landed one PM position too far right, so the
+// replace kept the first char of the old divergence and dropped the first
+// char of the new content.
 function textPosToDocPos(doc, textOffset) {
   if (textOffset <= 0) {
     let result = -1;
@@ -467,6 +473,12 @@ function textPosToDocPos(doc, textOffset) {
     });
     return result === -1 ? 0 : result;
   }
+  const leafTextLen = node => {
+    if (!node.isLeaf) return 0;
+    const lt = node.type.spec.leafText;
+    if (!lt) return 0;
+    return (typeof lt === 'function' ? lt(node) : lt).length;
+  };
   let count = 0;
   let result = -1;
   doc.descendants((node, pos) => {
@@ -478,6 +490,18 @@ function textPosToDocPos(doc, textOffset) {
         return false;
       }
       count += textLen;
+      return true;
+    }
+    const ll = leafTextLen(node);
+    if (ll > 0) {
+      // Offset lands inside this leaf's contribution — anchor at the
+      // position before the leaf. Anchoring mid-leaf isn't meaningful for
+      // the slice semantics smartReplace relies on.
+      if (count + ll > textOffset) {
+        result = pos;
+        return false;
+      }
+      count += ll;
     }
     return true;
   });

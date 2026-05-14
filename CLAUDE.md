@@ -164,6 +164,8 @@ make migrate            # apply pending DB migrations
 make db-version         # show DB version
 make js-build           # rebuild crates/lore-ui/assets/milkdown.js
 make web                # build WASM bundle via dx, stage in lore-server/static/
+make e2e                # integration tests: spawn lore-serve + drive WASM frontend
+                        # in headless Chromium (chromiumoxide). Slow, on-demand.
 ```
 
 Database defaults to `./db.sqlite`; override with `DB=` or `LORE_DB=`.
@@ -195,6 +197,28 @@ from at least one test. Reruns are slow (≈30 min on M-series) and not in
 "replace with empty string" mutant would need a brittle pin to the current
 crate version / git SHA. The `mutants` crate is a dev-dep purely for that
 attribute.
+
+### E2E integration tests (`crates/lore-e2e/`)
+
+`make e2e` spawns the real `lore-serve` binary as a subprocess (random
+port, tmp DB) and drives the WASM frontend through headless Chromium via
+`chromiumoxide`. Each `TestApp::spawn()` is fully isolated — tests run in
+parallel, no shared state. Drop kills the server and removes the temp DB.
+
+`make e2e` depends on `make web` (bundle staged) + `cargo build -p
+lore-server` (binary). It's NOT part of `make check` (which excludes
+`lore-e2e` from the workspace test invocation) because Chromium + a fresh
+bundle are heavy prerequisites — keep the pre-PR gate fast.
+
+Helpers in `crates/lore-e2e/src/lib.rs` cover the common moves:
+`wait_for(selector, timeout)`, `click(selector)`, `text(selector)`,
+`screenshot(path)`, `api_post(method, body)` (direct seed via
+`fetch` from inside the page so cookies/headers match), and
+`wait_until(predicate, timeout)` for polling-driven assertions
+(revision bumps, list-item count changes).
+
+Test layout: `tests/smoke.rs` (boot/render), `tests/notes.rs`
+(CRUD through UI). Grow with one test file per feature area.
 
 ### Formal verification (`#[cfg(kani)] mod proofs`)
 

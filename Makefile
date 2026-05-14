@@ -54,6 +54,20 @@ web:
 web-clean:
 	rm -rf $(WEB_BUILD_OUT) $(SERVER_STATIC)/*
 
+
+# End-to-end integration tests via chromiumoxide. Spawns a fresh
+# `lore-serve` subprocess per `TestApp` (random port, tmp DB) and drives
+# the WASM frontend through headless Chromium. Depends on:
+#   1. `make web` — bundle staged in lore-server/static/
+#   2. lore-serve binary at target/debug/lore-serve
+# `make e2e` chains both so a fresh checkout works.
+#
+# Tests live in crates/lore-e2e/tests/. Not part of `make check` because
+# they need a built web bundle + Chromium, which `make check` doesn't.
+e2e: web
+	cargo build -p lore-server
+	cargo test -p lore-e2e --tests -- --nocapture
+
 worker:
 	LORE_DB=$(DB) cargo run -p lore-worker -- --db $(DB)
 
@@ -117,9 +131,11 @@ verify:
 	cargo kani -p lore-core
 
 
-# Combined pre-PR check.
+# Combined pre-PR check. `lore-e2e` is excluded because it depends on a
+# built web bundle + `lore-serve` binary + Chromium — that's `make e2e`'s
+# job, not the fast pre-PR sanity gate.
 check: lint check-arch audit
-	cargo test --workspace
+	cargo test --workspace --exclude lore-e2e
 
 
 clean:
@@ -127,4 +143,4 @@ clean:
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
         check check-arch audit mutants verify clean js-install js-build \
-        js-watch js-clean db-version migrate web web-clean
+        js-watch js-clean db-version migrate web web-clean e2e

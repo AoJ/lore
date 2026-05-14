@@ -35,6 +35,7 @@ paths = [
   "crates/lore-server/*",
   "crates/lore-worker/*",
   "crates/lore-cli/*",
+  "crates/lore-e2e/*",
 ]
 order = 1
 

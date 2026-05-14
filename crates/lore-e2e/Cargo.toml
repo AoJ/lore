@@ -1,0 +1,20 @@
+[package]
+name = "lore-e2e"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Pure dev/test crate — no library API consumed by the production binaries,
+# no binary of its own. Integration tests under `tests/` spawn the real
+# `lore-serve` binary as a subprocess and drive the WASM frontend through
+# headless Chromium. Per the architecture rules the only allowed import is
+# `lore-core`; everything else is reached over HTTP or via the DOM.
+
+[dependencies]
+anyhow = "1"
+chromiumoxide = "0.7"
+futures-util = "0.3"
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }

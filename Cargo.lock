@@ -3600,6 +3600,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lore-e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chromiumoxide",
+ "futures-util",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "lore-server"
 version = "0.1.0"
 dependencies = [
