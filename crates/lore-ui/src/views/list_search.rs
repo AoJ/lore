@@ -1,4 +1,4 @@
-use crate::data;
+use crate::backend;
 use crate::state::AppState;
 use crate::texts;
 use dioxus::prelude::*;
@@ -15,18 +15,16 @@ pub fn ListSearch() -> Element {
     use_effect(move || {
         let q = search_signal.read().clone();
         let s = *sid.read();
-        if q.len() >= 2 {
-            if let Ok(conn) = data::open_db() {
-                page_results.set(
-                    lore_core::search::search_web_pages_brief(&conn, &q, s, 20).unwrap_or_default(),
-                );
-                note_results
-                    .set(lore_core::search::search_notes(&conn, &q, s, 20).unwrap_or_default());
-            }
-        } else {
+        if q.len() < 2 {
             page_results.set(Vec::new());
             note_results.set(Vec::new());
+            return;
         }
+        spawn(async move {
+            let b = backend::current();
+            page_results.set(b.search_pages_brief(&q, s, 20).await.unwrap_or_default());
+            note_results.set(b.search_notes(&q, s, 20).await.unwrap_or_default());
+        });
     });
 
     let query = state.search_query.read().clone();

@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn ListNotes() -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
 
     let section = state.section.read().clone();
     let folder_id = match &section {

@@ -1,12 +1,13 @@
-use crate::data::{self, format_file_size};
+use crate::backend;
+use crate::data::format_file_size;
 use crate::state::AppState;
 use crate::store::DataStore;
 use dioxus::prelude::*;
 
 #[component]
 pub fn ContentSpaces() -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
     let tick = store.revision;
     let mut spaces_data = use_signal(Vec::<SpaceWithStats>::new);
     let mut renaming_id = use_signal(|| Option::<i64>::None);
@@ -14,30 +15,34 @@ pub fn ContentSpaces() -> Element {
 
     use_effect(move || {
         let _ = *tick.read();
-        let conn = data::open_db().unwrap();
-        let spaces = lore_core::db::list_all_spaces(&conn).unwrap_or_default();
-        let mut items = Vec::new();
-        for s in &spaces {
-            let stats =
-                lore_core::db::space_stats(&conn, s.id).unwrap_or(lore_core::db::SpaceStats {
-                    page_count: 0,
-                    note_count: 0,
-                    file_count: 0,
-                    file_size_bytes: 0,
-                    pages_size_bytes: 0,
+        spawn(async move {
+            let b = backend::current();
+            let spaces = b.list_all_spaces().await.unwrap_or_default();
+            let mut items = Vec::new();
+            for s in &spaces {
+                let stats = b
+                    .space_stats(s.id)
+                    .await
+                    .unwrap_or(lore_core::db::SpaceStats {
+                        page_count: 0,
+                        note_count: 0,
+                        file_count: 0,
+                        file_size_bytes: 0,
+                        pages_size_bytes: 0,
+                    });
+                items.push(SpaceWithStats {
+                    id: s.id,
+                    name: s.name.clone(),
+                    deleted_at: s.deleted_at.clone(),
+                    page_count: stats.page_count,
+                    note_count: stats.note_count,
+                    file_count: stats.file_count,
+                    file_size_display: format_file_size(stats.file_size_bytes),
+                    size_display: format_file_size(stats.pages_size_bytes),
                 });
-            items.push(SpaceWithStats {
-                id: s.id,
-                name: s.name.clone(),
-                deleted_at: s.deleted_at.clone(),
-                page_count: stats.page_count,
-                note_count: stats.note_count,
-                file_count: stats.file_count,
-                file_size_display: format_file_size(stats.file_size_bytes),
-                size_display: format_file_size(stats.pages_size_bytes),
-            });
-        }
-        spaces_data.set(items);
+            }
+            spaces_data.set(items);
+        });
     });
 
     let active_space_id = *state.space_id.read();

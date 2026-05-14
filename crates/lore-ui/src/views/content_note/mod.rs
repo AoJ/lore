@@ -14,7 +14,7 @@ mod folder_tree;
 
 use dioxus::prelude::*;
 
-use crate::data;
+use crate::backend;
 use crate::state::{AppState, Section};
 use crate::store::DataStore;
 
@@ -26,17 +26,26 @@ use folder_tree::folder_path;
 
 #[component]
 pub fn ContentNote(id: i64) -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
 
-    let note_data = use_signal(move || {
-        let conn = data::open_db().unwrap();
-        lore_core::db::get_note(&conn, id).ok()
+    // Outer Option = "loaded yet?", inner Option = "did backend return a note?"
+    // — lets us show "Loading…" before the first response and "Note not found"
+    // once we know the lookup failed.
+    let mut note_data = use_signal(|| Option::<Option<lore_core::db::NoteData>>::None);
+    let mut folders = use_signal(Vec::<lore_core::db::FolderRow>::new);
+
+    use_future(move || async move {
+        let b = backend::current();
+        note_data.set(Some(b.get_note(id).await.ok()));
+        let sid = *state.space_id.read();
+        folders.set(b.list_folders(sid).await.unwrap_or_default());
     });
 
     let initial_content = note_data
         .read()
         .as_ref()
+        .and_then(|opt| opt.as_ref())
         .map(|n| {
             if n.title.is_empty() && n.body.is_empty() {
                 String::new()
@@ -48,15 +57,23 @@ pub fn ContentNote(id: i64) -> Element {
         })
         .unwrap_or_default();
 
-    let folders = use_signal(move || {
-        let sid = *state.space_id.read();
-        let conn = data::open_db().unwrap();
-        lore_core::db::list_folders(&conn, sid).unwrap_or_default()
-    });
-    let current_folder_id = note_data.read().as_ref().and_then(|n| n.folder_id);
+    let current_folder_id = note_data
+        .read()
+        .as_ref()
+        .and_then(|opt| opt.as_ref())
+        .and_then(|n| n.folder_id);
     let current_folder_name = folder_path(&folders.read(), current_folder_id);
 
-    match note_data.read().as_ref() {
+    let note_read = note_data.read();
+    let Some(loaded) = note_read.as_ref() else {
+        return rsx! {
+            div { class: "content-panel",
+                div { class: "empty-state", "Loading…" }
+            }
+        };
+    };
+
+    match loaded.as_ref() {
         Some(note) => rsx! {
             section { class: "content-panel content-note",
                 // Dirty indicator (unsaved changes — updated by JS)

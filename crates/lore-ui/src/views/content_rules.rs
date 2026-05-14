@@ -1,14 +1,12 @@
-use crate::data;
+use crate::backend;
 use crate::texts;
 use dioxus::prelude::*;
 
 #[component]
 pub fn ContentRules() -> Element {
-    let rules = use_signal(|| {
-        data::open_db()
-            .ok()
-            .and_then(|c| lore_core::db::load_rules(&c).ok())
-            .unwrap_or_default()
+    let mut rules = use_signal(Vec::<lore_core::db::ClassificationRule>::new);
+    use_future(move || async move {
+        rules.set(backend::current().load_rules().await.unwrap_or_default());
     });
 
     rsx! {

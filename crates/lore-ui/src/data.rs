@@ -1,10 +1,10 @@
-//! Thin UI-side data helpers. Pure DB queries live in `lore_core::db`;
-//! this file only owns:
-//!   1. connection bootstrap (db_path + open_db wrapper)
+//! Thin UI-side data helpers. All DB access now goes through `crate::backend`;
+//! this file owns:
+//!   1. DB path resolution (`db_path`, used by the boot path)
 //!   2. UI-only formatting helpers (size, ext, mime)
 //!   3. OS integrations (open_in_browser)
-//!   4. View-model adapters that turn raw core records into display-ready
-//!      strings + base64 (e.g. PageDetailView).
+//!   4. View-model adapters that fetch via the backend and format for render
+//!      (e.g. `PageDetailView`).
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -20,33 +20,6 @@ pub fn db_path() -> PathBuf {
         return p.join("lore.db");
     }
     PathBuf::from("lore.db")
-}
-
-/// Open a connection for runtime queries. Skips migration runner / seed —
-/// `main::app()` calls `lore_core::db::open` once at startup to bootstrap.
-pub fn open_db() -> Result<rusqlite::Connection> {
-    lore_core::db::open_existing(&db_path())
-}
-
-pub fn get_revision() -> i64 {
-    open_db()
-        .ok()
-        .and_then(|conn| lore_core::db::get_revision(&conn).ok())
-        .unwrap_or(0)
-}
-
-/// Read PRAGMA user_version directly (raw connection, no migrations, no
-/// refuse-on-newer). Used by the polling loop to detect a schema upgrade
-/// happening underneath us — going through `open_db()` would fail outright
-/// if another process has bumped the DB past `EXPECTED_VERSION`.
-pub fn db_schema_version() -> u32 {
-    rusqlite::Connection::open(db_path())
-        .ok()
-        .and_then(|c| {
-            c.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
-                .ok()
-        })
-        .unwrap_or(0)
 }
 
 // ---- Page detail view-model ----
@@ -69,9 +42,8 @@ pub struct PageDetailView {
     pub screenshot_base64: Option<String>,
 }
 
-pub fn get_page_view(id: i64) -> Result<PageDetailView> {
-    let conn = open_db()?;
-    let p = lore_core::db::get_page(&conn, id)?;
+pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
+    let p = crate::backend::current().get_page(id).await?;
     let (content_size, plain_text_preview, screenshot_base64, has_snapshot) = match p.snapshot {
         Some(s) => {
             let b64 = s.screenshot.as_ref().map(|bytes| {

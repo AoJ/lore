@@ -95,7 +95,7 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
         use_effect(move || {
             let init_md = init_md.clone();
             spawn(async move {
-                let mut store = store;
+                let store = store;
                 let mut att_map: HashMap<String, String> = HashMap::new();
                 for part in init_md.split("https://attachment.lore.invalid/") {
                     if let Some(end_pos) = part.find(')')

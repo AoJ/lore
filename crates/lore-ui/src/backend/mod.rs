@@ -15,8 +15,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use lore_core::db::{
-    ArchiveOutcome, AttachmentRow, FileRow, FolderRow, InsertAttachmentOutcome, InsertFileOutcome,
-    NoteData, NoteRow, PageRef, SpaceRow, TrashItem, WebPageDetail, WebPageRow,
+    ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow, InsertAttachmentOutcome,
+    InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats, TrashItem, WebPageDetail,
+    WebPageRow,
 };
 
 pub mod local;
@@ -67,6 +68,12 @@ pub trait Backend: Send + Sync {
 
     async fn list_spaces(&self) -> Result<Vec<SpaceRow>>;
     async fn list_all_spaces(&self) -> Result<Vec<SpaceRow>>;
+    /// Most recently used non-deleted space — the one we auto-select at boot
+    /// and what `SpaceRenameInput` falls back to when the user deletes the
+    /// active space inline.
+    async fn get_active_space(&self) -> Result<SpaceRow>;
+    /// Counts + total byte sizes for the Settings/Spaces detail view.
+    async fn space_stats(&self, space_id: i64) -> Result<SpaceStats>;
     async fn touch_space(&self, space_id: i64) -> Result<()>;
     async fn create_space(&self, name: &str) -> Result<i64>;
     async fn rename_space(&self, space_id: i64, name: &str) -> Result<()>;
@@ -174,4 +181,18 @@ pub trait Backend: Send + Sync {
         space_id: i64,
         day: &str,
     ) -> Result<(Vec<NoteRow>, Vec<PageRef>)>;
+
+    // ---- Classification rules (read-only — rules are seeded, not user-edited) ----
+
+    async fn load_rules(&self) -> Result<Vec<ClassificationRule>>;
+
+    // ---- FTS5 search ----
+
+    async fn search_pages_brief(
+        &self,
+        query: &str,
+        space_id: i64,
+        limit: usize,
+    ) -> Result<Vec<WebPageRow>>;
+    async fn search_notes(&self, query: &str, space_id: i64, limit: usize) -> Result<Vec<NoteRow>>;
 }

@@ -68,17 +68,14 @@ fn BootedApp() -> Element {
     use_context_provider(|| state);
     use_context_provider(|| store);
 
-    // Initial load: pick the most recently used space (the trait orders
-    // them by `last_used DESC`) and run the first refresh. AppState started
-    // with `space_id = 1`, so we'd display the seeded default until this
-    // future resolves.
+    // Initial load: pick the most recently used non-deleted space and run
+    // the first refresh. AppState started with `space_id = 1`, so we'd
+    // display the seeded default until this future resolves.
     use_future(move || {
         let mut state = state;
         let mut store = store;
         async move {
-            if let Ok(spaces) = backend::current().list_spaces().await
-                && let Some(active) = spaces.first()
-            {
+            if let Ok(active) = backend::current().get_active_space().await {
                 state.space_id.set(active.id);
             }
             store.refresh(&state).await;

@@ -8,7 +8,7 @@
 
 use dioxus::prelude::*;
 
-use crate::data;
+use crate::backend;
 use crate::state::AppState;
 use crate::store::DataStore;
 use crate::texts;
@@ -78,20 +78,15 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
                     Ok(n) => n,
                     Err(_) => return,
                 };
-                let conn = match data::open_db() {
-                    Ok(c) => c,
-                    Err(_) => return,
-                };
-                let row = match lore_core::db::get_attachment(&conn, att_id) {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-                let bytes = match lore_core::db::get_attachment_data(&conn, att_id) {
-                    Ok((_, b)) => b,
-                    Err(_) => return,
-                };
-                let fname = row.name;
                 spawn(async move {
+                    let b = backend::current();
+                    let Ok(row) = b.get_attachment(att_id).await else {
+                        return;
+                    };
+                    let Ok((_, bytes)) = b.get_attachment_data(att_id).await else {
+                        return;
+                    };
+                    let fname = row.name;
                     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
                     let default_dir = dirs::download_dir().unwrap_or_default();
                     let handle = rfd::AsyncFileDialog::new()
@@ -115,8 +110,8 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
 /// markdown reference.
 #[component]
 fn FileDropBridge(id: i64) -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
 
     rsx! {
         textarea {
@@ -164,7 +159,7 @@ fn FileDropBridge(id: i64) -> Element {
 /// JS sends a data URI here on image paste. We decode, upload, and insert.
 #[component]
 fn ImagePasteBridge(id: i64) -> Element {
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
 
     rsx! {
         textarea {

@@ -3,6 +3,7 @@
 
 use dioxus::prelude::*;
 
+use crate::backend;
 use crate::data;
 use crate::state::{AppState, Section, Selected, UndoAction};
 use crate::store::DataStore;
@@ -14,13 +15,18 @@ use super::folder_tree::build_folder_tree;
 #[component]
 pub fn NoteActions(id: i64, current_folder_id: Option<i64>) -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
     let mut move_menu_open = use_signal(|| false);
 
-    let folders = use_signal(move || {
+    let mut folders = use_signal(Vec::<lore_core::db::FolderRow>::new);
+    use_future(move || async move {
         let sid = *state.space_id.read();
-        let conn = data::open_db().unwrap();
-        lore_core::db::list_folders(&conn, sid).unwrap_or_default()
+        folders.set(
+            backend::current()
+                .list_folders(sid)
+                .await
+                .unwrap_or_default(),
+        );
     });
     let folder_tree: Vec<(i64, String, usize)> = build_folder_tree(&folders.read(), None, 0);
 

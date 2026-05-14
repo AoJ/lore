@@ -1,4 +1,4 @@
-use crate::data;
+use crate::backend;
 use crate::state::{AppState, Section};
 use crate::store::DataStore;
 use crate::texts;
@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn Sidebar() -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
     let mut url_input = use_signal(String::new);
     let mut status_msg = use_signal(|| Option::<String>::None);
 
@@ -202,8 +202,8 @@ fn SidebarItem(label: String, active: bool, onclick: EventHandler<MouseEvent>) -
 
 #[component]
 fn SpaceRenameInput(space_id: i64) -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
     let initial = match &*state.renaming.read() {
         Some(crate::state::Renaming::Space(_, name)) if !name.is_empty() => name.clone(),
         _ => String::new(),
@@ -225,14 +225,14 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                     let mut store = store;
                     let mut state = state;
                     spawn(async move {
+                        let b = backend::current();
                         if !name.is_empty() {
                             store.rename_space(&state, space_id, &name).await.ok();
                         } else {
-                            // Empty name — delete the space
-                            let conn = data::open_db().unwrap();
-                            lore_core::db::delete_space_permanent(&conn, space_id).ok();
-                            // Switch to first remaining space
-                            if let Ok(s) = lore_core::db::get_active_space(&conn) {
+                            // Empty name — delete the space, then switch to whatever
+                            // remains as most-recently-used.
+                            b.delete_space_permanent(space_id).await.ok();
+                            if let Ok(s) = b.get_active_space().await {
                                 store.switch_space(&mut state, s.id).await;
                             }
                         }
@@ -245,10 +245,9 @@ fn SpaceRenameInput(space_id: i64) -> Element {
                     spawn(async move {
                         if is_new {
                             store.delete_space_permanent(&state, space_id).await.ok();
-                            if let Ok(conn) = data::open_db()
-                                && let Ok(s) = lore_core::db::get_active_space(&conn) {
-                                    store.switch_space(&mut state, s.id).await;
-                                }
+                            if let Ok(s) = backend::current().get_active_space().await {
+                                store.switch_space(&mut state, s.id).await;
+                            }
                         }
                         state.renaming.set(None);
                         store.refresh(&state).await;
@@ -261,8 +260,8 @@ fn SpaceRenameInput(space_id: i64) -> Element {
 
 #[component]
 fn FolderRenameInput(folder_id: i64) -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
     let initial = match &*state.renaming.read() {
         Some(crate::state::Renaming::Folder(_, name)) if !name.is_empty() => name.clone(),
         _ => String::new(),
@@ -339,7 +338,7 @@ fn FolderTreeItem(
     active_section: Section,
 ) -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
     let mut expanded = use_signal(|| true);
     let mut menu_open = use_signal(|| false);
     let is_active = active_section == Section::Folder(folder_id);
@@ -420,11 +419,10 @@ fn FolderTreeItem(
                     }
                     div { class: "folder-menu-item danger",
                         onclick: move |_| {
-                            let conn = data::open_db().unwrap();
-                            lore_core::db::delete_folder(&conn, folder_id).ok();
                             let mut store = store;
                             let mut state = state;
                             spawn(async move {
+                                backend::current().delete_folder(folder_id).await.ok();
                                 if is_active {
                                     store.navigate(&mut state, Section::AllNotes).await;
                                 }

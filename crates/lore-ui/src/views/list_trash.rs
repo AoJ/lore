@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn ListTrash() -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
 
     rsx! {
         div { class: "list-panel",

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[component]
 pub fn ListTimeline() -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
     let heatmap = store.heatmap.read();
 
     let day_counts: HashMap<&str, i64> = heatmap

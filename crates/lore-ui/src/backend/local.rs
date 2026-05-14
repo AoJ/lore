@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use lore_core::db::{
-    self, ArchiveOutcome, AttachmentRow, FileRow, FolderRow, InsertAttachmentOutcome,
-    InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, TrashItem, WebPageDetail, WebPageRow,
+    self, ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow,
+    InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats,
+    TrashItem, WebPageDetail, WebPageRow,
 };
+use lore_core::search;
 
 use super::Backend;
 
@@ -58,6 +60,14 @@ impl Backend for LocalBackend {
 
     async fn list_all_spaces(&self) -> Result<Vec<SpaceRow>> {
         db::list_all_spaces(&self.conn()?)
+    }
+
+    async fn get_active_space(&self) -> Result<SpaceRow> {
+        db::get_active_space(&self.conn()?)
+    }
+
+    async fn space_stats(&self, space_id: i64) -> Result<SpaceStats> {
+        db::space_stats(&self.conn()?, space_id)
     }
 
     async fn touch_space(&self, space_id: i64) -> Result<()> {
@@ -309,5 +319,26 @@ impl Backend for LocalBackend {
         day: &str,
     ) -> Result<(Vec<NoteRow>, Vec<PageRef>)> {
         db::activity_for_day(&self.conn()?, space_id, day)
+    }
+
+    // ---- Classification rules ----
+
+    async fn load_rules(&self) -> Result<Vec<ClassificationRule>> {
+        db::load_rules(&self.conn()?)
+    }
+
+    // ---- FTS5 search ----
+
+    async fn search_pages_brief(
+        &self,
+        query: &str,
+        space_id: i64,
+        limit: usize,
+    ) -> Result<Vec<WebPageRow>> {
+        search::search_web_pages_brief(&self.conn()?, query, space_id, limit)
+    }
+
+    async fn search_notes(&self, query: &str, space_id: i64, limit: usize) -> Result<Vec<NoteRow>> {
+        search::search_notes(&self.conn()?, query, space_id, limit)
     }
 }

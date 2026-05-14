@@ -1,3 +1,4 @@
+use crate::backend;
 use crate::data;
 use crate::state::{AppState, Selected, UndoAction};
 use crate::store::DataStore;
@@ -7,14 +8,40 @@ use dioxus::prelude::*;
 #[component]
 pub fn ContentFile(id: i64) -> Element {
     let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let store = use_context::<DataStore>();
 
-    let conn = data::open_db().ok();
-    let file = conn
-        .as_ref()
-        .and_then(|c| lore_core::db::get_file(c, id).ok());
+    // `None` = still loading, `Some(None)` = backend confirmed not found,
+    // `Some(Some(row))` = loaded.
+    let mut file_data = use_signal(|| Option::<Option<lore_core::db::FileRow>>::None);
+    let mut data_uri = use_signal(|| Option::<String>::None);
 
-    let Some(file) = file else {
+    use_future(move || async move {
+        let b = backend::current();
+        let row = b.get_file(id).await.ok();
+        let uri = match &row {
+            Some(f) => {
+                let m = f.mime_type.as_deref().unwrap_or("");
+                if m.starts_with("image/") || m == "application/pdf" {
+                    store.get_file_data_uri(id).await
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        file_data.set(Some(row));
+        data_uri.set(uri);
+    });
+
+    let file_read = file_data.read();
+    let Some(loaded) = file_read.as_ref() else {
+        return rsx! {
+            div { class: "content-panel",
+                div { class: "empty-state", "Loading…" }
+            }
+        };
+    };
+    let Some(file) = loaded.as_ref() else {
         return rsx! {
             div { class: "content-panel",
                 div { class: "empty-state", "File not found." }
@@ -32,26 +59,6 @@ pub fn ContentFile(id: i64) -> Element {
     let ext = data::file_extension(&file.name);
     let size = data::format_file_size(file.size);
     let short_hash = file.hash.chars().take(8).collect::<String>();
-
-    // Compute data URI for preview (images and PDFs only). We can't use
-    // `use_memo` here because `store.get_file_data_uri` is async; instead
-    // we hold the result in a signal that `use_future` populates.
-    let mut data_uri = use_signal(|| Option::<String>::None);
-    use_future(move || async move {
-        let Some(conn) = data::open_db().ok() else {
-            return;
-        };
-        let Ok(f) = lore_core::db::get_file(&conn, id) else {
-            return;
-        };
-        let m = f.mime_type.as_deref().unwrap_or("").to_string();
-        let result = if m.starts_with("image/") || m == "application/pdf" {
-            store.get_file_data_uri(id).await
-        } else {
-            None
-        };
-        data_uri.set(result);
-    });
 
     rsx! {
         div { class: "content-panel content-file",
@@ -110,27 +117,21 @@ pub fn ContentFile(id: i64) -> Element {
                 button {
                     class: "btn-sm",
                     onclick: move |_| {
-                        let conn = data::open_db().ok();
-                        let file_name = conn.as_ref()
-                            .and_then(|c| lore_core::db::get_file(c, id).ok())
-                            .map(|f| f.name);
-                        let file_data = conn.as_ref()
-                            .and_then(|c| lore_core::db::get_file_data(c, id).ok())
-                            .map(|(_, b)| b);
-                        if let (Some(name), Some(bytes)) = (file_name, file_data) {
-                            spawn(async move {
-                                let default_dir = dirs::download_dir().unwrap_or_default();
-                                let handle = rfd::AsyncFileDialog::new()
-                                    .set_file_name(&name)
-                                    .set_directory(&default_dir)
-                                    .save_file()
-                                    .await;
-                                if let Some(h) = handle
-                                    && h.write(&bytes).await.is_ok() {
-                                        state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
-                                    }
-                            });
-                        }
+                        spawn(async move {
+                            let b = backend::current();
+                            let Ok(file) = b.get_file(id).await else { return };
+                            let Ok((_, bytes)) = b.get_file_data(id).await else { return };
+                            let default_dir = dirs::download_dir().unwrap_or_default();
+                            let handle = rfd::AsyncFileDialog::new()
+                                .set_file_name(&file.name)
+                                .set_directory(&default_dir)
+                                .save_file()
+                                .await;
+                            if let Some(h) = handle
+                                && h.write(&bytes).await.is_ok() {
+                                    state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                                }
+                        });
                     },
                     {texts::BTN_SAVE_TO_DOWNLOADS}
                 }
