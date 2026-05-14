@@ -8,15 +8,52 @@ license = "MIT"
 name = "lore-desktop"
 path = "src/main.rs"
 
+[features]
+# Pick one — they're mutually exclusive in practice (different `main`
+# launcher, different backend, different native deps). `make desktop` /
+# `cargo build` use `desktop`; `dx build --platform web` / W3d's
+# `make web` use `web`.
+default = ["desktop"]
+desktop = [
+    "dioxus/desktop",
+    "lore-core/sqlite",
+    "dep:rusqlite",
+    "dep:rfd",
+    "dep:dirs",
+    "dep:tokio",
+]
+web = [
+    "dioxus/web",
+    "dep:gloo-net",
+    "dep:gloo-timers",
+    "dep:wasm-bindgen-futures",
+]
+
 [dependencies]
-dioxus = { version = "0.7", features = ["desktop"] }
-dirs = "6"
-lore-core = { path = "../lore-core" }
+# Dioxus default features include the platform (`desktop`) which we want
+# to pick per cargo feature instead. We keep `lib` (macro/html/signals/
+# hooks/document/...) and `launch` (the `LaunchBuilder` API), which are
+# platform-agnostic; `desktop` / `web` cargo features then layer the
+# correct platform crate on top.
+dioxus = { version = "0.7", default-features = false, features = ["lib", "launch"] }
+lore-core = { path = "../lore-core", default-features = false }
 anyhow = "1"
-rusqlite = "0.34"
 url = "2"
 base64 = "0.22"
-tokio = { version = "1", features = ["time"] }
-rfd = "0.15"
 chrono = "0.4"
 async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Desktop-only — native SQLite + native dialogs + path resolution +
+# tokio runtime (Dioxus desktop already uses tokio but we use `time`
+# explicitly for sleep).
+rusqlite = { version = "0.34", optional = true }
+rfd = { version = "0.15", optional = true }
+dirs = { version = "6", optional = true }
+tokio = { version = "1", features = ["time"], optional = true }
+
+# Web-only — HTTP client + timer + async glue, all wasm32-friendly.
+gloo-net = { version = "0.6", optional = true }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }

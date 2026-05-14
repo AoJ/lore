@@ -78,7 +78,7 @@ impl DataStore {
         // opened against the old schema and queries would start failing on
         // any new column. User has to restart.
         let on_disk = backend::current().db_schema_version().await.unwrap_or(0);
-        let known = lore_core::migrations::EXPECTED_VERSION;
+        let known = lore_core::EXPECTED_DB_SCHEMA_VERSION;
         if on_disk != known && !*self.schema_outdated.read() {
             self.schema_outdated.set(true);
         }

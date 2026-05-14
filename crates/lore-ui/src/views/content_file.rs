@@ -112,28 +112,39 @@ pub fn ContentFile(id: i64) -> Element {
                 }
             }
 
-            // Action buttons
+            // Action buttons. Save-to-Downloads uses the native file
+            // dialog and only renders on desktop; the web build relies
+            // on the browser's built-in download UI (TBD via anchor tag).
             div { class: "content-file-actions",
-                button {
-                    class: "btn-sm",
-                    onclick: move |_| {
-                        spawn(async move {
-                            let b = backend::current();
-                            let Ok(file) = b.get_file(id).await else { return };
-                            let Ok((_, bytes)) = b.get_file_data(id).await else { return };
-                            let default_dir = dirs::download_dir().unwrap_or_default();
-                            let handle = rfd::AsyncFileDialog::new()
-                                .set_file_name(&file.name)
-                                .set_directory(&default_dir)
-                                .save_file()
-                                .await;
-                            if let Some(h) = handle
-                                && h.write(&bytes).await.is_ok() {
-                                    state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
-                                }
-                        });
-                    },
-                    {texts::BTN_SAVE_TO_DOWNLOADS}
+                {
+                    #[cfg(feature = "desktop")]
+                    {
+                        rsx! {
+                            button {
+                                class: "btn-sm",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        let b = backend::current();
+                                        let Ok(file) = b.get_file(id).await else { return };
+                                        let Ok((_, bytes)) = b.get_file_data(id).await else { return };
+                                        let default_dir = dirs::download_dir().unwrap_or_default();
+                                        let handle = rfd::AsyncFileDialog::new()
+                                            .set_file_name(&file.name)
+                                            .set_directory(&default_dir)
+                                            .save_file()
+                                            .await;
+                                        if let Some(h) = handle
+                                            && h.write(&bytes).await.is_ok() {
+                                                state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                                            }
+                                    });
+                                },
+                                {texts::BTN_SAVE_TO_DOWNLOADS}
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "desktop"))]
+                    { rsx! {} }
                 }
                 button {
                     class: "btn-sm btn-danger",

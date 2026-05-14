@@ -78,6 +78,11 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
                     Ok(n) => n,
                     Err(_) => return,
                 };
+                // Native save dialog (rfd + dirs) is desktop-only; on web
+                // we'd hand the user a browser-driven download instead. The
+                // bridge JS still fires on click but the spawned task is
+                // a no-op there until the W3 web port wires up the anchor.
+                #[cfg(feature = "desktop")]
                 spawn(async move {
                     let b = backend::current();
                     let Ok(row) = b.get_attachment(att_id).await else {
@@ -87,7 +92,7 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
                         return;
                     };
                     let fname = row.name;
-                    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                    crate::platform::sleep(std::time::Duration::from_millis(80)).await;
                     let default_dir = dirs::download_dir().unwrap_or_default();
                     let handle = rfd::AsyncFileDialog::new()
                         .set_file_name(&fname)
@@ -100,6 +105,8 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
                         state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
                     }
                 });
+                #[cfg(not(feature = "desktop"))]
+                let _ = att_id;
             },
         }
     }

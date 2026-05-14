@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 mod backend;
 mod data;
 mod keys;
+mod platform;
 mod state;
 mod store;
 mod texts;
@@ -17,6 +18,7 @@ const APP_CSS: &str = include_str!("../assets/app.css");
 const MILKDOWN_JS: &str = include_str!("../assets/milkdown.js");
 const EDITOR_CSS: &str = include_str!("../assets/editor.css");
 
+#[cfg(feature = "desktop")]
 fn main() {
     use dioxus::desktop::{Config, WindowBuilder};
 
@@ -30,6 +32,16 @@ fn main() {
     LaunchBuilder::desktop().with_cfg(config).launch(app);
 }
 
+#[cfg(feature = "web")]
+fn main() {
+    // The web build relies on the server (`lore-server`) for the data
+    // layer. The browser fetches the WASM bundle, mounts the same `app`
+    // root, and the `HttpBackend` initialized in `app()` calls back to
+    // `/api/*` on the same origin.
+    dioxus::launch(app);
+}
+
+#[cfg(feature = "desktop")]
 fn app() -> Element {
     // Bootstrap DB once: opens connection, applies migrations, seeds defaults.
     // If this fails (corrupted DB, schema from newer build, FS permissions, …)
@@ -57,6 +69,22 @@ fn app() -> Element {
                 }
             },
         }
+    }
+}
+
+#[cfg(feature = "web")]
+fn app() -> Element {
+    // No bootstrap step on web — the server already ran `lore_core::db::open`.
+    // We install the `HttpBackend` once and hand off to the same component
+    // tree the desktop uses. Relative `/api` base means the WASM bundle and
+    // the API live behind the same origin (typical reverse-proxy setup).
+    backend::init(Arc::new(backend::HttpBackend::new("/api".to_string())));
+
+    rsx! {
+        document::Style { {TOKENS_CSS} }
+        document::Style { {APP_CSS} }
+        document::Style { {EDITOR_CSS} }
+        BootedApp {}
     }
 }
 
@@ -169,7 +197,7 @@ fn RevisionIndicator() -> Element {
 
     use_future(move || async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            crate::platform::sleep(std::time::Duration::from_secs(2)).await;
             store.poll(&state).await;
         }
     });
@@ -207,6 +235,7 @@ fn handle_keyboard(evt: KeyboardEvent, state: AppState, store: store::DataStore)
     match (ch, ctrl, cmd, shift) {
         (c, true, _, _) if c == keys::NAV_DOWN.0 => move_selection(state, 1),
         (c, true, _, _) if c == keys::NAV_UP.0 => move_selection(state, -1),
+        #[cfg(feature = "desktop")]
         ("s", _, true, _) => save_selected_file(state),
         ("u", _, true, _) if *state.section.read() == Section::AllFiles => {
             dioxus::document::eval("document.getElementById('file-upload-input').click()");
@@ -235,7 +264,10 @@ fn switch_space_by_index(mut state: AppState, mut store: store::DataStore, ch: &
 }
 
 /// Save the currently-selected file to disk via a native dialog.
-/// No-op if selection isn't a file or DB lookup fails.
+/// No-op if selection isn't a file or DB lookup fails. Desktop-only —
+/// the web variant relies on the browser's built-in download UI (anchor
+/// link click), to be wired up alongside the W3 web port.
+#[cfg(feature = "desktop")]
 fn save_selected_file(mut state: AppState) {
     let Selected::File(id) = *state.selected.read() else {
         return;
@@ -251,7 +283,7 @@ fn save_selected_file(mut state: AppState) {
         let name = file.name;
         // Small delay so WKWebView finishes processing the keydown event
         // before the native panel takes focus (otherwise dialog flashes).
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        crate::platform::sleep(std::time::Duration::from_millis(80)).await;
         let default_dir = dirs::download_dir().unwrap_or_default();
         let handle = rfd::AsyncFileDialog::new()
             .set_file_name(&name)

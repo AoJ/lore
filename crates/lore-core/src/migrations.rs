@@ -24,8 +24,10 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
 /// The schema version this build of lore knows how to use. Bump by 1 with
-/// every new migration added to [`MIGRATIONS`].
-pub const EXPECTED_VERSION: u32 = 7;
+/// every new migration added to [`MIGRATIONS`]. The value lives at the
+/// crate root so the WASM client (no `sqlite` feature → no `migrations`
+/// module) can still compare against it; this is just a re-export.
+pub const EXPECTED_VERSION: u32 = crate::EXPECTED_DB_SCHEMA_VERSION;
 
 enum Step {
     Sql(&'static str),

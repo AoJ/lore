@@ -188,14 +188,14 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
                         .collect();
                     let json = format!("{{{}}}", json_entries.join(","));
                     // Delay to let Milkdown render links first
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    crate::platform::sleep(std::time::Duration::from_millis(500)).await;
                     let js = format!(
                         "window.loreEditor && window.loreEditor.updateUrlStatuses({});",
                         json
                     );
                     document::eval(&js);
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                crate::platform::sleep(std::time::Duration::from_secs(3)).await;
             }
         });
     }

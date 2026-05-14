@@ -7,10 +7,13 @@
 //!      (e.g. `PageDetailView`).
 
 use anyhow::Result;
-use std::path::PathBuf;
 
-/// Resolve database path from environment or system default.
-pub fn db_path() -> PathBuf {
+/// Resolve database path from environment or system default. Desktop-only —
+/// the web build talks to a remote `lore-server` and never opens a DB itself.
+#[cfg(feature = "desktop")]
+pub fn db_path() -> std::path::PathBuf {
+    use std::path::PathBuf;
+
     if let Ok(p) = std::env::var("LORE_DB") {
         return PathBuf::from(p);
     }
@@ -145,6 +148,10 @@ pub fn mime_from_extension(name: &str) -> String {
     .to_string()
 }
 
+/// Open `url` in the host OS's default browser. Desktop-only — on web
+/// builds we use a normal `<a href target="_blank">` anchor instead (the
+/// browser already owns navigation), so this function isn't compiled.
+#[cfg(feature = "desktop")]
 pub fn open_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     {

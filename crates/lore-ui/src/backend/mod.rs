@@ -26,9 +26,19 @@ use lore_core::error::BackendError;
 /// or `HttpBackend` (W3, parses the server's JSON error body).
 pub type Result<T> = std::result::Result<T, BackendError>;
 
+/// Native SQLite-backed implementation. Compiled only when the crate's
+/// `desktop` feature is on — `rusqlite` doesn't run in browser WASM.
+#[cfg(feature = "desktop")]
 pub mod local;
-
+#[cfg(feature = "desktop")]
 pub use local::LocalBackend;
+
+/// HTTP client implementation talking to `lore-server`. Compiled only
+/// when the crate's `web` feature is on — uses `gloo-net` (wasm32-only).
+#[cfg(feature = "web")]
+pub mod http;
+#[cfg(feature = "web")]
+pub use http::HttpBackend;
 
 /// Process-wide backend handle. Set once at startup (`init`) and read by
 /// every `DataStore` mutation. Living as a global keeps `DataStore` `Copy`

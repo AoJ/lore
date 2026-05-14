@@ -79,12 +79,27 @@ pub fn ContentPage(id: i64) -> Element {
             }
             div { class: "page-actions",
                 if p.has_snapshot {
-                    button { class: "btn",
-                        onclick: {
+                    // Desktop spawns the OS browser; web users are already
+                    // in a browser, so we render a plain anchor instead.
+                    {
+                        #[cfg(feature = "desktop")]
+                        {
                             let url = p.url.clone();
-                            move |_| data::open_in_browser(&url)
-                        },
-                        {texts::BTN_OPEN_BROWSER}
+                            rsx! {
+                                button { class: "btn",
+                                    onclick: move |_| data::open_in_browser(&url),
+                                    {texts::BTN_OPEN_BROWSER}
+                                }
+                            }
+                        }
+                        #[cfg(not(feature = "desktop"))]
+                        {
+                            rsx! {
+                                a { class: "btn", href: "{p.url}", target: "_blank",
+                                    {texts::BTN_OPEN_BROWSER}
+                                }
+                            }
+                        }
                     }
                 }
                 if p.status == "failed" || p.status == "queued" {
