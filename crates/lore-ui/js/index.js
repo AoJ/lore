@@ -17,6 +17,7 @@ import {
   defaultValueCtx,
   editorViewCtx,
   editorViewOptionsCtx,
+  parserCtx,
   serializerCtx,
 } from '@milkdown/core';
 import { commonmark } from '@milkdown/preset-commonmark';
@@ -181,9 +182,14 @@ function buildLinkMarkView(mark, _view, _inline) {
   badge.textContent = fileExt(mark.attrs.title || '');
   dom.appendChild(badge);
 
-  // Name slot — this is the contentDOM, ProseMirror manages its text.
+  // Name slot — this is the contentDOM, ProseMirror still tracks the
+  // mark's text so save/load roundtrips work, but `contentEditable=false`
+  // keeps the block read-only: no cursor inside, no rename-on-type, no
+  // Enter splitting the layout into two rows. The whole block is removed
+  // via the × button (or by selecting around it in the surrounding text).
   const nameWrap = document.createElement('span');
   nameWrap.className = 'file-attachment-name';
+  nameWrap.contentEditable = 'false';
   dom.appendChild(nameWrap);
 
   // Metadata (date · size · hash) — populated via setAttachmentMeta.
@@ -201,7 +207,9 @@ function buildLinkMarkView(mark, _view, _inline) {
   close.textContent = '×';
   dom.appendChild(close);
 
-  // Click routing: × → delete, name → text edit (default), elsewhere → download.
+  // Click routing: × → delete; anywhere else (badge / name / meta /
+  // outer padding) → trigger download. The name is `contentEditable=false`
+  // so a click there can't place the cursor anyway.
   dom.addEventListener('click', (e) => {
     if (close.contains(e.target)) {
       e.preventDefault();
@@ -209,11 +217,6 @@ function buildLinkMarkView(mark, _view, _inline) {
       removeAttachmentLinkAtNameWrap(nameWrap, href);
       return;
     }
-    if (nameWrap.contains(e.target)) {
-      // Let ProseMirror handle text selection / cursor placement inside the name.
-      return;
-    }
-    // Click on badge / meta / outer padding → trigger download dialog.
     e.preventDefault();
     e.stopPropagation();
     bridgePush('att-download-bridge', id);
@@ -327,6 +330,52 @@ window.loreEditor = {
     return md;
   },
 
+  // Replace the document content with `newMd`, but only as a single
+  // ProseMirror `Replace` step that covers the *difference* (common
+  // prefix/suffix on plain text are skipped). The transaction's Mapping
+  // then carries the current selection through automatically — cursor
+  // before the change stays put, cursor after shifts by `Δlength`,
+  // cursor inside the changed region clamps to its start.
+  //
+  // Plain-text granularity, so mark/format changes outside the diff
+  // window can shuffle (acceptable for the typing scenario this is built
+  // for). For multi-region edits the single Replace covers everything
+  // between the outermost differences — cursor preservation still works,
+  // just at coarser resolution.
+  smartReplace(newMd) {
+    if (!editor) return;
+    editor.action(ctx => {
+      const view = ctx.get(editorViewCtx);
+      const parser = ctx.get(parserCtx);
+      const newDoc = parser(newMd);
+      if (!newDoc) return;
+
+      const oldDoc = view.state.doc;
+      const oldT = oldDoc.textContent;
+      const newT = newDoc.textContent;
+
+      let p = 0;
+      const minLen = Math.min(oldT.length, newT.length);
+      while (p < minLen && oldT[p] === newT[p]) p++;
+
+      let s = 0;
+      while (s < oldT.length - p && s < newT.length - p
+             && oldT[oldT.length - 1 - s] === newT[newT.length - 1 - s]) s++;
+
+      if (p === oldT.length && oldT.length === newT.length) {
+        return; // identical plain text
+      }
+
+      const fromPos = textPosToDocPos(oldDoc, p);
+      const toPos = textPosToDocPos(oldDoc, oldT.length - s);
+      const sliceFrom = textPosToDocPos(newDoc, p);
+      const sliceTo = textPosToDocPos(newDoc, newT.length - s);
+      const slice = newDoc.slice(sliceFrom, sliceTo);
+
+      view.dispatch(view.state.tr.replace(fromPos, toPos, slice));
+    });
+  },
+
   insertImage(name, url) {
     if (!editor) return;
     editor.action(ctx => {
@@ -401,3 +450,36 @@ window.loreEditor = {
     refreshAllAttachmentMarkViews();
   },
 };
+
+// Walk text nodes in `doc` until we've accumulated `textOffset` characters
+// of plain content. Returns the PM doc position at exactly that point
+// (inside the appropriate text node). Anchors at the first text node when
+// `textOffset <= 0` and at `doc.content.size` past the last char. Matches
+// the semantics of `Node.textContent` (no inter-block separators), so
+// callers diffing on `textContent` and feeding the offsets here line up.
+function textPosToDocPos(doc, textOffset) {
+  if (textOffset <= 0) {
+    let result = -1;
+    doc.descendants((node, pos) => {
+      if (result >= 0) return false;
+      if (node.isText) { result = pos; return false; }
+      return true;
+    });
+    return result === -1 ? 0 : result;
+  }
+  let count = 0;
+  let result = -1;
+  doc.descendants((node, pos) => {
+    if (result >= 0) return false;
+    if (node.isText) {
+      const textLen = node.text.length;
+      if (count + textLen >= textOffset) {
+        result = pos + (textOffset - count);
+        return false;
+      }
+      count += textLen;
+    }
+    return true;
+  });
+  return result === -1 ? doc.content.size : result;
+}

@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::post;
+use axum::routing::{get, post};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
@@ -145,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
         // FTS5 search
         .route("/search_pages_brief", post(handlers::search_pages_brief))
         .route("/search_notes", post(handlers::search_notes))
+        // Raw blob downloads (browser-native: anchor + Content-Disposition).
+        // GET, not POST — the response is the bytes, not JSON.
+        .route("/files/{id}/raw", get(handlers::file_raw))
+        .route("/attachments/{id}/raw", get(handlers::attachment_raw))
         .fallback(handlers::route_not_found);
 
     let app = Router::new()

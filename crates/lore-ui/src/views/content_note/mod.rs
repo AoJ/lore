@@ -37,9 +37,25 @@ pub fn ContentNote(id: i64) -> Element {
 
     use_future(move || async move {
         let b = backend::current();
-        note_data.set(Some(b.get_note(id).await.ok()));
+        let n = b.get_note(id).await.ok();
+        // Register this note as "open" so the polling loop's
+        // external-edit detector knows to push `smartReplace` calls
+        // here when the server's `updated_at` advances past what we
+        // loaded. Cleared by the `use_drop` below on unmount.
+        let mut store = store;
+        store.open_note_id.set(Some(id));
+        store
+            .open_note_updated_at
+            .set(n.as_ref().map(|nd| nd.updated_at.clone()));
+        note_data.set(Some(n));
         let sid = *state.space_id.read();
         folders.set(b.list_folders(sid).await.unwrap_or_default());
+    });
+
+    use_drop(move || {
+        let mut store = store;
+        store.open_note_id.set(None);
+        store.open_note_updated_at.set(None);
     });
 
     let initial_content = note_data

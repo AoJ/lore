@@ -4,6 +4,8 @@
 
 use dioxus::prelude::*;
 
+#[cfg(feature = "desktop")]
+use crate::backend;
 use crate::data;
 use crate::state::AppState;
 use crate::store::DataStore;
@@ -59,6 +61,51 @@ pub fn RemovedAttachments(id: i64) -> Element {
                                     span { class: "file-hash", "{short_hash}" }
                                 }
                                 div { class: "attachment-actions",
+                                    // Download keeps the soft-deleted bytes
+                                    // reachable without going through Restore
+                                    // first (parallels the active-attachment
+                                    // click in the editor + the Save button
+                                    // on the standalone file view).
+                                    {
+                                        #[cfg(feature = "desktop")]
+                                        {
+                                            let mut state = state;
+                                            rsx! {
+                                                button { class: "btn-sm",
+                                                    onclick: move |_| {
+                                                        spawn(async move {
+                                                            let b = backend::current();
+                                                            let Ok(row) = b.get_attachment(aid).await else { return };
+                                                            let Ok((_, bytes)) = b.get_attachment_data(aid).await else { return };
+                                                            let default_dir = dirs::download_dir().unwrap_or_default();
+                                                            let handle = rfd::AsyncFileDialog::new()
+                                                                .set_file_name(&row.name)
+                                                                .set_directory(&default_dir)
+                                                                .save_file()
+                                                                .await;
+                                                            if let Some(h) = handle
+                                                                && h.write(&bytes).await.is_ok()
+                                                            {
+                                                                state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
+                                                            }
+                                                        });
+                                                    },
+                                                    {texts::BTN_SAVE_TO_DOWNLOADS}
+                                                }
+                                            }
+                                        }
+                                        #[cfg(not(feature = "desktop"))]
+                                        {
+                                            rsx! {
+                                                a {
+                                                    class: "btn-sm",
+                                                    href: "/api/attachments/{aid}/raw",
+                                                    download: "{aname}",
+                                                    {texts::BTN_SAVE_TO_DOWNLOADS}
+                                                }
+                                            }
+                                        }
+                                    }
                                     button { class: "btn-sm",
                                         onclick: move |_| {
                                             let mut store = store;

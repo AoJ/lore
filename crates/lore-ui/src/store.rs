@@ -43,6 +43,22 @@ pub struct DataStore {
     /// Cached status for those URLs — refreshed by polling
     pub url_statuses: Signal<HashMap<String, String>>,
 
+    // ---- Open-note refresh tracking ----
+    /// `Some(id)` while a note is open in the editor. Used by `poll()` to
+    /// detect external edits and push a `smartReplace` into the editor.
+    pub open_note_id: Signal<Option<i64>>,
+    /// Server-side `updated_at` we last loaded into the editor. Compared
+    /// against fresh `get_note()` on every poll tick; mismatch triggers a
+    /// `smartReplace` and we re-record the new value here.
+    pub open_note_updated_at: Signal<Option<String>>,
+    /// Number of in-flight `save_note` calls. The poll-tick external-edit
+    /// detector skips when this is non-zero — otherwise a poll firing in
+    /// the window between a save's server `update_note` completing and
+    /// its follow-up `get_note` could see the *new* `updated_at`, treat
+    /// our own write as an external edit, and push a stale `smartReplace`
+    /// that wipes out keystrokes the user typed during the save.
+    pub saves_in_flight: Signal<u32>,
+
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
 }
@@ -66,21 +82,26 @@ impl DataStore {
             timeline_day_pages: Signal::new(Vec::new()),
             current_note_urls: Signal::new(Vec::new()),
             url_statuses: Signal::new(HashMap::new()),
+            open_note_id: Signal::new(None),
+            open_note_updated_at: Signal::new(None),
+            saves_in_flight: Signal::new(0),
             last_poll_rev: Signal::new(0),
         }
     }
 
     /// Called from polling loop — checks DB revision and schema version.
     pub async fn poll(&mut self, state: &AppState) {
-        // Schema version check first: if the DB was migrated by another
-        // process (CLI `lore migrate`, a newer build, …) we set a flag for
-        // the UI banner. We don't try to recover — the live connections were
-        // opened against the old schema and queries would start failing on
-        // any new column. User has to restart.
-        let on_disk = backend::current().db_schema_version().await.unwrap_or(0);
-        let known = lore_core::EXPECTED_DB_SCHEMA_VERSION;
-        if on_disk != known && !*self.schema_outdated.read() {
-            self.schema_outdated.set(true);
+        // Schema version check: only flag as outdated when the on-disk DB
+        // is *newer* than this build knows about. The previous version
+        // tripped on any inequality and on transient `Err`s
+        // (`unwrap_or(0)` → `0 != 7` → false positive that stuck forever
+        // because the flag never clears). Older schemas just auto-migrate
+        // on the next bootstrap, so they're not a banner-worthy event.
+        if let Ok(on_disk) = backend::current().db_schema_version().await {
+            let known = lore_core::EXPECTED_DB_SCHEMA_VERSION;
+            if on_disk > known && !*self.schema_outdated.read() {
+                self.schema_outdated.set(true);
+            }
         }
 
         let new_rev = backend::current().get_revision().await.unwrap_or(0);
@@ -88,6 +109,37 @@ impl DataStore {
             self.last_poll_rev.set(new_rev);
             self.revision.set(new_rev);
             self.refresh(state).await;
+        }
+
+        // Open-note external-edit refresh. If a note is open and the
+        // server's `updated_at` advanced past what we last loaded, push
+        // the new content into the editor via `smartReplace` — PM's
+        // Mapping carries the cursor over the diff (see `js/index.js`).
+        // `save_note` updates `open_note_updated_at` after every write,
+        // so our own saves don't trigger this path. Skip while any save
+        // is in flight: the server's new `updated_at` would otherwise
+        // look like an external edit until our own `get_note` echo lands.
+        if let Some(id) = *self.open_note_id.read()
+            && *self.saves_in_flight.read() == 0
+            && let Ok(latest) = backend::current().get_note(id).await
+        {
+            let known = self.open_note_updated_at.read().clone();
+            if known.as_deref() != Some(latest.updated_at.as_str()) {
+                let md = if latest.title.is_empty() && latest.body.is_empty() {
+                    String::new()
+                } else if latest.body.is_empty() {
+                    latest.title.clone()
+                } else {
+                    format!("{}\n{}", latest.title, latest.body)
+                };
+                let md_json = serde_json::to_string(&md).unwrap_or_else(|_| "\"\"".to_string());
+                let js = format!(
+                    "window.loreEditor && window.loreEditor.smartReplace({});",
+                    md_json
+                );
+                dioxus::document::eval(&js);
+                self.open_note_updated_at.set(Some(latest.updated_at));
+            }
         }
     }
 
@@ -187,9 +239,35 @@ impl DataStore {
         title: &str,
         body: &str,
     ) -> Result<(), BackendError> {
-        backend::current().update_note(note_id, title, body).await?;
-        // Don't refresh list on every keystroke — polling will catch it
-        Ok(())
+        let b = backend::current();
+        // Increment-on-entry / decrement-on-exit so `poll()` skips the
+        // external-edit detector for the full duration of the round-trip
+        // (including the follow-up `get_note`). Without this, a poll
+        // firing between `update_note` and `get_note` would see the new
+        // `updated_at` while `open_note_updated_at` still holds the old
+        // value and would push a stale `smartReplace`.
+        let mut counter = self.saves_in_flight;
+        let entry_count = *counter.read();
+        counter.set(entry_count + 1);
+
+        let outcome = async {
+            b.update_note(note_id, title, body).await?;
+            // If this is the open note, refresh our cached `updated_at`
+            // so the next poll's comparison is against the value our
+            // own write produced.
+            if *self.open_note_id.read() == Some(note_id)
+                && let Ok(n) = b.get_note(note_id).await
+            {
+                self.open_note_updated_at.set(Some(n.updated_at));
+            }
+            // Don't refresh list on every keystroke — polling will catch it
+            Ok::<(), BackendError>(())
+        }
+        .await;
+
+        let exit_count = *counter.read();
+        counter.set(exit_count.saturating_sub(1));
+        outcome
     }
 
     pub async fn create_note(

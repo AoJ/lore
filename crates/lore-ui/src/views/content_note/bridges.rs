@@ -105,8 +105,21 @@ fn AttachmentDownloadBridge(id: i64) -> Element {
                         state.show_toast(texts::TOAST_FILE_SAVED.to_string(), None);
                     }
                 });
+                // Web: hand off to the browser. Create an invisible
+                // `<a href=".../raw" download>` and click it. The server
+                // emits `Content-Disposition: attachment` so the browser
+                // saves rather than navigating away.
                 #[cfg(not(feature = "desktop"))]
-                let _ = att_id;
+                {
+                    let js = format!(
+                        "(function() {{ var a = document.createElement('a'); \
+                          a.href = '/api/attachments/{}/raw'; a.download = ''; \
+                          document.body.appendChild(a); a.click(); \
+                          document.body.removeChild(a); }})();",
+                        att_id
+                    );
+                    document::eval(&js);
+                }
             },
         }
     }

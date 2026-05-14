@@ -112,9 +112,11 @@ pub fn ContentFile(id: i64) -> Element {
                 }
             }
 
-            // Action buttons. Save-to-Downloads uses the native file
-            // dialog and only renders on desktop; the web build relies
-            // on the browser's built-in download UI (TBD via anchor tag).
+            // Action buttons. Desktop uses the native file dialog (rfd);
+            // web hands off to the browser's built-in download via a
+            // `<a download>` anchor pointing at the server's
+            // `GET /api/files/:id/raw` endpoint (octet-stream with
+            // `Content-Disposition: attachment`).
             div { class: "content-file-actions",
                 {
                     #[cfg(feature = "desktop")]
@@ -144,7 +146,16 @@ pub fn ContentFile(id: i64) -> Element {
                         }
                     }
                     #[cfg(not(feature = "desktop"))]
-                    { rsx! {} }
+                    {
+                        rsx! {
+                            a {
+                                class: "btn-sm",
+                                href: "/api/files/{id}/raw",
+                                download: "{file.name}",
+                                {texts::BTN_SAVE_TO_DOWNLOADS}
+                            }
+                        }
+                    }
                 }
                 button {
                     class: "btn-sm btn-danger",

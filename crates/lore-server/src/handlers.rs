@@ -22,8 +22,9 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{FromRequest, Request, State};
+use axum::extract::{FromRequest, Path, Request, State};
 use axum::http::StatusCode;
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use serde::de::DeserializeOwned;
@@ -817,4 +818,53 @@ pub async fn search_notes(
     search::search_notes(&conn(&s)?, &req.query, req.space_id, req.limit)
         .map(Json)
         .map_err(ApiError::from)
+}
+
+// ---- Raw blob endpoints ----
+//
+// `GET /api/files/:id/raw` and `GET /api/attachments/:id/raw` return the
+// stored bytes with a `Content-Disposition: attachment` header so the
+// browser triggers a download. Web build's "Save" button is just an
+// `<a href="...raw" download>` anchor; the desktop variant still uses
+// `rfd::AsyncFileDialog`. Filenames are echoed back in the header
+// (plain-quoted; non-ASCII is left to the browser's best-effort
+// decoding for the W3 cut — RFC 5987 encoding is a later polish).
+
+pub async fn file_raw(
+    State(s): AppStateExt,
+    Path(file_id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let c = conn(&s)?;
+    let file = db::get_file(&c, file_id).map_err(ApiError::from)?;
+    let (mime, bytes) = db::get_file_data(&c, file_id).map_err(ApiError::from)?;
+    let mime = mime.unwrap_or_else(|| "application/octet-stream".to_string());
+    Ok((
+        [
+            (CONTENT_TYPE, mime),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", file.name),
+            ),
+        ],
+        bytes,
+    ))
+}
+
+pub async fn attachment_raw(
+    State(s): AppStateExt,
+    Path(attachment_id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let c = conn(&s)?;
+    let att = db::get_attachment(&c, attachment_id).map_err(ApiError::from)?;
+    let (mime, bytes) = db::get_attachment_data(&c, attachment_id).map_err(ApiError::from)?;
+    Ok((
+        [
+            (CONTENT_TYPE, mime),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", att.name),
+            ),
+        ],
+        bytes,
+    ))
 }
