@@ -3,3 +3,5 @@ wip/
 db.sqlite
 .sentrux/baseline.json
 .claude/
+mutants.out/
+mutants.out.old/

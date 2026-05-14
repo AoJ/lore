@@ -820,3 +820,893 @@ fn auto_archive_from_text_skips_invalid_urls() {
     let queued = db::auto_archive_from_text(&conn, text, space.id).unwrap();
     assert_eq!(queued, 0);
 }
+
+// ---- ensure_page (worker entry point) ----
+
+#[test]
+fn ensure_page_archive_category_gets_queued_status() {
+    let (_dir, conn) = open_test_db();
+    let id = db::ensure_page(
+        &conn,
+        "https://example.com/x",
+        "example.com/x",
+        None,
+        "example.com",
+        "archive",
+    )
+    .unwrap();
+    let status: String = conn
+        .query_row("SELECT status FROM web_page WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "queued");
+}
+
+#[test]
+fn ensure_page_non_archive_category_gets_skipped_status() {
+    let (_dir, conn) = open_test_db();
+    let id = db::ensure_page(
+        &conn,
+        "https://google.com/search?q=x",
+        "google.com/search?q=x",
+        None,
+        "google.com",
+        "discard",
+    )
+    .unwrap();
+    let status: String = conn
+        .query_row("SELECT status FROM web_page WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "skipped");
+}
+
+#[test]
+fn ensure_page_returns_existing_id_on_duplicate_url() {
+    let (_dir, conn) = open_test_db();
+    let first = db::ensure_page(
+        &conn,
+        "https://example.com/dup",
+        "example.com/dup",
+        None,
+        "example.com",
+        "archive",
+    )
+    .unwrap();
+    let second = db::ensure_page(
+        &conn,
+        "https://example.com/dup",
+        "example.com/dup",
+        None,
+        "example.com",
+        "archive",
+    )
+    .unwrap();
+    assert_eq!(first, second);
+}
+
+// ---- list_pages_filtered: 4-filter composition (param_idx counter) ----
+
+fn insert_test_page(
+    conn: &rusqlite::Connection,
+    space_id: i64,
+    url: &str,
+    domain: &str,
+    category: &str,
+    status: &str,
+) {
+    db::insert_web_page(
+        conn,
+        &db::NewWebPage {
+            url,
+            url_normalized: url,
+            title: None,
+            domain,
+            category,
+            status,
+            source: None,
+            space_id: Some(space_id),
+        },
+    )
+    .unwrap();
+}
+
+fn seed_pages_for_filtering(conn: &rusqlite::Connection, space_id: i64) {
+    // 4 pages that vary on every filter axis, so the test below uniquely
+    // identifies the wanted row via (space, category, status, domain) — any
+    // off-by-one in the parameter index would either miss the match or
+    // return a different row.
+    insert_test_page(
+        conn,
+        space_id,
+        "https://a.example.com/1",
+        "a.example.com",
+        "archive",
+        "queued",
+    );
+    insert_test_page(
+        conn,
+        space_id,
+        "https://a.example.com/2",
+        "a.example.com",
+        "archive",
+        "archived",
+    );
+    insert_test_page(
+        conn,
+        space_id,
+        "https://b.example.com/1",
+        "b.example.com",
+        "discard",
+        "skipped",
+    );
+    insert_test_page(
+        conn,
+        space_id,
+        "https://a.example.com/3",
+        "a.example.com",
+        "discard",
+        "archived",
+    );
+}
+
+#[test]
+fn list_pages_filtered_all_four_filters_combine_correctly() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    seed_pages_for_filtering(&conn, space.id);
+    let rows = lore_core::search::list_pages_filtered(
+        &conn,
+        Some(space.id),
+        Some("archive"),
+        Some("queued"),
+        Some("a.example.com"),
+        100,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].domain, "a.example.com");
+    assert_eq!(rows[0].category, "archive");
+    assert_eq!(rows[0].status, "queued");
+}
+
+#[test]
+fn list_pages_filtered_partial_filters_match_multiple() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    seed_pages_for_filtering(&conn, space.id);
+    // Only category + space → 2 archived rows
+    let rows = lore_core::search::list_pages_filtered(
+        &conn,
+        Some(space.id),
+        Some("archive"),
+        None,
+        None,
+        100,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn list_pages_filtered_no_filters_returns_all_in_space() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    seed_pages_for_filtering(&conn, space.id);
+    let rows = lore_core::search::list_pages_filtered(&conn, Some(space.id), None, None, None, 100)
+        .unwrap();
+    assert_eq!(rows.len(), 4);
+}
+
+// ---- cleanup_orphaned_attachments (counter + negation) ----
+
+fn insert_attachment(conn: &rusqlite::Connection, note_id: i64, name: &str) -> i64 {
+    // Unique payload per attachment so the hash-based dedup doesn't collapse them.
+    let payload = format!("payload-for-{}", name);
+    let (id, _) =
+        db::insert_attachment(conn, note_id, name, "text/plain", payload.as_bytes()).unwrap();
+    id
+}
+
+#[test]
+fn cleanup_orphaned_attachments_drops_unreferenced_only() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "Note", "body", None, space.id).unwrap();
+    let kept = insert_attachment(&conn, note_id, "keep.txt");
+    let drop_a = insert_attachment(&conn, note_id, "drop-a.txt");
+    let drop_b = insert_attachment(&conn, note_id, "drop-b.txt");
+
+    let deleted = db::cleanup_orphaned_attachments(&conn, note_id, &[kept]).unwrap();
+    assert_eq!(
+        deleted, 2,
+        "two of three attachments should be soft-deleted"
+    );
+
+    // `kept` should still be active (deleted_at IS NULL).
+    let kept_state: Option<String> = conn
+        .query_row(
+            "SELECT deleted_at FROM note_attachment WHERE id = ?1",
+            [kept],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(kept_state.is_none());
+
+    // `drop_a` / `drop_b` must be soft-deleted (deleted_at IS NOT NULL).
+    for id in [drop_a, drop_b] {
+        let s: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM note_attachment WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(s.is_some(), "id {} should be soft-deleted", id);
+    }
+}
+
+#[test]
+fn cleanup_orphaned_attachments_returns_zero_when_all_referenced() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "Note", "body", None, space.id).unwrap();
+    let a = insert_attachment(&conn, note_id, "a.txt");
+    let b = insert_attachment(&conn, note_id, "b.txt");
+    let deleted = db::cleanup_orphaned_attachments(&conn, note_id, &[a, b]).unwrap();
+    assert_eq!(deleted, 0);
+}
+
+// ---- cleanup_old_trash (counter for each entity kind) ----
+
+#[test]
+fn cleanup_old_trash_hard_deletes_expired_items_across_kinds() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    // Trashed page, note, file — all dated long ago to be past the retention.
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://a.com/x",
+            url_normalized: "a.com/x",
+            title: None,
+            domain: "a.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+    let note_id = db::insert_note(&conn, "Old Note", "body", None, space.id).unwrap();
+
+    db::trash_page(&conn, page_id).unwrap();
+    db::trash_note(&conn, note_id).unwrap();
+
+    // Back-date the trashed timestamps beyond the retention window.
+    conn.execute(
+        "UPDATE web_page SET trashed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days') WHERE id = ?1",
+        [page_id],
+    ).unwrap();
+    conn.execute(
+        "UPDATE note SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days') WHERE id = ?1",
+        [note_id],
+    ).unwrap();
+
+    let cleaned = db::cleanup_old_trash(&conn, 30).unwrap();
+    assert_eq!(cleaned, 2, "page + note should be hard-deleted");
+
+    // Verify rows actually gone.
+    let page_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM web_page WHERE id = ?1",
+            [page_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let note_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM note WHERE id = ?1", [note_id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(page_count, 0);
+    assert_eq!(note_count, 0);
+}
+
+#[test]
+fn cleanup_old_trash_keeps_fresh_trash() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "Recent Note", "body", None, space.id).unwrap();
+    db::trash_note(&conn, note_id).unwrap();
+    // No back-dating → trashed_at is "now"; retention=30 days → must not delete.
+    let cleaned = db::cleanup_old_trash(&conn, 30).unwrap();
+    assert_eq!(cleaned, 0);
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM note WHERE id = ?1", [note_id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn cleanup_old_trash_hard_deletes_across_all_kinds() {
+    // Extension of `cleanup_old_trash_hard_deletes_expired_items_across_kinds`
+    // — adds file, space, attachment branches so all five `cleaned += 1`
+    // counters get exercised. Each entity is back-dated past retention; the
+    // returned count must equal the total (5).
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://gone.example.com/x",
+            url_normalized: "gone.example.com/x",
+            title: None,
+            domain: "gone.example.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+    let note_id = db::insert_note(&conn, "Old Note", "body", None, space.id).unwrap();
+    let (file_id, _) =
+        db::insert_file(&conn, "doc.txt", Some("text/plain"), b"content", space.id).unwrap();
+    let dead_space = db::insert_space(&conn, "Dead").unwrap();
+    // Attachment: insert under a fresh note, then orphan-cleanup soft-deletes it.
+    let host_note = db::insert_note(&conn, "host", "", None, space.id).unwrap();
+    let att_id = db::insert_attachment(&conn, host_note, "a.txt", "text/plain", b"data")
+        .unwrap()
+        .0;
+    db::cleanup_orphaned_attachments(&conn, host_note, &[]).unwrap();
+
+    db::trash_page(&conn, page_id).unwrap();
+    db::trash_note(&conn, note_id).unwrap();
+    db::trash_file(&conn, file_id).unwrap();
+    db::trash_space(&conn, dead_space).unwrap();
+
+    // Back-date every soft-delete timestamp past retention. The attachment
+    // also needs to be back-dated for the attachment-cleanup branch to fire.
+    for (table, col, id) in [
+        ("web_page", "trashed_at", page_id),
+        ("note", "deleted_at", note_id),
+        ("file", "deleted_at", file_id),
+        ("space", "deleted_at", dead_space),
+        ("note_attachment", "deleted_at", att_id),
+    ] {
+        conn.execute(
+            &format!(
+                "UPDATE {} SET {} = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days') WHERE id = ?1",
+                table, col
+            ),
+            [id],
+        )
+        .unwrap();
+    }
+
+    let cleaned = db::cleanup_old_trash(&conn, 30).unwrap();
+    assert_eq!(
+        cleaned, 5,
+        "page + note + file + space + attachment should each tick the counter"
+    );
+
+    // Spot-check that the attachment hard-delete branch (L181) actually ran:
+    // the row should be gone, not merely soft-deleted.
+    let att_left: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM note_attachment WHERE id = ?1",
+            [att_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(att_left, 0);
+}
+
+// ---- list_trash returns all soft-deleted kinds for a space ----
+
+#[test]
+fn list_trash_returns_all_trashed_kinds() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://t.example/x",
+            url_normalized: "t.example/x",
+            title: Some("Page Title"),
+            domain: "t.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+    let note_id = db::insert_note(&conn, "Note Title", "body", None, space.id).unwrap();
+    let (file_id, _) = db::insert_file(
+        &conn,
+        "doc.pdf",
+        Some("application/pdf"),
+        b"pdfbytes",
+        space.id,
+    )
+    .unwrap();
+
+    db::trash_page(&conn, page_id).unwrap();
+    db::trash_note(&conn, note_id).unwrap();
+    db::trash_file(&conn, file_id).unwrap();
+
+    let items = db::list_trash(&conn, space.id).unwrap();
+    assert_eq!(items.len(), 3, "expected 3 trashed entities in space");
+    // The ids must round-trip; the returned items are the ones we just trashed.
+    let ids: std::collections::HashSet<i64> = items.iter().map(|i| i.id).collect();
+    assert!(ids.contains(&page_id));
+    assert!(ids.contains(&note_id));
+    assert!(ids.contains(&file_id));
+}
+
+// ---- Activity: by_day & for_day ----
+
+#[test]
+fn activity_by_day_counts_today_entries() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    // Two notes + one page, all dated "today" via default timestamps.
+    db::insert_note(&conn, "n1", "", None, space.id).unwrap();
+    db::insert_note(&conn, "n2", "", None, space.id).unwrap();
+    db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://act.example/x",
+            url_normalized: "act.example/x",
+            title: None,
+            domain: "act.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let activity = db::activity_by_day(&conn, space.id, 7).unwrap();
+    assert!(!activity.is_empty(), "today should show up in 7-day window");
+
+    let today = activity
+        .iter()
+        .find(|(day, _)| {
+            // The DB groups by `date(updated_at)`, so compare against today's
+            // YYYY-MM-DD computed the same way.
+            let today_str: String = conn
+                .query_row("SELECT date('now')", [], |r| r.get(0))
+                .unwrap();
+            *day == today_str
+        })
+        .expect("today must appear in the activity rows");
+    // 2 notes + 1 page = 3 entries on today's bucket.
+    assert_eq!(today.1, 3);
+}
+
+#[test]
+fn activity_for_day_returns_seeded_notes_and_pages() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let n = db::insert_note(&conn, "today note", "body", None, space.id).unwrap();
+    let p = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://today.example/x",
+            url_normalized: "today.example/x",
+            title: Some("Today Page"),
+            domain: "today.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let today: String = conn
+        .query_row("SELECT date('now')", [], |r| r.get(0))
+        .unwrap();
+    let (notes, pages) = db::activity_for_day(&conn, space.id, &today).unwrap();
+    assert!(notes.iter().any(|note| note.id == n));
+    assert!(pages.iter().any(|(id, _)| *id == p));
+}
+
+// ---- Attachments: data round-trip, list/remove/restore, full delete ----
+
+#[test]
+fn get_attachment_data_returns_what_was_inserted() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "n", "", None, space.id).unwrap();
+    let payload = b"specific-attachment-payload";
+    let (id, _) = db::insert_attachment(&conn, note_id, "f.txt", "text/markdown", payload).unwrap();
+    let (mime, data) = db::get_attachment_data(&conn, id).unwrap();
+    assert_eq!(mime, "text/markdown");
+    assert_eq!(data, payload);
+}
+
+#[test]
+fn list_attachments_returns_all_active_for_note() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "n", "", None, space.id).unwrap();
+    db::insert_attachment(&conn, note_id, "a.txt", "text/plain", b"alpha").unwrap();
+    db::insert_attachment(&conn, note_id, "b.txt", "text/plain", b"beta").unwrap();
+    let items = db::list_attachments(&conn, note_id).unwrap();
+    let names: Vec<&str> = items.iter().map(|a| a.name.as_str()).collect();
+    assert!(names.contains(&"a.txt"));
+    assert!(names.contains(&"b.txt"));
+    assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn list_removed_attachments_returns_only_soft_deleted() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "n", "", None, space.id).unwrap();
+    let kept = db::insert_attachment(&conn, note_id, "keep.txt", "text/plain", b"k")
+        .unwrap()
+        .0;
+    let dropped = db::insert_attachment(&conn, note_id, "drop.txt", "text/plain", b"d")
+        .unwrap()
+        .0;
+    // Orphan the dropped one (used_ids only includes `kept`).
+    db::cleanup_orphaned_attachments(&conn, note_id, &[kept]).unwrap();
+
+    let removed = db::list_removed_attachments(&conn, note_id).unwrap();
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].id, dropped);
+    assert_eq!(removed[0].name, "drop.txt");
+}
+
+#[test]
+fn restore_attachment_clears_deleted_at() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "n", "", None, space.id).unwrap();
+    let id = db::insert_attachment(&conn, note_id, "a.txt", "text/plain", b"x")
+        .unwrap()
+        .0;
+    // Soft-delete via orphan cleanup.
+    db::cleanup_orphaned_attachments(&conn, note_id, &[]).unwrap();
+    let pre: Option<String> = conn
+        .query_row(
+            "SELECT deleted_at FROM note_attachment WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(pre.is_some(), "must be soft-deleted before restore");
+
+    db::restore_attachment(&conn, id).unwrap();
+    let post: Option<String> = conn
+        .query_row(
+            "SELECT deleted_at FROM note_attachment WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(post.is_none(), "deleted_at must be NULL after restore");
+}
+
+#[test]
+fn delete_attachments_for_note_removes_all_rows() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let note_id = db::insert_note(&conn, "n", "", None, space.id).unwrap();
+    db::insert_attachment(&conn, note_id, "a.txt", "text/plain", b"a").unwrap();
+    db::insert_attachment(&conn, note_id, "b.txt", "text/plain", b"b").unwrap();
+    assert_eq!(db::list_attachments(&conn, note_id).unwrap().len(), 2);
+
+    db::delete_attachments_for_note(&conn, note_id).unwrap();
+
+    // Both active and soft-deleted should be hard-removed.
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM note_attachment WHERE note_id = ?1",
+            [note_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+// ---- Files: CRUD round-trip ----
+
+#[test]
+fn list_files_returns_seeded_file_with_correct_metadata() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let payload = b"hello world";
+    let (id, _) =
+        db::insert_file(&conn, "hello.txt", Some("text/plain"), payload, space.id).unwrap();
+
+    let rows = db::list_files(&conn, space.id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert_eq!(rows[0].name, "hello.txt");
+    assert_eq!(rows[0].mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(rows[0].size, payload.len() as i64);
+}
+
+#[test]
+fn get_file_data_returns_bytes_and_mime() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let payload = b"binary-blob-payload";
+    let (id, _) = db::insert_file(
+        &conn,
+        "blob.bin",
+        Some("application/octet-stream"),
+        payload,
+        space.id,
+    )
+    .unwrap();
+    let (mime, data) = db::get_file_data(&conn, id).unwrap();
+    assert_eq!(mime.as_deref(), Some("application/octet-stream"));
+    assert_eq!(data, payload);
+}
+
+#[test]
+fn trash_file_moves_it_out_of_active_list() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let (id, _) = db::insert_file(&conn, "f.txt", Some("text/plain"), b"x", space.id).unwrap();
+    assert_eq!(db::list_files(&conn, space.id).unwrap().len(), 1);
+
+    db::trash_file(&conn, id).unwrap();
+    assert!(db::list_files(&conn, space.id).unwrap().is_empty());
+    let trashed = db::list_trashed_files(&conn, space.id).unwrap();
+    assert_eq!(trashed.len(), 1);
+    assert_eq!(trashed[0].id, id);
+}
+
+#[test]
+fn restore_file_puts_it_back_in_active_list() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let (id, _) = db::insert_file(&conn, "f.txt", Some("text/plain"), b"x", space.id).unwrap();
+    db::trash_file(&conn, id).unwrap();
+    assert!(db::list_files(&conn, space.id).unwrap().is_empty());
+
+    db::restore_file(&conn, id).unwrap();
+    let active = db::list_files(&conn, space.id).unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id, id);
+}
+
+#[test]
+fn delete_file_permanent_removes_row() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let (id, _) = db::insert_file(&conn, "f.txt", Some("text/plain"), b"x", space.id).unwrap();
+
+    db::delete_file_permanent(&conn, id).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM file WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+// ---- find_notes_referencing_url ----
+
+#[test]
+fn find_notes_referencing_url_returns_matching_notes() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let target = "https://example.org/doc";
+    let matching = db::insert_note(
+        &conn,
+        "with link",
+        &format!("see [doc]({}) for more", target),
+        None,
+        space.id,
+    )
+    .unwrap();
+    db::insert_note(&conn, "unrelated", "no link here", None, space.id).unwrap();
+
+    let hits = db::find_notes_referencing_url(&conn, target, space.id).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].0, matching);
+    assert_eq!(hits[0].1, "with link");
+}
+
+#[test]
+fn find_notes_referencing_url_returns_empty_for_unused_url() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    db::insert_note(&conn, "n", "plain body", None, space.id).unwrap();
+    let hits = db::find_notes_referencing_url(&conn, "https://nope.example", space.id).unwrap();
+    assert!(hits.is_empty());
+}
+
+// ---- touch_space ----
+
+#[test]
+fn touch_space_advances_last_used_timestamp() {
+    let (_dir, conn) = open_test_db();
+    let id = db::insert_space(&conn, "Tmp").unwrap();
+    // Back-date the space so the timestamp comparison is unambiguous (millisecond
+    // resolution at SQLite's strftime won't always advance between two adjacent
+    // statements).
+    conn.execute(
+        "UPDATE space SET last_used = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = ?1",
+        [id],
+    )
+    .unwrap();
+    let before: String = conn
+        .query_row("SELECT last_used FROM space WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+
+    db::touch_space(&conn, id).unwrap();
+
+    let after: String = conn
+        .query_row("SELECT last_used FROM space WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(
+        after > before,
+        "touch_space must advance last_used: {} > {}",
+        after,
+        before
+    );
+}
+
+// ---- insert_snapshot returns a real new id, not a fixed one ----
+
+#[test]
+fn insert_snapshot_returns_distinct_ids_and_round_trips() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://snap.example/x",
+            url_normalized: "snap.example/x",
+            title: None,
+            domain: "snap.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let s1 = db::insert_snapshot(&conn, page_id, "<html>v1</html>", "v1 text", None).unwrap();
+    let s2 = db::insert_snapshot(&conn, page_id, "<html>v2</html>", "v2 text", None).unwrap();
+    assert_ne!(s1, s2, "two snapshots must get distinct row ids");
+
+    // The returned id must point to the actually-inserted row.
+    let plain: String = conn
+        .query_row(
+            "SELECT plain_text FROM web_page_snapshot WHERE id = ?1",
+            [s1],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(plain, "v1 text");
+}
+
+// ---- check_urls_status: map mirrors the DB rows ----
+
+#[test]
+fn check_urls_status_returns_status_per_known_url() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let url_a = "https://status.example/a";
+    let url_b = "https://status.example/b";
+    let url_unknown = "https://nothing.example/x";
+
+    db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: url_a,
+            url_normalized: url_a,
+            title: None,
+            domain: "status.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+    db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: url_b,
+            url_normalized: url_b,
+            title: None,
+            domain: "status.example",
+            category: "archive",
+            status: "archived",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let urls = vec![
+        url_a.to_string(),
+        url_b.to_string(),
+        url_unknown.to_string(),
+    ];
+    let map = db::check_urls_status(&conn, &urls).unwrap();
+    assert_eq!(map.len(), 2, "unknown url must not appear in result");
+    assert_eq!(map.get(url_a).map(|s| s.as_str()), Some("queued"));
+    assert_eq!(map.get(url_b).map(|s| s.as_str()), Some("archived"));
+}
+
+// ---- Full-text search returns hits for inserted content ----
+
+#[test]
+fn search_web_pages_finds_inserted_page_by_snippet_term() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page_id = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://fts.example/article",
+            url_normalized: "fts.example/article",
+            title: Some("Indexable Title"),
+            domain: "fts.example",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+    db::insert_snapshot(
+        &conn,
+        page_id,
+        "<html>doesn't matter</html>",
+        "rare-keyword-zarquon body text",
+        None,
+    )
+    .unwrap();
+
+    let hits = lore_core::search::search_web_pages(&conn, "zarquon", space.id, 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, page_id);
+
+    let brief = lore_core::search::search_web_pages_brief(&conn, "zarquon", space.id, 10).unwrap();
+    assert_eq!(brief.len(), 1);
+    assert_eq!(brief[0].id, page_id);
+}
+
+#[test]
+fn search_notes_finds_inserted_note_by_body_term() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let id = db::insert_note(
+        &conn,
+        "Notes Title",
+        "contains zarquon term",
+        None,
+        space.id,
+    )
+    .unwrap();
+    let hits = lore_core::search::search_notes(&conn, "zarquon", space.id, 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, id);
+}

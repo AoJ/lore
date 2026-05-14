@@ -196,3 +196,68 @@ pub fn prepare_query(query: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each bypass branch must be exercised independently so the OR chain at
+    // lines 184..=189 can't survive being flipped to AND.
+
+    #[test]
+    fn prepare_simple_word_gets_auto_prefix() {
+        assert_eq!(prepare_query("rust"), "rust*");
+    }
+
+    #[test]
+    fn prepare_multi_word_each_gets_prefix() {
+        assert_eq!(prepare_query("rust async"), "rust* async*");
+    }
+
+    #[test]
+    fn prepare_trims_surrounding_whitespace() {
+        assert_eq!(prepare_query("  rust  "), "rust*");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_explicit_wildcard() {
+        // contains('*') branch
+        assert_eq!(prepare_query("ru*"), "ru*");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_quoted_phrase() {
+        // contains('"') branch
+        assert_eq!(prepare_query("\"exact phrase\""), "\"exact phrase\"");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_boolean_and() {
+        // contains(" AND ") branch
+        assert_eq!(prepare_query("foo AND bar"), "foo AND bar");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_boolean_or() {
+        // contains(" OR ") branch
+        assert_eq!(prepare_query("foo OR bar"), "foo OR bar");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_boolean_not() {
+        // contains(" NOT ") branch
+        assert_eq!(prepare_query("foo NOT bar"), "foo NOT bar");
+    }
+
+    #[test]
+    fn prepare_passthrough_with_column_filter() {
+        // contains(':') branch
+        assert_eq!(prepare_query("title:rust"), "title:rust");
+    }
+
+    #[test]
+    fn prepare_empty_returns_empty() {
+        assert_eq!(prepare_query(""), "");
+        assert_eq!(prepare_query("   "), "");
+    }
+}

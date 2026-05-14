@@ -125,6 +125,7 @@ make test               # run cargo test --workspace
 make check              # lint + check-arch + audit + tests (pre-PR)
 make check-arch         # sentrux check (.sentrux/rules.toml)
 make audit              # cargo-deny: licenses, advisories, duplicates
+make mutants            # cargo-mutants on lore-core (slow, run on demand)
 make desktop            # run Dioxus desktop app
 make serve              # run web server (axum)
 make worker             # run archive worker
@@ -137,16 +138,31 @@ Database defaults to `./db.sqlite`; override with `DB=` or `LORE_DB=`.
 
 ### Dependency policy (`deny.toml`)
 
-- License allow-list (MIT, Apache-2.0, BSD-*, MPL-2.0, ISC, CC0, Unicode-3.0,
-  Zlib, BSL-1.0, CDLA-Permissive-2.0). Anything else fails — keeps GPL/AGPL/LGPL
-  out of the tree.
+- Project itself is MIT (`LICENSE` at repo root, mirrored as `license = "MIT"`
+  in every workspace `Cargo.toml`).
+- License allow-list for dependencies (MIT, Apache-2.0, BSD-*, MPL-2.0, ISC,
+  CC0, Unicode-3.0, Zlib, BSL-1.0, CDLA-Permissive-2.0). Anything else fails —
+  keeps GPL/AGPL/LGPL out of the tree.
 - RustSec advisories are checked; `ignore` lists `unmaintained` IDs from the
   Linux GTK3 stack (Dioxus transitive) and chromiumoxide. Revisit when Dioxus
   moves off GTK3.
-- Workspace crates are marked `publish = false` so cargo-deny skips them for
-  license/source checks.
 - Duplicate versions and wildcard deps are `warn` only (wide Dioxus+axum+
   chromiumoxide tree → 29 duplicates currently, expected).
+
+### Mutation testing (`.cargo/mutants.toml`)
+
+`make mutants` runs `cargo mutants` against `lore-core` and reports any
+mutation of the source that the test suite failed to catch. Last run: **0
+missed** out of 234 viable mutants (37 unviable / equivalent), so every
+boolean/comparison/counter/return-value mutation in `lore-core` is observable
+from at least one test. Reruns are slow (≈30 min on M-series) and not in
+`make check` — invoke when adding new pure logic in `lore-core`.
+
+`version.rs` (env-injected version string + git SHA) is gated with
+`#[cfg_attr(test, mutants::skip)]` because the values come from `env!` and any
+"replace with empty string" mutant would need a brittle pin to the current
+crate version / git SHA. The `mutants` crate is a dev-dep purely for that
+attribute.
 
 ## Organizational model
 
@@ -172,6 +188,7 @@ implementation backlog.
 - Tags (free-form, future)
 - Remote renderer service (worker over HTTP, sandboxed)
 - `tracing` crate + `RUST_LOG`; commit hash in error reports
+- Kani formal verification (planned D3 phase)
 - GitHub Actions CI workflow (Makefile gates exist; CI is a future add)
 
 See `PLAN.md` for the granular task list.

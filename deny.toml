@@ -58,10 +58,6 @@ exceptions = []
 # Confidence threshold for license auto-detection.
 confidence-threshold = 0.8
 
-# Workspace crates are not published; skip license check for them.
-[licenses.private]
-ignore = true
-
 [bans]
 # Wide UI/server dep tree (Dioxus + axum + chromiumoxide) → many crates
 # have multiple in-tree versions. Warn for now; tighten case-by-case when

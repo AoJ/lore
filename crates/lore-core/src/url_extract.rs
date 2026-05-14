@@ -103,4 +103,22 @@ mod tests {
         let urls = extract_urls("broken [link](https://a.com missing-paren");
         assert!(urls.is_empty() || urls == vec!["https://a.com"]);
     }
+
+    #[test]
+    fn dedups_repeated_bare_url_in_same_text() {
+        // Drives the `u == url` check at the bare-pass dedup: three identical
+        // bare URLs must collapse to one. With the comparator flipped to !=,
+        // every occurrence would be (wrongly) added.
+        let urls = extract_urls("https://a.com https://a.com https://a.com");
+        assert_eq!(urls, vec!["https://a.com"]);
+    }
+
+    #[test]
+    fn dedups_repeated_markdown_link_in_same_text() {
+        // Bare-pass dedup is exercised separately. This test pins the
+        // markdown-pass dedup at the `]( ... )` branch — same URL appearing
+        // in two markdown links must yield exactly one entry.
+        let urls = extract_urls("[a](https://x.com) and [b](https://x.com)");
+        assert_eq!(urls, vec!["https://x.com"]);
+    }
 }

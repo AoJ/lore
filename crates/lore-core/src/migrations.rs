@@ -262,4 +262,110 @@ mod tests {
             .unwrap_or(false);
         assert!(exists);
     }
+
+    // ---- m0006: unescape \[label\]\(url\) → [label](url) ----
+
+    fn open_at_full_schema() -> Connection {
+        // Schema needs `note` (created by 0001), 0005 rewrote attachment URLs
+        // to `https://attachment.lore.invalid/<id>`. Easiest: just open via apply().
+        let mut conn = open_in_memory();
+        apply(&mut conn).unwrap();
+        // Seed a space row so insert into note doesn't trip the FK.
+        conn.execute(
+            "INSERT INTO space (id, name, last_used) \
+             VALUES (1, 'Test', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_note_raw(conn: &Connection, title: &str, body: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO note (title, body, space_id, created_at, updated_at) \
+             VALUES (?1, ?2, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            rusqlite::params![title, body],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn read_note(conn: &Connection, id: i64) -> (String, String) {
+        conn.query_row("SELECT title, body FROM note WHERE id = ?1", [id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn m0006_unescapes_attachment_link_in_body() {
+        let conn = open_at_full_schema();
+        // Milkdown serialized escapes around `lore://` attachment links back
+        // when it didn't recognize the scheme — m0006 reverses it. The
+        // label itself is plain text (no backslashes), only the surrounding
+        // brackets/parens were escaped.
+        let body = r"see \[doc.txt\]\(https://attachment.lore.invalid/42\) for details";
+        let id = insert_note_raw(&conn, "title", body);
+
+        m0006_unescape_attachment_links(&conn).unwrap();
+
+        let (_t, b) = read_note(&conn, id);
+        assert_eq!(
+            b,
+            "see [doc.txt](https://attachment.lore.invalid/42) for details"
+        );
+    }
+
+    #[test]
+    fn m0006_unescapes_link_in_title_only() {
+        // Kills L185:33 `||→&&` (would skip rows where only title changed)
+        // and the `!=→==` mutations: the row must be updated even though
+        // body has nothing to fix.
+        let conn = open_at_full_schema();
+        let title = r"image \[pic\]\(https://attachment.lore.invalid/7\)";
+        let body = "plain body, nothing to unescape";
+        let id = insert_note_raw(&conn, title, body);
+
+        m0006_unescape_attachment_links(&conn).unwrap();
+
+        let (t, b) = read_note(&conn, id);
+        assert_eq!(t, "image [pic](https://attachment.lore.invalid/7)");
+        assert_eq!(b, "plain body, nothing to unescape");
+    }
+
+    #[test]
+    fn m0006_unescapes_link_in_body_only() {
+        // Symmetric to the title-only case — guards the other branch of the
+        // `fixed_title != title || fixed_body != body` OR.
+        let conn = open_at_full_schema();
+        let title = "plain title, nothing to fix";
+        let body = r"file \[notes\]\(https://attachment.lore.invalid/99\)";
+        let id = insert_note_raw(&conn, title, body);
+
+        m0006_unescape_attachment_links(&conn).unwrap();
+
+        let (t, b) = read_note(&conn, id);
+        assert_eq!(t, "plain title, nothing to fix");
+        assert_eq!(b, "file [notes](https://attachment.lore.invalid/99)");
+    }
+
+    #[test]
+    fn m0006_leaves_unrelated_notes_untouched() {
+        // Note without escaped attachment links must not be UPDATEd. We can't
+        // observe "no UPDATE ran" directly, but we can prove the contents
+        // are byte-identical after the migration — which kills the
+        // "replace fn -> Ok(())" mutant in the negative direction (would not
+        // be caught by the unescape tests above, since those would see the
+        // same body before and after — they need to differ).
+        let conn = open_at_full_schema();
+        let title = "no attachments here";
+        let body = "completely plain markdown";
+        let id = insert_note_raw(&conn, title, body);
+
+        m0006_unescape_attachment_links(&conn).unwrap();
+
+        let (t, b) = read_note(&conn, id);
+        assert_eq!(t, title);
+        assert_eq!(b, body);
+    }
 }

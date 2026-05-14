@@ -2,7 +2,7 @@
 name = "lore-core"
 version = "0.1.0"
 edition = "2024"
-publish = false
+license = "MIT"
 build = "build.rs"
 
 [dependencies]
@@ -14,3 +14,5 @@ regex = "1"
 
 [dev-dependencies]
 tempfile = "3"
+# `#[mutants::skip]` attribute marker for cargo-mutants. Zero runtime impact.
+mutants = "0.0.4"

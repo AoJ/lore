@@ -74,6 +74,16 @@ audit:
 	cargo deny check
 
 
+# Mutation testing on lore-core. Scope/timeouts in .cargo/mutants.toml.
+# Slow (minutes); not part of `make check`. Run on demand when adding tests.
+mutants:
+	@command -v cargo-mutants >/dev/null || { \
+		echo "cargo-mutants not installed. Install: cargo install --locked cargo-mutants"; \
+		exit 1; \
+	}
+	cargo mutants --no-shuffle
+
+
 # Combined pre-PR check.
 check: lint check-arch audit
 	cargo test --workspace
@@ -83,5 +93,5 @@ clean:
 	cargo clean
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
-        check check-arch audit clean js-install js-build js-watch js-clean \
-        db-version migrate
+        check check-arch audit mutants clean js-install js-build js-watch \
+        js-clean db-version migrate

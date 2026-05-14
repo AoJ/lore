@@ -1,0 +1,25 @@
+# cargo-mutants config. Run via `make mutants` or `cargo mutants`.
+# Docs: https://mutants.rs/
+
+# Scope to lore-core. UI/server/worker have Dioxus/network deps that make
+# mutation runs slow and noisy; revisit when we extract more pure logic
+# from them. Submodule files in db/ are included via the recursive glob.
+examine_globs = [
+    "crates/lore-core/src/**/*.rs",
+]
+
+# Skip generated / non-logic files.
+exclude_globs = [
+    "crates/lore-core/build.rs",
+    "**/migrations/*.sql",
+]
+
+# Test only the package we're mutating (lore-core) — its unit tests +
+# tests/*.rs integration suite cover the mutated code. Compiling the UI
+# (Dioxus) and worker (headless Chrome) for every mutant would add minutes
+# per cycle for zero extra coverage.
+test_package = ["lore-core"]
+test_workspace = false
+
+# A mutant that hangs gets killed at 5× the baseline test time.
+timeout_multiplier = 5.0
