@@ -122,3 +122,32 @@ mod tests {
         assert_eq!(urls, vec!["https://x.com"]);
     }
 }
+
+/// Formal-verification harnesses. Compile-gated; reached only via `cargo kani`.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Empty input emits no URLs. Pins the empty-string early-exit through
+    /// both the markdown-pass `find` loop and the bare-pass `split_whitespace`.
+    #[kani::proof]
+    fn empty_input_emits_no_urls() {
+        assert!(extract_urls("").is_empty());
+    }
+
+    /// A bare HTTPS URL on its own is returned intact. Drives the bare-pass
+    /// `is_http_url` check and the `Vec::push` path.
+    #[kani::proof]
+    fn bare_https_url_is_extracted() {
+        let urls = extract_urls("https://a.io");
+        assert_eq!(urls.len(), 1);
+    }
+
+    /// A markdown link is unwrapped to just the URL. Drives the
+    /// `find("](")` + `find(')')` path through the parser.
+    #[kani::proof]
+    fn markdown_link_unwraps_to_url() {
+        let urls = extract_urls("[x](https://a.io)");
+        assert_eq!(urls.len(), 1);
+    }
+}

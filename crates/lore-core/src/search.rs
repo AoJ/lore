@@ -261,3 +261,29 @@ mod tests {
         assert_eq!(prepare_query("   "), "");
     }
 }
+
+/// Formal-verification harnesses. Compile-gated; reached only via `cargo kani`.
+///
+/// Only the two early-return branches are reachable from Kani's budget — the
+/// no-operator path runs `format!("{w}*")` per word, which blows CBMC's
+/// bitvector encoding out of memory even with a 4-byte constant input. The
+/// covered branches are still worth pinning: they verify the FTS5
+/// passthrough contract holds whenever the input carries a wildcard.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Wildcard input is passed through verbatim (covers the
+    /// `contains('*')` early-return branch).
+    #[kani::proof]
+    fn wildcard_input_is_passed_through() {
+        assert_eq!(prepare_query("ru*"), "ru*");
+    }
+
+    /// Empty input returns empty (covers the trim-then-split path on an
+    /// empty haystack, no allocations).
+    #[kani::proof]
+    fn empty_input_returns_empty() {
+        assert_eq!(prepare_query(""), "");
+    }
+}

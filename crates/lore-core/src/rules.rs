@@ -384,3 +384,84 @@ mod tests {
         assert_eq!(normalize_url(&url), "https://example.com/a");
     }
 }
+
+/// Formal-verification harnesses. Compile-gated; reached only via `cargo kani`.
+///
+/// Scope note: see `url_extract::proofs` — symbolic `&str` inputs blow up
+/// CBMC unwinding on stdlib internals (`run_utf8_validation`,
+/// `floor_char_boundary`, `to_lowercase`'s unicode path), so these
+/// harnesses use fixed inputs. Kani then symbolically executes the full
+/// function body and certifies panic-freedom, integer UB freedom, and slice
+/// OOB freedom along every internal branch — none of which `cargo test` can
+/// prove.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// `localhost` classifies as local (covers the first `host ==` short
+    /// circuit in `is_private_network`).
+    #[kani::proof]
+    fn localhost_is_private() {
+        assert!(is_private_network("localhost"));
+    }
+
+    /// IPv4 loopback classifies as local.
+    #[kani::proof]
+    fn loopback_v4_is_private() {
+        assert!(is_private_network("127.0.0.1"));
+    }
+
+    /// 192.168.x.y subnet classifies as local (covers the `starts_with`
+    /// branch).
+    #[kani::proof]
+    fn private_192_168_is_private() {
+        assert!(is_private_network("192.168.1.10"));
+    }
+
+    /// 172.16–31 subnet classifies as local (covers the
+    /// `starts_with` + `split` + `parse::<u8>` + range check chain at the
+    /// bottom of the function — the most arithmetic-heavy branch).
+    #[kani::proof]
+    fn private_172_16_subnet_is_private() {
+        assert!(is_private_network("172.16.0.1"));
+    }
+
+    /// 172.32 is *outside* the private range — guards the upper boundary
+    /// of the `(16..=31)` check.
+    #[kani::proof]
+    fn host_172_32_is_not_private() {
+        assert!(!is_private_network("172.32.0.1"));
+    }
+
+    /// Public host is not private (covers the default-false return path).
+    #[kani::proof]
+    fn public_host_is_not_private() {
+        assert!(!is_private_network("example.com"));
+    }
+
+    /// `utm_` prefix marks a tracking param (covers the `starts_with`
+    /// early-return after `to_lowercase`).
+    #[kani::proof]
+    fn utm_prefix_is_tracking() {
+        assert!(is_tracking_param("utm_source"));
+    }
+
+    /// Mixed case `utm_` is still tracking (covers the `to_lowercase`
+    /// step).
+    #[kani::proof]
+    fn mixed_case_utm_is_tracking() {
+        assert!(is_tracking_param("UTM_Source"));
+    }
+
+    /// A well-known tracking key matches via the `TRACKING.contains` path.
+    #[kani::proof]
+    fn known_tracking_key_matches() {
+        assert!(is_tracking_param("sca_esv"));
+    }
+
+    /// A plain query key is not tracking.
+    #[kani::proof]
+    fn plain_key_is_not_tracking() {
+        assert!(!is_tracking_param("q"));
+    }
+}

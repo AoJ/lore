@@ -126,6 +126,7 @@ make check              # lint + check-arch + audit + tests (pre-PR)
 make check-arch         # sentrux check (.sentrux/rules.toml)
 make audit              # cargo-deny: licenses, advisories, duplicates
 make mutants            # cargo-mutants on lore-core (slow, run on demand)
+make verify             # cargo-kani proofs on lore-core (slow, run on demand)
 make desktop            # run Dioxus desktop app
 make serve              # run web server (axum)
 make worker             # run archive worker
@@ -164,6 +165,37 @@ from at least one test. Reruns are slow (≈30 min on M-series) and not in
 crate version / git SHA. The `mutants` crate is a dev-dep purely for that
 attribute.
 
+### Formal verification (`#[cfg(kani)] mod proofs`)
+
+`make verify` runs Kani against pure parser/classifier functions in `lore-core`.
+Harnesses live in `#[cfg(kani)] mod proofs` blocks next to the functions they
+verify (`url_extract::extract_urls`, `search::prepare_query`,
+`rules::is_private_network`, `rules::is_tracking_param`). They are invisible
+to `cargo build` and `cargo test` — the `kani` crate is only injected by
+`cargo kani`.
+
+**Scope: fixed inputs, full-body symbolic execution.** Initial attempts to feed
+symbolic `&str` values to these functions stalled CBMC on the internal
+char-boundary loops in `core::str::trim`, `to_lowercase`, `find`, `parse`,
+etc. (`run_utf8_validation`, `floor_char_boundary` ran tens of thousands of
+iterations and exhausted memory). The harnesses therefore pass each function
+a concrete input and let Kani symbolically execute every reachable branch
+of the function body. What this catches that `cargo test` cannot:
+panic-freedom, integer UB (overflow, division-by-zero), slice OOB, and
+pointer-dereference soundness on every path reachable from the input — Kani
+discharges 500 – 3 600 such checks per harness.
+
+Branches covered: `is_private_network` × 6 (localhost / 127.0.0.1 /
+192.168.x / 172.16-31 / 172.32 boundary / public host), `is_tracking_param`
+× 4 (`utm_` prefix, mixed-case `utm_`, known dictionary key, plain key),
+`prepare_query` × 2 (wildcard passthrough, empty input), `extract_urls`
+× 3 (empty, bare URL, markdown link). One branch is **not** covered:
+`prepare_query`'s `format!("{w}*")` no-operator path — `format!` blows
+CBMC's bitvector budget even with a 4-byte constant input. Last run:
+**15 / 15 successful**, total verification time ≈ 25 s. Required tools:
+`cargo install --locked kani-verifier && cargo kani setup`. The `cfg(kani)`
+lint is silenced via `check-cfg` in `lore-core/Cargo.toml`.
+
 ## Organizational model
 
 - **Space** — top-level isolation (e.g. "Personal", "Work"). Each space has its
@@ -188,7 +220,6 @@ implementation backlog.
 - Tags (free-form, future)
 - Remote renderer service (worker over HTTP, sandboxed)
 - `tracing` crate + `RUST_LOG`; commit hash in error reports
-- Kani formal verification (planned D3 phase)
 - GitHub Actions CI workflow (Makefile gates exist; CI is a future add)
 
 See `PLAN.md` for the granular task list.

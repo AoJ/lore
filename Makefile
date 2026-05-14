@@ -84,6 +84,17 @@ mutants:
 	cargo mutants --no-shuffle
 
 
+# Formal verification of pure functions in lore-core via Kani (bounded model
+# checking). Slow (minutes per harness); not part of `make check`. Harnesses
+# live in `#[cfg(kani)] mod proofs` blocks next to the functions they verify.
+verify:
+	@command -v cargo-kani >/dev/null || { \
+		echo "Kani not installed. Install: cargo install --locked kani-verifier && cargo kani setup"; \
+		exit 1; \
+	}
+	cargo kani -p lore-core
+
+
 # Combined pre-PR check.
 check: lint check-arch audit
 	cargo test --workspace
@@ -93,5 +104,5 @@ clean:
 	cargo clean
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
-        check check-arch audit mutants clean js-install js-build js-watch \
-        js-clean db-version migrate
+        check check-arch audit mutants verify clean js-install js-build \
+        js-watch js-clean db-version migrate
