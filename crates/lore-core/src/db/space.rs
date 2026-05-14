@@ -1,6 +1,9 @@
-use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "sqlite")]
+use anyhow::Result;
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpaceRow {
@@ -11,7 +14,17 @@ pub struct SpaceRow {
     pub deleted_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpaceStats {
+    pub page_count: i64,
+    pub note_count: i64,
+    pub file_count: i64,
+    pub file_size_bytes: i64,
+    pub pages_size_bytes: i64,
+}
+
 /// List active (non-deleted) spaces
+#[cfg(feature = "sqlite")]
 pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, color, last_used, deleted_at FROM space WHERE deleted_at IS NULL ORDER BY last_used DESC, created_at DESC",
@@ -32,6 +45,7 @@ pub fn list_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
 }
 
 /// List ALL spaces including soft-deleted (for Settings view)
+#[cfg(feature = "sqlite")]
 pub fn list_all_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, color, last_used, deleted_at FROM space ORDER BY deleted_at IS NOT NULL, last_used DESC, created_at DESC",
@@ -51,6 +65,7 @@ pub fn list_all_spaces(conn: &Connection) -> Result<Vec<SpaceRow>> {
     Ok(rows)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn get_active_space(conn: &Connection) -> Result<SpaceRow> {
     conn.query_row(
         "SELECT id, name, color, last_used, deleted_at FROM space WHERE deleted_at IS NULL ORDER BY last_used DESC, created_at DESC LIMIT 1",
@@ -68,6 +83,7 @@ pub fn get_active_space(conn: &Connection) -> Result<SpaceRow> {
     .map_err(Into::into)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn touch_space(conn: &Connection, space_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE space SET last_used = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
@@ -76,6 +92,7 @@ pub fn touch_space(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn insert_space(conn: &Connection, name: &str) -> Result<i64> {
     conn.execute(
         "INSERT INTO space (name, last_used) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
@@ -84,6 +101,7 @@ pub fn insert_space(conn: &Connection, name: &str) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn rename_space(conn: &Connection, space_id: i64, name: &str) -> Result<()> {
     conn.execute(
         "UPDATE space SET name = ?1 WHERE id = ?2",
@@ -93,6 +111,7 @@ pub fn rename_space(conn: &Connection, space_id: i64, name: &str) -> Result<()> 
 }
 
 /// Soft-delete a space — content stays but is inaccessible until restored
+#[cfg(feature = "sqlite")]
 pub fn trash_space(conn: &Connection, space_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE space SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
@@ -101,6 +120,7 @@ pub fn trash_space(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn restore_space(conn: &Connection, space_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE space SET deleted_at = NULL WHERE id = ?1",
@@ -109,15 +129,7 @@ pub fn restore_space(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SpaceStats {
-    pub page_count: i64,
-    pub note_count: i64,
-    pub file_count: i64,
-    pub file_size_bytes: i64,
-    pub pages_size_bytes: i64,
-}
-
+#[cfg(feature = "sqlite")]
 pub fn space_stats(conn: &Connection, space_id: i64) -> Result<SpaceStats> {
     let page_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM web_page WHERE space_id = ?1 AND trashed_at IS NULL",

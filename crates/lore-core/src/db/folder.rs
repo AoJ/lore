@@ -1,6 +1,10 @@
-use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "sqlite")]
+use anyhow::Result;
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
+#[cfg(feature = "sqlite")]
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -12,6 +16,7 @@ pub struct FolderRow {
     pub space_id: Option<i64>,
 }
 
+#[cfg(feature = "sqlite")]
 pub fn list_folders(conn: &Connection, space_id: i64) -> Result<Vec<FolderRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, parent_id, sort_order, space_id FROM note_folder WHERE space_id = ?1 ORDER BY sort_order, name",
@@ -31,6 +36,7 @@ pub fn list_folders(conn: &Connection, space_id: i64) -> Result<Vec<FolderRow>> 
     Ok(rows)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn insert_folder(
     conn: &Connection,
     name: &str,
@@ -44,6 +50,7 @@ pub fn insert_folder(
     Ok(conn.last_insert_rowid())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn rename_folder(conn: &Connection, folder_id: i64, name: &str) -> Result<()> {
     conn.execute(
         "UPDATE note_folder SET name = ?1 WHERE id = ?2",
@@ -52,6 +59,7 @@ pub fn rename_folder(conn: &Connection, folder_id: i64, name: &str) -> Result<()
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
     let parent: Option<i64> = conn
         .query_row(
@@ -77,6 +85,7 @@ pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<()> {
 }
 
 /// Count notes per folder (direct children only, excludes deleted)
+#[cfg(feature = "sqlite")]
 pub fn folder_note_counts(conn: &Connection, space_id: i64) -> Result<HashMap<i64, i64>> {
     let mut stmt = conn.prepare(
         "SELECT folder_id, COUNT(*) FROM note WHERE space_id = ?1 AND deleted_at IS NULL AND folder_id IS NOT NULL GROUP BY folder_id",

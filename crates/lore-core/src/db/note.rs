@@ -1,7 +1,31 @@
-use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "sqlite")]
+use anyhow::Result;
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteRow {
+    pub id: i64,
+    pub title: String,
+    pub body_preview: String,
+    pub folder_id: Option<i64>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteData {
+    pub id: i64,
+    pub title: String,
+    pub body: String,
+    pub folder_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+#[cfg(feature = "sqlite")]
 pub fn insert_note(
     conn: &Connection,
     title: &str,
@@ -22,6 +46,7 @@ pub fn insert_note(
     Ok(note_id)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn update_note(conn: &Connection, note_id: i64, title: &str, body: &str) -> Result<()> {
     // Update FTS (delete old, insert new)
     conn.execute(
@@ -40,6 +65,7 @@ pub fn update_note(conn: &Connection, note_id: i64, title: &str, body: &str) -> 
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn move_note_to_folder(conn: &Connection, note_id: i64, folder_id: Option<i64>) -> Result<()> {
     conn.execute(
         "UPDATE note SET folder_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
@@ -48,6 +74,7 @@ pub fn move_note_to_folder(conn: &Connection, note_id: i64, folder_id: Option<i6
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn trash_note(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE note SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
@@ -56,11 +83,13 @@ pub fn trash_note(conn: &Connection, note_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn restore_note(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute("UPDATE note SET deleted_at = NULL WHERE id = ?1", [note_id])?;
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn delete_note_permanent(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO note_fts(note_fts, rowid, title, body) VALUES('delete', ?1, '', '')",
@@ -75,18 +104,10 @@ pub fn delete_note_permanent(conn: &Connection, note_id: i64) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NoteRow {
-    pub id: i64,
-    pub title: String,
-    pub body_preview: String,
-    pub folder_id: Option<i64>,
-    pub updated_at: String,
-}
-
 /// IDs only, ordered the same way `list_notes` returns rows. Used by the
 /// keyboard-nav path to pick prev/next neighbours without paying for the
 /// full row payload.
+#[cfg(feature = "sqlite")]
 pub fn list_note_ids_ordered(
     conn: &Connection,
     folder_id: Option<i64>,
@@ -115,6 +136,7 @@ pub fn list_note_ids_ordered(
     }
 }
 
+#[cfg(feature = "sqlite")]
 pub fn list_notes(
     conn: &Connection,
     folder_id: Option<i64>,
@@ -149,17 +171,7 @@ pub fn list_notes(
     Ok(rows)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NoteData {
-    pub id: i64,
-    pub title: String,
-    pub body: String,
-    pub folder_id: Option<i64>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
-}
-
+#[cfg(feature = "sqlite")]
 pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
     conn.query_row(
         "SELECT id, title, body, folder_id, created_at, updated_at, deleted_at FROM note WHERE id = ?1",
@@ -180,6 +192,7 @@ pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
 }
 
 /// Restore a trashed note. If its folder no longer exists, move to root.
+#[cfg(feature = "sqlite")]
 pub fn restore_note_safe(conn: &Connection, note_id: i64) -> Result<()> {
     conn.execute("UPDATE note SET deleted_at = NULL WHERE id = ?1", [note_id])?;
     // Check if folder still exists
@@ -199,6 +212,7 @@ pub fn restore_note_safe(conn: &Connection, note_id: i64) -> Result<()> {
 }
 
 /// Find notes that reference a given URL in their body text
+#[cfg(feature = "sqlite")]
 pub fn find_notes_referencing_url(
     conn: &Connection,
     url: &str,

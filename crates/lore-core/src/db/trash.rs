@@ -1,14 +1,36 @@
-use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "sqlite")]
+use anyhow::Result;
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
+
+#[cfg(feature = "sqlite")]
 use super::file::delete_file_permanent;
+#[cfg(feature = "sqlite")]
 use super::note::delete_note_permanent;
+#[cfg(feature = "sqlite")]
 use super::web_page::delete_page;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum TrashKind {
+    Page,
+    Note,
+    File,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TrashItem {
+    pub id: i64,
+    pub title: String,
+    pub kind: TrashKind,
+    pub trashed_at: String,
+}
 
 /// Permanently delete a space and ALL its content. Lives here (not in space.rs)
 /// because it orchestrates deletes across web_page / note / file / folder —
 /// keeping it among cross-entity cleanup keeps entity submodules independent.
+#[cfg(feature = "sqlite")]
 pub fn delete_space_permanent(conn: &Connection, space_id: i64) -> Result<()> {
     let page_ids: Vec<i64> = conn
         .prepare("SELECT id FROM web_page WHERE space_id = ?1")?
@@ -32,22 +54,8 @@ pub fn delete_space_permanent(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum TrashKind {
-    Page,
-    Note,
-    File,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TrashItem {
-    pub id: i64,
-    pub title: String,
-    pub kind: TrashKind,
-    pub trashed_at: String,
-}
-
 /// Union of trashed pages, notes and files in a space, newest first.
+#[cfg(feature = "sqlite")]
 pub fn list_trash(conn: &Connection, space_id: i64) -> Result<Vec<TrashItem>> {
     let mut items = Vec::new();
 
@@ -104,6 +112,7 @@ pub fn list_trash(conn: &Connection, space_id: i64) -> Result<Vec<TrashItem>> {
 }
 
 /// Trash count across all entities (pages, notes, files) for a space.
+#[cfg(feature = "sqlite")]
 pub fn trash_count(conn: &Connection, space_id: i64) -> Result<i64> {
     conn.query_row(
         "SELECT \
@@ -118,6 +127,7 @@ pub fn trash_count(conn: &Connection, space_id: i64) -> Result<i64> {
 
 /// Hard-delete trashed items older than `days`. Touches every entity that has
 /// a soft-delete column plus note_attachment.
+#[cfg(feature = "sqlite")]
 pub fn cleanup_old_trash(conn: &Connection, days: i64) -> Result<usize> {
     let cutoff = format!("-{} days", days);
     let mut cleaned = 0usize;

@@ -1,6 +1,10 @@
-use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "sqlite")]
+use anyhow::Result;
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
+#[cfg(feature = "sqlite")]
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,6 +29,7 @@ pub enum InsertFileOutcome {
 /// Insert a file, or dedupe against an existing file in this space matching
 /// `name + hash`. Active duplicate → return its ID. Trashed duplicate →
 /// clear `deleted_at` and return its ID (silent revive from trash).
+#[cfg(feature = "sqlite")]
 pub fn insert_file(
     conn: &Connection,
     name: &str,
@@ -61,6 +66,7 @@ pub fn insert_file(
     Ok((conn.last_insert_rowid(), InsertFileOutcome::Inserted))
 }
 
+#[cfg(feature = "sqlite")]
 pub fn list_files(conn: &Connection, space_id: i64) -> Result<Vec<FileRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, mime_type, size, hash, created_at \
@@ -84,6 +90,7 @@ pub fn list_files(conn: &Connection, space_id: i64) -> Result<Vec<FileRow>> {
     Ok(rows)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn get_file(conn: &Connection, id: i64) -> Result<FileRow> {
     conn.query_row(
         "SELECT id, name, mime_type, size, hash, created_at, deleted_at FROM file WHERE id = ?1",
@@ -103,6 +110,7 @@ pub fn get_file(conn: &Connection, id: i64) -> Result<FileRow> {
     .map_err(Into::into)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn get_file_data(conn: &Connection, id: i64) -> Result<(Option<String>, Vec<u8>)> {
     conn.query_row(
         "SELECT mime_type, data FROM file WHERE id = ?1",
@@ -112,6 +120,7 @@ pub fn get_file_data(conn: &Connection, id: i64) -> Result<(Option<String>, Vec<
     .map_err(Into::into)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn trash_file(conn: &Connection, id: i64) -> Result<()> {
     conn.execute(
         "UPDATE file SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
@@ -120,16 +129,19 @@ pub fn trash_file(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn restore_file(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("UPDATE file SET deleted_at = NULL WHERE id = ?1", [id])?;
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn delete_file_permanent(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM file WHERE id = ?1", [id])?;
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 pub fn list_trashed_files(conn: &Connection, space_id: i64) -> Result<Vec<FileRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, mime_type, size, hash, created_at, deleted_at \

@@ -89,6 +89,7 @@ impl std::error::Error for BackendError {}
 impl From<anyhow::Error> for BackendError {
     fn from(e: anyhow::Error) -> Self {
         let msg = format!("{:#}", e);
+        #[cfg(feature = "sqlite")]
         for cause in e.chain() {
             if let Some(rs) = cause.downcast_ref::<rusqlite::Error>()
                 && matches!(rs, rusqlite::Error::QueryReturnedNoRows)
@@ -104,6 +105,7 @@ impl From<anyhow::Error> for BackendError {
 /// `NotFound` mapping as the `anyhow::Error` path. Lets the few call sites
 /// that hit rusqlite directly (e.g. raw `PRAGMA user_version` reads in
 /// `db_schema_version`) use `?` without an intermediate `anyhow::Error::from`.
+#[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for BackendError {
     fn from(e: rusqlite::Error) -> Self {
         if matches!(e, rusqlite::Error::QueryReturnedNoRows) {

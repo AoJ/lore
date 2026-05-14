@@ -1,12 +1,16 @@
+#[cfg(feature = "sqlite")]
 use anyhow::Result;
+#[cfg(feature = "sqlite")]
 use rusqlite::Connection;
 
+#[cfg(feature = "sqlite")]
 use super::note::NoteRow;
 
 /// (id, title) pair for a page summary used by timeline/activity views.
 pub type PageRef = (i64, String);
 
 /// Activity by day for heatmap (last N days)
+#[cfg(feature = "sqlite")]
 pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(
         "SELECT day, SUM(cnt) FROM (
@@ -32,6 +36,7 @@ pub fn activity_by_day(conn: &Connection, space_id: i64, days: i64) -> Result<Ve
 }
 
 /// Get notes and pages active on a specific day
+#[cfg(feature = "sqlite")]
 pub fn activity_for_day(
     conn: &Connection,
     space_id: i64,

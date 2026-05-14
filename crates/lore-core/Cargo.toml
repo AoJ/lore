@@ -7,12 +7,22 @@ build = "build.rs"
 
 [dependencies]
 anyhow = "1"
-rusqlite = { version = "0.34", features = ["bundled", "vtab"] }
 url = "2"
-sha2 = "0.10"
-regex = "1"
 serde = { version = "1", features = ["derive"] }
 base64 = "0.22"
+# Native-only deps for the SQLite path. Off by default for WASM consumers
+# (the future `HttpBackend` in `lore-ui`) which only need the row/error
+# types and serde derives, never the SQL.
+rusqlite = { version = "0.34", features = ["bundled", "vtab"], optional = true }
+sha2 = { version = "0.10", optional = true }
+regex = { version = "1", optional = true }
+
+[features]
+default = ["sqlite"]
+# Pulls in rusqlite + native code so `db::*`, `migrations`, `search`,
+# and the `From<rusqlite::Error>` impls compile. Disable for WASM
+# builds: `default-features = false`.
+sqlite = ["dep:rusqlite", "dep:sha2", "dep:regex"]
 
 [dev-dependencies]
 tempfile = "3"
