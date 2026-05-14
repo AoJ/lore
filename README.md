@@ -14,6 +14,7 @@ make desktop-release
 make serve         # run web server
 make worker        # run archive worker
 make test          # run all tests
+make e2e           # end-to-end web UI tests (headless Chromium)
 ```
 
 Binary: `target/release/lore` (single file, includes SQLite).
@@ -30,6 +31,14 @@ make js-clean      # nuke node_modules and lockfile
 ```
 
 Edit the editor at `crates/lore-ui/js/index.js` (plain JS — no TypeScript), run `make js-build`, then `make desktop-release`. To upgrade Milkdown bump versions in `crates/lore-ui/js/package.json` and rebuild.
+
+### End-to-end tests
+
+`make e2e` boots `lore-server` (random port, tmp DB) and drives the WASM frontend in headless Chromium via `chromiumoxide`. Each test spawns its own isolated server/browser pair, so tests run in parallel without shared state.
+
+Coverage: sidebar boot, notes CRUD through the UI, cross-client refresh of an open note (`smartReplace` regression), attachment / file download via the `GET /api/{attachments,files}/{id}/raw` endpoints, structured error codes (`route_not_found` / `not_found` / `invalid_input`), and sidebar navigation.
+
+Not part of `make check` — Chromium + a fresh WASM bundle are heavy prerequisites. Run explicitly when touching the web UI, the server API, or the editor bridge.
 
 ## Quick start
 
