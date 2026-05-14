@@ -1,6 +1,8 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpaceRow {
     pub id: i64,
     pub name: String,
@@ -107,6 +109,7 @@ pub fn restore_space(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpaceStats {
     pub page_count: i64,
     pub note_count: i64,

@@ -1,8 +1,9 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FolderRow {
     pub id: i64,
     pub name: String,

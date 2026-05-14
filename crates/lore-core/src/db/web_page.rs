@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::rules;
@@ -149,7 +150,7 @@ pub fn ensure_page(
 }
 
 /// Classification rule from DB, ordered by priority descending.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClassificationRule {
     pub pattern: String,
     pub match_type: String,
@@ -193,7 +194,7 @@ pub fn restore_page(conn: &Connection, page_id: i64) -> Result<()> {
 }
 
 /// Web page summary returned by `list_pages` and search.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebPageRow {
     pub id: i64,
     pub title: Option<String>,
@@ -205,7 +206,7 @@ pub struct WebPageRow {
 }
 
 /// Full web_page record + latest snapshot, used by detail views.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebPageDetail {
     pub url: String,
     pub title: Option<String>,
@@ -217,11 +218,26 @@ pub struct WebPageDetail {
     pub snapshot: Option<WebPageSnapshot>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebPageSnapshot {
     pub size_bytes: i64,
     pub plain_text_preview: Option<String>,
     pub screenshot: Option<Vec<u8>>,
+}
+
+/// IDs only, ordered the same way `list_pages` returns rows. Used by the
+/// keyboard-nav path to pick prev/next neighbours without paying for the
+/// full row payload.
+pub fn list_page_ids_ordered(conn: &Connection, space_id: i64, limit: usize) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM web_page WHERE trashed_at IS NULL AND space_id = ?1 \
+         ORDER BY created_at DESC, id DESC LIMIT ?2",
+    )?;
+    let ids = stmt
+        .query_map(rusqlite::params![space_id, limit as i64], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
 }
 
 pub fn list_pages(conn: &Connection, space_id: i64, limit: usize) -> Result<Vec<WebPageRow>> {
@@ -293,7 +309,7 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
 
 /// Outcome of `archive_url`: returns the row id plus the classifier category
 /// (e.g. "archive", "discard") so callers can show appropriate feedback.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArchiveOutcome {
     pub id: i64,
     pub category: String,

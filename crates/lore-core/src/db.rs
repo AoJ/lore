@@ -32,7 +32,8 @@ pub use folder::{
 };
 pub use note::{
     NoteData, NoteRow, delete_note_permanent, find_notes_referencing_url, get_note, insert_note,
-    list_notes, move_note_to_folder, restore_note, restore_note_safe, trash_note, update_note,
+    list_note_ids_ordered, list_notes, move_note_to_folder, restore_note, restore_note_safe,
+    trash_note, update_note,
 };
 pub use space::{
     SpaceRow, SpaceStats, get_active_space, insert_space, list_all_spaces, list_spaces,
@@ -44,8 +45,8 @@ pub use trash::{
 pub use web_page::{
     ArchiveOutcome, ClassificationRule, NewWebPage, WebPageDetail, WebPageRow, WebPageSnapshot,
     archive_url, auto_archive_from_text, check_urls_status, delete_page, ensure_page,
-    find_page_by_url, get_page, insert_snapshot, insert_web_page, list_pages, load_rules,
-    restore_page, trash_page, update_status, update_status_with_error,
+    find_page_by_url, get_page, insert_snapshot, insert_web_page, list_page_ids_ordered,
+    list_pages, load_rules, restore_page, trash_page, update_status, update_status_with_error,
 };
 
 const SEED: &str = include_str!("seed.sql");

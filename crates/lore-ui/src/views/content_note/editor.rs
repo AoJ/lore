@@ -19,11 +19,13 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
     {
         let init_content = initial_content.clone();
         let note_id = id;
-        let mut store = store;
 
         let initial_urls = lore_core::url_extract::extract_urls(&init_content);
         if !initial_urls.is_empty() {
-            store.set_current_note_urls(initial_urls);
+            let mut store = store;
+            spawn(async move {
+                store.set_current_note_urls(initial_urls).await;
+            });
         }
 
         use_effect(move || {
@@ -86,67 +88,75 @@ pub fn NoteEditor(id: i64, initial_content: String) -> Element {
     });
 
     // Resolve initial attachment URLs to data URIs so embedded images/files
-    // render correctly on first paint.
+    // render correctly on first paint. The data-URI fetch is async (backend
+    // call), so we spawn a task from inside `use_effect`.
     {
         let init_md = initial_content.clone();
         use_effect(move || {
-            let mut att_map: HashMap<String, String> = HashMap::new();
-            for part in init_md.split("https://attachment.lore.invalid/") {
-                if let Some(end_pos) = part.find(')')
-                    && let Ok(att_id) = part[..end_pos].parse::<i64>()
-                    && let Some(data_uri) = store.get_attachment_data_uri(att_id)
-                {
-                    att_map.insert(att_id.to_string(), data_uri);
+            let init_md = init_md.clone();
+            spawn(async move {
+                let mut store = store;
+                let mut att_map: HashMap<String, String> = HashMap::new();
+                for part in init_md.split("https://attachment.lore.invalid/") {
+                    if let Some(end_pos) = part.find(')')
+                        && let Ok(att_id) = part[..end_pos].parse::<i64>()
+                        && let Some(data_uri) = store.get_attachment_data_uri(att_id).await
+                    {
+                        att_map.insert(att_id.to_string(), data_uri);
+                    }
                 }
-            }
-            if !att_map.is_empty() {
-                let entries: Vec<String> = att_map
-                    .iter()
-                    .map(|(k, v)| format!("'{}':'{}'", k, v.replace('\'', "\\'")))
-                    .collect();
-                let js = format!(
-                    "setTimeout(function(){{ window.loreEditor && window.loreEditor.resolveAttachments({{{}}}); }}, 500);",
-                    entries.join(",")
-                );
-                document::eval(&js);
-            }
+                if !att_map.is_empty() {
+                    let entries: Vec<String> = att_map
+                        .iter()
+                        .map(|(k, v)| format!("'{}':'{}'", k, v.replace('\'', "\\'")))
+                        .collect();
+                    let js = format!(
+                        "setTimeout(function(){{ window.loreEditor && window.loreEditor.resolveAttachments({{{}}}); }}, 500);",
+                        entries.join(",")
+                    );
+                    document::eval(&js);
+                }
+            });
         });
     }
 
     // Push attachment metadata (size/hash/created_at) so the Milkdown markView
     // renders the rich block (ext badge · name · date · size · hash).
-    // Re-runs on revision changes (new uploads, restores, etc.).
+    // Re-runs on revision changes (new uploads, restores, etc.). Fetching
+    // attachment lists is async, so the body is spawned.
     use_effect(move || {
         let _rev = *store.revision.read();
-
-        let active = store.list_active_attachments(id);
-        let removed = store.list_removed_attachments(id);
-        let mut entries: Vec<String> = Vec::new();
-        for att in active.iter().chain(removed.iter()) {
-            let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
-            entries.push(format!(
-                "'{}':{{name:'{}',size:{},hash:'{}',created_at:'{}',mime_type:'{}'}}",
-                att.id,
-                esc(&att.name),
-                att.size,
-                esc(&att.hash),
-                esc(&att.created_at),
-                esc(att.mime_type.as_deref().unwrap_or("")),
-            ));
-        }
-        if !entries.is_empty() {
-            let js = format!(
-                "(function poll(tries){{ \
-                    if (window.loreEditor && window.loreEditor.setAttachmentMeta) {{ \
-                        window.loreEditor.setAttachmentMeta({{{}}}); \
-                    }} else if (tries > 0) {{ \
-                        setTimeout(function(){{poll(tries-1);}}, 150); \
-                    }} \
-                }})(20);",
-                entries.join(",")
-            );
-            document::eval(&js);
-        }
+        spawn(async move {
+            let store = store;
+            let active = store.list_active_attachments(id).await;
+            let removed = store.list_removed_attachments(id).await;
+            let mut entries: Vec<String> = Vec::new();
+            for att in active.iter().chain(removed.iter()) {
+                let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
+                entries.push(format!(
+                    "'{}':{{name:'{}',size:{},hash:'{}',created_at:'{}',mime_type:'{}'}}",
+                    att.id,
+                    esc(&att.name),
+                    att.size,
+                    esc(&att.hash),
+                    esc(&att.created_at),
+                    esc(att.mime_type.as_deref().unwrap_or("")),
+                ));
+            }
+            if !entries.is_empty() {
+                let js = format!(
+                    "(function poll(tries){{ \
+                        if (window.loreEditor && window.loreEditor.setAttachmentMeta) {{ \
+                            window.loreEditor.setAttachmentMeta({{{}}}); \
+                        }} else if (tries > 0) {{ \
+                            setTimeout(function(){{poll(tries-1);}}, 150); \
+                        }} \
+                    }})(20);",
+                    entries.join(",")
+                );
+                document::eval(&js);
+            }
+        });
     });
 
     // Cleanup on unmount

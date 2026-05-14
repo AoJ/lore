@@ -19,13 +19,16 @@ pub fn Sidebar() -> Element {
         if raw_url.is_empty() {
             return;
         }
-        match store.add_url(&state, &raw_url) {
-            Ok(msg) => {
-                status_msg.set(Some(msg));
-                url_input.set(String::new());
+        let mut store = store;
+        spawn(async move {
+            match store.add_url(&state, &raw_url).await {
+                Ok(msg) => {
+                    status_msg.set(Some(msg));
+                    url_input.set(String::new());
+                }
+                Err(e) => status_msg.set(Some(format!("Error: {}", e))),
             }
-            Err(e) => status_msg.set(Some(format!("Error: {}", e))),
-        }
+        });
     };
 
     let section = state.section.read().clone();
@@ -71,7 +74,11 @@ pub fn Sidebar() -> Element {
                                         SpaceRenameInput { space_id: sid }
                                     } else {
                                         div { key: "{sid}", class: "{cls}",
-                                            onclick: move |_| store.switch_space(&mut state,sid),
+                                            onclick: move |_| {
+                                                let mut store = store;
+                                                let mut state = state;
+                                                spawn(async move { store.switch_space(&mut state, sid).await; });
+                                            },
                                             "{space.name}"
                                         }
                                     }
@@ -80,12 +87,16 @@ pub fn Sidebar() -> Element {
                         }
                         div { class: "space-dropdown-item new-space",
                             onclick: move |_| {
-                                if let Ok(new_id) = store.create_space(&state, "") {
-                                    store.switch_space(&mut state,new_id);
-                                    state.renaming.set(Some(crate::state::Renaming::Space(new_id, String::new())));
-                                    state.space_dropdown_open.set(true);
-                                    store.refresh(&state);
-                                }
+                                let mut store = store;
+                                let mut state = state;
+                                spawn(async move {
+                                    if let Ok(new_id) = store.create_space(&state, "").await {
+                                        store.switch_space(&mut state, new_id).await;
+                                        state.renaming.set(Some(crate::state::Renaming::Space(new_id, String::new())));
+                                        state.space_dropdown_open.set(true);
+                                        store.refresh(&state).await;
+                                    }
+                                });
                             },
                             "+ New space..."
                         }
@@ -96,15 +107,15 @@ pub fn Sidebar() -> Element {
             // Sections
             div { class: "sidebar-group",
                 SidebarItem { label: texts::NAV_NOTES, active: section == Section::AllNotes,
-                    onclick: move |_| store.navigate(&mut state,Section::AllNotes) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::AllNotes).await; }); } }
                 SidebarItem { label: texts::NAV_WEBS, active: section == Section::AllPages,
-                    onclick: move |_| store.navigate(&mut state,Section::AllPages) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::AllPages).await; }); } }
                 SidebarItem { label: texts::NAV_FILES, active: section == Section::AllFiles,
-                    onclick: move |_| store.navigate(&mut state,Section::AllFiles) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::AllFiles).await; }); } }
                 SidebarItem { label: texts::NAV_SEARCH, active: section == Section::Search,
-                    onclick: move |_| store.navigate(&mut state,Section::Search) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::Search).await; }); } }
                 SidebarItem { label: "Timeline".to_string(), active: section == Section::Timeline,
-                    onclick: move |_| store.navigate(&mut state,Section::Timeline) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::Timeline).await; }); } }
             }
 
             // Folders
@@ -112,9 +123,13 @@ pub fn Sidebar() -> Element {
                 span { {texts::DIVIDER_FOLDERS} }
                 span { class: "sidebar-add-btn",
                     onclick: move |_| {
-                        if let Ok(fid) = store.create_folder(&state, "", None) {
-                            state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
-                        }
+                        let mut store = store;
+                        let mut state = state;
+                        spawn(async move {
+                            if let Ok(fid) = store.create_folder(&state, "", None).await {
+                                state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
+                            }
+                        });
                     },
                     "+"
                 }
@@ -136,14 +151,14 @@ pub fn Sidebar() -> Element {
             div { class: "sidebar-divider", {texts::DIVIDER_SYSTEM} }
             div { class: "sidebar-group",
                 div { class: "sidebar-item{active_class(section == Section::Trash)}",
-                    onclick: move |_| store.navigate(&mut state,Section::Trash),
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::Trash).await; }); },
                     span { {texts::NAV_TRASH} }
                     if *store.trash_count.read() > 0 {
                         span { class: "badge", "{store.trash_count}" }
                     }
                 }
                 SidebarItem { label: texts::NAV_SETTINGS, active: section == Section::Settings,
-                    onclick: move |_| store.navigate(&mut state,Section::Settings) }
+                    onclick: move |_| { let mut store = store; let mut state = state; spawn(async move { store.navigate(&mut state, Section::Settings).await; }); } }
             }
 
             div { class: "sidebar-spacer" }
@@ -207,29 +222,37 @@ fn SpaceRenameInput(space_id: i64) -> Element {
             onkeydown: move |evt| {
                 if evt.key() == Key::Enter {
                     let name = value.read().trim().to_string();
-                    if !name.is_empty() {
-                        store.rename_space(&state, space_id, &name).ok();
-                    } else {
-                        // Empty name — delete the space
-                        let conn = data::open_db().unwrap();
-                        lore_core::db::delete_space_permanent(&conn, space_id).ok();
-                        // Switch to first remaining space
-                        if let Ok(s) = lore_core::db::get_active_space(&conn) {
-                            store.switch_space(&mut state,s.id);
-                        }
-                    }
-                    state.renaming.set(None);
-                    store.refresh(&state);
-                } else if evt.key() == Key::Escape {
-                    if is_new {
-                        store.delete_space_permanent(&state, space_id).ok();
-                        if let Ok(conn) = data::open_db()
-                            && let Ok(s) = lore_core::db::get_active_space(&conn) {
-                                store.switch_space(&mut state,s.id);
+                    let mut store = store;
+                    let mut state = state;
+                    spawn(async move {
+                        if !name.is_empty() {
+                            store.rename_space(&state, space_id, &name).await.ok();
+                        } else {
+                            // Empty name — delete the space
+                            let conn = data::open_db().unwrap();
+                            lore_core::db::delete_space_permanent(&conn, space_id).ok();
+                            // Switch to first remaining space
+                            if let Ok(s) = lore_core::db::get_active_space(&conn) {
+                                store.switch_space(&mut state, s.id).await;
                             }
-                    }
-                    state.renaming.set(None);
-                    store.refresh(&state);
+                        }
+                        state.renaming.set(None);
+                        store.refresh(&state).await;
+                    });
+                } else if evt.key() == Key::Escape {
+                    let mut store = store;
+                    let mut state = state;
+                    spawn(async move {
+                        if is_new {
+                            store.delete_space_permanent(&state, space_id).await.ok();
+                            if let Ok(conn) = data::open_db()
+                                && let Ok(s) = lore_core::db::get_active_space(&conn) {
+                                    store.switch_space(&mut state, s.id).await;
+                                }
+                        }
+                        state.renaming.set(None);
+                        store.refresh(&state).await;
+                    });
                 }
             },
         }
@@ -258,21 +281,29 @@ fn FolderRenameInput(folder_id: i64) -> Element {
             onkeydown: move |evt| {
                 if evt.key() == Key::Enter {
                     let name = value.read().trim().to_string();
-                    if !name.is_empty() {
-                        store.rename_folder(&state, folder_id, &name).ok();
-                    } else {
-                        // Empty name — delete the folder
-                        store.delete_folder(&state, folder_id).ok();
-                    }
-                    state.renaming.set(None);
-                    store.refresh(&state);
+                    let mut store = store;
+                    let mut state = state;
+                    spawn(async move {
+                        if !name.is_empty() {
+                            store.rename_folder(&state, folder_id, &name).await.ok();
+                        } else {
+                            // Empty name — delete the folder
+                            store.delete_folder(&state, folder_id).await.ok();
+                        }
+                        state.renaming.set(None);
+                        store.refresh(&state).await;
+                    });
                 } else if evt.key() == Key::Escape {
-                    // Cancel — delete only if new (empty name)
-                    if is_new {
-                        store.delete_folder(&state, folder_id).ok();
-                    }
-                    state.renaming.set(None);
-                    store.refresh(&state);
+                    let mut store = store;
+                    let mut state = state;
+                    spawn(async move {
+                        // Cancel — delete only if new (empty name)
+                        if is_new {
+                            store.delete_folder(&state, folder_id).await.ok();
+                        }
+                        state.renaming.set(None);
+                        store.refresh(&state).await;
+                    });
                 }
             },
         }
@@ -344,7 +375,11 @@ fn FolderTreeItem(
                 FolderRenameInput { folder_id: folder_id }
             } else {
                 span { class: "folder-name",
-                    onclick: move |_| store.navigate(&mut state,Section::Folder(folder_id)),
+                    onclick: move |_| {
+                        let mut store = store;
+                        let mut state = state;
+                        spawn(async move { store.navigate(&mut state, Section::Folder(folder_id)).await; });
+                    },
                     "{name}"
                 }
                 if count > 0 {
@@ -364,10 +399,14 @@ fn FolderTreeItem(
                 div { class: "folder-context-menu",
                     div { class: "folder-menu-item",
                         onclick: move |_| {
-                            if let Ok(fid) = store.create_folder(&state, "", Some(folder_id)) {
-                                state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
-                                expanded.set(true);
-                            }
+                            let mut store = store;
+                            let mut state = state;
+                            spawn(async move {
+                                if let Ok(fid) = store.create_folder(&state, "", Some(folder_id)).await {
+                                    state.renaming.set(Some(crate::state::Renaming::Folder(fid, String::new())));
+                                    expanded.set(true);
+                                }
+                            });
                             menu_open.set(false);
                         },
                         "New subfolder"
@@ -383,10 +422,14 @@ fn FolderTreeItem(
                         onclick: move |_| {
                             let conn = data::open_db().unwrap();
                             lore_core::db::delete_folder(&conn, folder_id).ok();
-                            if is_active {
-                                store.navigate(&mut state,Section::AllNotes);
-                            }
-                            store.refresh(&state);
+                            let mut store = store;
+                            let mut state = state;
+                            spawn(async move {
+                                if is_active {
+                                    store.navigate(&mut state, Section::AllNotes).await;
+                                }
+                                store.refresh(&state).await;
+                            });
                             menu_open.set(false);
                         },
                         "Delete"

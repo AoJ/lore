@@ -33,16 +33,24 @@ pub fn ContentFile(id: i64) -> Element {
     let size = data::format_file_size(file.size);
     let short_hash = file.hash.chars().take(8).collect::<String>();
 
-    // Compute data URI for preview (images and PDFs only)
-    let data_uri = use_memo(move || {
-        let conn = data::open_db().ok()?;
-        let f = lore_core::db::get_file(&conn, id).ok()?;
-        let m = f.mime_type.as_deref().unwrap_or("");
-        if m.starts_with("image/") || m == "application/pdf" {
-            store.get_file_data_uri(id)
+    // Compute data URI for preview (images and PDFs only). We can't use
+    // `use_memo` here because `store.get_file_data_uri` is async; instead
+    // we hold the result in a signal that `use_future` populates.
+    let mut data_uri = use_signal(|| Option::<String>::None);
+    use_future(move || async move {
+        let Some(conn) = data::open_db().ok() else {
+            return;
+        };
+        let Ok(f) = lore_core::db::get_file(&conn, id) else {
+            return;
+        };
+        let m = f.mime_type.as_deref().unwrap_or("").to_string();
+        let result = if m.starts_with("image/") || m == "application/pdf" {
+            store.get_file_data_uri(id).await
         } else {
             None
-        }
+        };
+        data_uri.set(result);
     });
 
     rsx! {
@@ -129,13 +137,17 @@ pub fn ContentFile(id: i64) -> Element {
                 button {
                     class: "btn-sm btn-danger",
                     onclick: move |_| {
-                        if store.trash_file(&state, id).is_ok() {
-                            state.show_toast(
-                                texts::TOAST_FILE_TRASH.to_string(),
-                                Some(UndoAction::RestoreFile(id)),
-                            );
-                            state.selected.set(Selected::None);
-                        }
+                        let mut store = store;
+                        let mut state = state;
+                        spawn(async move {
+                            if store.trash_file(&state, id).await.is_ok() {
+                                state.show_toast(
+                                    texts::TOAST_FILE_TRASH.to_string(),
+                                    Some(UndoAction::RestoreFile(id)),
+                                );
+                                state.selected.set(Selected::None);
+                            }
+                        });
                     },
                     {texts::BTN_DELETE}
                 }

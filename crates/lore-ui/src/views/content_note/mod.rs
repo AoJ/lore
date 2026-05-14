@@ -77,7 +77,11 @@ pub fn ContentNote(id: i64) -> Element {
                         span { class: "note-folder-link",
                             onclick: {
                                 let fid = current_folder_id.unwrap();
-                                move |_| store.navigate(&mut state, Section::Folder(fid))
+                                move |_| {
+                                    let mut store = store;
+                                    let mut state = state;
+                                    spawn(async move { store.navigate(&mut state, Section::Folder(fid)).await; });
+                                }
                             },
                             "📁 {folder_path_str}"
                         }

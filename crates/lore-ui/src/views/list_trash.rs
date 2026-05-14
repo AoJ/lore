@@ -39,24 +39,34 @@ pub fn ListTrash() -> Element {
                                 div { class: "trash-actions",
                                     button { class: "btn-sm",
                                         onclick: move |_| {
-                                            let result = match item_kind {
-                                                lore_core::db::TrashKind::Page => store.restore_page(&state, item_id),
-                                                lore_core::db::TrashKind::Note => store.restore_note(&state, item_id),
-                                                lore_core::db::TrashKind::File => store.restore_file(&state, item_id),
-                                            };
-                                            if result.is_ok() {
-                                                state.show_toast(texts::TOAST_RESTORED.to_string(), None);
-                                            }
+                                            let kind = item_kind.clone();
+                                            spawn(async move {
+                                                let mut store = store;
+                                                let mut state = state;
+                                                let result = match kind {
+                                                    lore_core::db::TrashKind::Page => store.restore_page(&state, item_id).await,
+                                                    lore_core::db::TrashKind::Note => store.restore_note(&state, item_id).await,
+                                                    lore_core::db::TrashKind::File => store.restore_file(&state, item_id).await,
+                                                };
+                                                if result.is_ok() {
+                                                    state.show_toast(texts::TOAST_RESTORED.to_string(), None);
+                                                }
+                                            });
                                         },
                                         {texts::BTN_RESTORE}
                                     }
                                     button { class: "btn-sm btn-danger",
                                         onclick: move |_| {
-                                            match item_kind2 {
-                                                lore_core::db::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).ok(); }
-                                                lore_core::db::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).ok(); }
-                                                lore_core::db::TrashKind::File => { store.delete_file_permanent(&state, item_id2).ok(); }
-                                            }
+                                            let kind = item_kind2.clone();
+                                            spawn(async move {
+                                                let mut store = store;
+                                                let state = state;
+                                                match kind {
+                                                    lore_core::db::TrashKind::Page => { store.delete_page_permanent(&state, item_id2).await.ok(); }
+                                                    lore_core::db::TrashKind::Note => { store.delete_note_permanent(&state, item_id2).await.ok(); }
+                                                    lore_core::db::TrashKind::File => { store.delete_file_permanent(&state, item_id2).await.ok(); }
+                                                }
+                                            });
                                         },
                                         {texts::BTN_DELETE_FOREVER}
                                     }

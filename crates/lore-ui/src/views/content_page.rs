@@ -52,7 +52,9 @@ pub fn ContentPage(id: i64) -> Element {
                             onclick: {
                                 let page_id = id;
                                 move |_| {
-                                    store.retry_page(&state, page_id).ok();
+                                    let mut store = store;
+                                    let state = state;
+                                    spawn(async move { store.retry_page(&state, page_id).await.ok(); });
                                 }
                             },
                             {texts::BTN_RETRY}
@@ -62,13 +64,17 @@ pub fn ContentPage(id: i64) -> Element {
                         onclick: {
                             let page_id = id;
                             move |_| {
-                                if store.trash_page(&state, page_id).is_ok() {
-                                    state.show_toast(
-                                        texts::TOAST_MOVED_TRASH.to_string(),
-                                        Some(UndoAction::RestorePage(page_id)),
-                                    );
-                                    state.selected.set(crate::state::Selected::None);
-                                }
+                                let mut store = store;
+                                let mut state = state;
+                                spawn(async move {
+                                    if store.trash_page(&state, page_id).await.is_ok() {
+                                        state.show_toast(
+                                            texts::TOAST_MOVED_TRASH.to_string(),
+                                            Some(UndoAction::RestorePage(page_id)),
+                                        );
+                                        state.selected.set(crate::state::Selected::None);
+                                    }
+                                });
                             }
                         },
                         {texts::BTN_DELETE}

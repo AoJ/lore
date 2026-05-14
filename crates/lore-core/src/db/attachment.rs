@@ -1,9 +1,10 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Outcome of `insert_attachment` so the caller can show appropriate feedback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InsertAttachmentOutcome {
     Inserted,
     DedupedActive,
@@ -95,7 +96,7 @@ pub fn cleanup_orphaned_attachments(
     Ok(deleted)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AttachmentRow {
     pub id: i64,
     pub note_id: i64,

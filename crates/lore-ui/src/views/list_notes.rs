@@ -32,9 +32,13 @@ pub fn ListNotes() -> Element {
                     h2 { class: "list-title", "{title}" }
                     button { class: "list-add-btn",
                         onclick: move |_| {
-                            if let Ok(note_id) = store.create_note(&state, folder_id) {
-                                state.selected.set(crate::state::Selected::Note(note_id));
-                            }
+                            spawn(async move {
+                                let mut store = store;
+                                let mut state = state;
+                                if let Ok(note_id) = store.create_note(&state, folder_id).await {
+                                    state.selected.set(crate::state::Selected::Note(note_id));
+                                }
+                            });
                         },
                         "+"
                     }

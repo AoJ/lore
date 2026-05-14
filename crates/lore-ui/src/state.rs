@@ -1,4 +1,3 @@
-use crate::data;
 use dioxus::prelude::*;
 
 /// Which sidebar section is active
@@ -65,21 +64,18 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Initial state with `space_id = 1` (the always-seeded default space).
+    /// `BootedApp` spawns a task to fetch the actual most-recently-used
+    /// space from the backend and updates the signal — the value is rarely
+    /// visible before the first refresh tick lands.
     pub fn new() -> Self {
-        // Load active space from DB
-        let active_space_id = data::open_db()
-            .ok()
-            .and_then(|conn| lore_core::db::get_active_space(&conn).ok())
-            .map(|s| s.id)
-            .unwrap_or(1);
-
         Self {
             section: Signal::new(Section::AllNotes),
             selected: Signal::new(Selected::None),
             search_query: Signal::new(String::new()),
             toast: Signal::new(None),
             refresh_tick: Signal::new(0),
-            space_id: Signal::new(active_space_id),
+            space_id: Signal::new(1),
             space_dropdown_open: Signal::new(false),
             renaming: Signal::new(None),
         }

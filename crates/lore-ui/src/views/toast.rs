@@ -21,19 +21,17 @@ pub fn Toast() -> Element {
                     if has_undo {
                         button { class: "toast-undo",
                             onclick: move |_| {
-                                if let Some(ref action) = undo_action {
+                                let action = undo_action.clone();
+                                spawn(async move {
+                                    let mut store = store;
+                                    let state = state;
                                     match action {
-                                        UndoAction::RestorePage(id) => {
-                                            store.restore_page(&state, *id).ok();
-                                        }
-                                        UndoAction::RestoreNote(id) => {
-                                            store.restore_note(&state, *id).ok();
-                                        }
-                                        UndoAction::RestoreFile(id) => {
-                                            store.restore_file(&state, *id).ok();
-                                        }
+                                        Some(UndoAction::RestorePage(id)) => { store.restore_page(&state, id).await.ok(); }
+                                        Some(UndoAction::RestoreNote(id)) => { store.restore_note(&state, id).await.ok(); }
+                                        Some(UndoAction::RestoreFile(id)) => { store.restore_file(&state, id).await.ok(); }
+                                        None => {}
                                     }
-                                }
+                                });
                                 state.dismiss_toast();
                             },
                             {texts::TOAST_UNDO}

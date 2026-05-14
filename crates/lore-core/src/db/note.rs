@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
 pub fn insert_note(
     conn: &Connection,
@@ -74,12 +75,44 @@ pub fn delete_note_permanent(conn: &Connection, note_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NoteRow {
     pub id: i64,
     pub title: String,
     pub body_preview: String,
     pub folder_id: Option<i64>,
     pub updated_at: String,
+}
+
+/// IDs only, ordered the same way `list_notes` returns rows. Used by the
+/// keyboard-nav path to pick prev/next neighbours without paying for the
+/// full row payload.
+pub fn list_note_ids_ordered(
+    conn: &Connection,
+    folder_id: Option<i64>,
+    space_id: i64,
+) -> Result<Vec<i64>> {
+    if let Some(fid) = folder_id {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM note WHERE deleted_at IS NULL AND folder_id = ?1 \
+             ORDER BY updated_at DESC",
+        )?;
+        let ids = stmt
+            .query_map([fid], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM note WHERE deleted_at IS NULL AND space_id = ?1 \
+             ORDER BY updated_at DESC",
+        )?;
+        let ids = stmt
+            .query_map([space_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
 }
 
 pub fn list_notes(
@@ -116,6 +149,7 @@ pub fn list_notes(
     Ok(rows)
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NoteData {
     pub id: i64,
     pub title: String,

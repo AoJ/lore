@@ -3277,6 +3277,7 @@ dependencies = [
  "mutants",
  "regex",
  "rusqlite",
+ "serde",
  "sha2",
  "tempfile",
  "url",
@@ -3303,6 +3304,7 @@ name = "lore-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64",
  "chrono",
  "dioxus",

@@ -46,17 +46,17 @@ pub fn NoteActions(id: i64, current_folder_id: Option<i64>) -> Element {
                             .content_type()
                             .unwrap_or_else(|| data::mime_from_extension(&name));
                         if let Ok(bytes) = file_data.read_bytes().await
-                            && let Ok((att_id, outcome)) = store.upload_attachment(note_id, &name, &mime, &bytes)
+                            && let Ok((att_id, outcome)) = store.upload_attachment(note_id, &name, &mime, &bytes).await
                         {
                             match outcome {
                                 lore_core::db::InsertAttachmentOutcome::DedupedActive => deduped += 1,
                                 lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => revived += 1,
                                 lore_core::db::InsertAttachmentOutcome::Inserted => {}
                             }
-                            insert_attachment_ref(&mut store, att_id, &name, &mime);
+                            insert_attachment_ref(&mut store, att_id, &name, &mime).await;
                         }
                     }
-                    store.refresh(&state);
+                    store.refresh(&state).await;
                     if revived > 0 {
                         state.show_toast(texts::TOAST_ATTACHMENT_REVIVED.to_string(), None);
                     } else if deduped > 0 {
@@ -84,7 +84,8 @@ pub fn NoteActions(id: i64, current_folder_id: Option<i64>) -> Element {
                         if current_folder_id.is_some() {
                             div { class: "move-to-item",
                                 onclick: move |_| {
-                                    store.move_note(&state, id, None).ok();
+                                    let mut store = store;
+                                    spawn(async move { store.move_note(&state, id, None).await.ok(); });
                                     move_menu_open.set(false);
                                     state.section.set(Section::AllNotes);
                                     state.bump_refresh();
@@ -105,7 +106,8 @@ pub fn NoteActions(id: i64, current_folder_id: Option<i64>) -> Element {
                                         style: "padding-left: calc(var(--spacing-sm) + {indent})",
                                         onclick: move |_| {
                                             if !is_current {
-                                                store.move_note(&state, id, Some(fid)).ok();
+                                                let mut store = store;
+                                                spawn(async move { store.move_note(&state, id, Some(fid)).await.ok(); });
                                                 state.section.set(Section::Folder(fid));
                                                 state.bump_refresh();
                                             }
@@ -124,13 +126,17 @@ pub fn NoteActions(id: i64, current_folder_id: Option<i64>) -> Element {
                     let note_id = id;
                     move |_| {
                         document::eval("if(window.loreEditor) window.loreEditor.destroy();");
-                        if store.trash_note(&state, note_id).is_ok() {
-                            state.show_toast(
-                                texts::TOAST_NOTE_TRASH.to_string(),
-                                Some(UndoAction::RestoreNote(note_id)),
-                            );
-                            state.selected.set(Selected::None);
-                        }
+                        let mut store = store;
+                        let mut state = state;
+                        spawn(async move {
+                            if store.trash_note(&state, note_id).await.is_ok() {
+                                state.show_toast(
+                                    texts::TOAST_NOTE_TRASH.to_string(),
+                                    Some(UndoAction::RestoreNote(note_id)),
+                                );
+                                state.selected.set(Selected::None);
+                            }
+                        });
                     }
                 },
                 {texts::BTN_DELETE}

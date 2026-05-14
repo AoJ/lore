@@ -13,14 +13,19 @@ use super::bridges::insert_attachment_ref;
 
 #[component]
 pub fn RemovedAttachments(id: i64) -> Element {
-    let mut state = use_context::<AppState>();
-    let mut store = use_context::<DataStore>();
+    let state = use_context::<AppState>();
+    let store = use_context::<DataStore>();
 
-    // Subscribe to revision changes so restores from elsewhere refresh us too.
-    let _rev = *store.revision.read();
-    let removed = store.list_removed_attachments(id);
+    // Subscribe to revision changes so restores from elsewhere refresh us too;
+    // `use_future` fetches the removed-list each time the revision bumps.
+    let revision = store.revision;
+    let mut removed = use_signal(Vec::<lore_core::db::AttachmentRow>::new);
+    use_future(move || async move {
+        let _rev = *revision.read();
+        removed.set(store.list_removed_attachments(id).await);
+    });
 
-    if removed.is_empty() {
+    if removed.read().is_empty() {
         return rsx! {};
     }
 
@@ -28,7 +33,7 @@ pub fn RemovedAttachments(id: i64) -> Element {
         div { class: "note-attachments",
             div { class: "note-attachments-header", "Removed (auto-delete after 30 days)" }
             div { class: "note-attachments-list",
-                for att in removed.iter() {
+                for att in removed.read().iter() {
                     {
                         let aid = att.id;
                         let aname = att.name.clone();
@@ -56,14 +61,18 @@ pub fn RemovedAttachments(id: i64) -> Element {
                                 div { class: "attachment-actions",
                                     button { class: "btn-sm",
                                         onclick: move |_| {
-                                            if let Ok(row) = store.restore_attachment(&state, aid) {
-                                                let mime = row.mime_type.unwrap_or_default();
-                                                insert_attachment_ref(&mut store, aid, &row.name, &mime);
-                                                state.show_toast(
-                                                    texts::TOAST_ATTACHMENT_RESTORED.to_string(),
-                                                    None,
-                                                );
-                                            }
+                                            let mut store = store;
+                                            let mut state = state;
+                                            spawn(async move {
+                                                if let Ok(row) = store.restore_attachment(&state, aid).await {
+                                                    let mime = row.mime_type.unwrap_or_default();
+                                                    insert_attachment_ref(&mut store, aid, &row.name, &mime).await;
+                                                    state.show_toast(
+                                                        texts::TOAST_ATTACHMENT_RESTORED.to_string(),
+                                                        None,
+                                                    );
+                                                }
+                                            });
                                         },
                                         {texts::BTN_RESTORE}
                                     }

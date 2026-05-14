@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+mod backend;
 mod data;
 mod keys;
 mod state;
@@ -8,6 +9,7 @@ mod texts;
 mod views;
 
 use state::{AppState, Section, Selected};
+use std::sync::Arc;
 use views::*;
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
@@ -35,6 +37,13 @@ fn app() -> Element {
     let db_path = data::db_path();
     let bootstrap = lore_core::db::open(&db_path);
 
+    // On successful bootstrap, install the process-wide backend so every
+    // mutation/refresh has somewhere to send DB calls. Done before the first
+    // component renders.
+    if bootstrap.is_ok() {
+        backend::init(Arc::new(backend::LocalBackend::new(db_path.clone())));
+    }
+
     rsx! {
         document::Style { {TOKENS_CSS} }
         document::Style { {APP_CSS} }
@@ -54,11 +63,27 @@ fn app() -> Element {
 #[component]
 fn BootedApp() -> Element {
     let state = AppState::new();
-    let mut store = store::DataStore::new(*state.space_id.read());
-    store.refresh(&state);
+    let store = store::DataStore::new();
 
     use_context_provider(|| state);
     use_context_provider(|| store);
+
+    // Initial load: pick the most recently used space (the trait orders
+    // them by `last_used DESC`) and run the first refresh. AppState started
+    // with `space_id = 1`, so we'd display the seeded default until this
+    // future resolves.
+    use_future(move || {
+        let mut state = state;
+        let mut store = store;
+        async move {
+            if let Ok(spaces) = backend::current().list_spaces().await
+                && let Some(active) = spaces.first()
+            {
+                state.space_id.set(active.id);
+            }
+            store.refresh(&state).await;
+        }
+    });
 
     rsx! {
         script { {MILKDOWN_JS} }
@@ -148,7 +173,7 @@ fn RevisionIndicator() -> Element {
     use_future(move || async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            store.poll(&state);
+            store.poll(&state).await;
         }
     });
 
@@ -167,7 +192,10 @@ fn RevisionIndicator() -> Element {
     }
 }
 
-fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::DataStore) {
+/// Sync keyboard dispatcher. Async work is fired into a background task via
+/// `spawn`; the handler itself returns immediately so the keypress isn't
+/// blocked.
+fn handle_keyboard(evt: KeyboardEvent, state: AppState, store: store::DataStore) {
     let key = evt.key();
     let m = evt.modifiers();
     let cmd = m.meta();
@@ -180,17 +208,17 @@ fn handle_keyboard(evt: KeyboardEvent, mut state: AppState, mut store: store::Da
     };
 
     match (ch, ctrl, cmd, shift) {
-        (c, true, _, _) if c == keys::NAV_DOWN.0 => move_selection(&mut state, 1),
-        (c, true, _, _) if c == keys::NAV_UP.0 => move_selection(&mut state, -1),
+        (c, true, _, _) if c == keys::NAV_DOWN.0 => move_selection(state, 1),
+        (c, true, _, _) if c == keys::NAV_UP.0 => move_selection(state, -1),
         ("s", _, true, _) => save_selected_file(state),
         ("u", _, true, _) if *state.section.read() == Section::AllFiles => {
             dioxus::document::eval("document.getElementById('file-upload-input').click()");
         }
-        ("d", _, true, _) => trash_selected(&mut state, &mut store),
-        ("n", _, true, false) => create_new_note(&mut state, &mut store),
-        ("N", _, true, true) => create_new_space(&mut state, &mut store),
-        ("F" | "f", _, true, true) => create_new_folder(&mut state, &mut store),
-        (c, true, _, _) if is_digit_1_to_9(c) => switch_space_by_index(&mut state, &mut store, c),
+        ("d", _, true, _) => trash_selected(state, store),
+        ("n", _, true, false) => create_new_note(state, store),
+        ("N", _, true, true) => create_new_space(state, store),
+        ("F" | "f", _, true, true) => create_new_folder(state, store),
+        (c, true, _, _) if is_digit_1_to_9(c) => switch_space_by_index(state, store, c),
         _ => {}
     }
 }
@@ -199,13 +227,14 @@ fn is_digit_1_to_9(s: &str) -> bool {
     s.len() == 1 && matches!(s.as_bytes()[0], b'1'..=b'9')
 }
 
-fn switch_space_by_index(state: &mut AppState, store: &mut store::DataStore, ch: &str) {
+fn switch_space_by_index(mut state: AppState, mut store: store::DataStore, ch: &str) {
     let idx = (ch.as_bytes()[0] - b'1') as usize;
-    let Ok(conn) = data::open_db() else { return };
-    let spaces = lore_core::db::list_spaces(&conn).unwrap_or_default();
-    if let Some(space) = spaces.get(idx) {
-        store.switch_space(state, space.id);
-    }
+    spawn(async move {
+        let spaces = backend::current().list_spaces().await.unwrap_or_default();
+        if let Some(space) = spaces.get(idx) {
+            store.switch_space(&mut state, space.id).await;
+        }
+    });
 }
 
 /// Save the currently-selected file to disk via a native dialog.
@@ -214,15 +243,15 @@ fn save_selected_file(mut state: AppState) {
     let Selected::File(id) = *state.selected.read() else {
         return;
     };
-    let Ok(conn) = data::open_db() else { return };
-    let Ok(file) = lore_core::db::get_file(&conn, id) else {
-        return;
-    };
-    let Ok((_, bytes)) = lore_core::db::get_file_data(&conn, id) else {
-        return;
-    };
-    let name = file.name;
     spawn(async move {
+        let b = backend::current();
+        let Ok(file) = b.get_file(id).await else {
+            return;
+        };
+        let Ok((_, bytes)) = b.get_file_data(id).await else {
+            return;
+        };
+        let name = file.name;
         // Small delay so WKWebView finishes processing the keydown event
         // before the native panel takes focus (otherwise dialog flashes).
         tokio::time::sleep(std::time::Duration::from_millis(80)).await;
@@ -240,122 +269,118 @@ fn save_selected_file(mut state: AppState) {
     });
 }
 
-fn create_new_space(state: &mut AppState, store: &mut store::DataStore) {
-    if let Ok(new_id) = store.create_space(state, "") {
-        store.switch_space(state, new_id);
-        state
-            .renaming
-            .set(Some(state::Renaming::Space(new_id, String::new())));
-        state.space_dropdown_open.set(true);
-    }
-}
-
-fn create_new_folder(state: &mut AppState, store: &mut store::DataStore) {
-    if let Ok(fid) = store.create_folder(state, "", None) {
-        state
-            .renaming
-            .set(Some(state::Renaming::Folder(fid, String::new())));
-    }
-}
-
-fn create_new_note(state: &mut AppState, store: &mut store::DataStore) {
-    let folder_id = match &*state.section.read() {
-        Section::Folder(id) => Some(*id),
-        _ => None,
-    };
-    if let Ok(note_id) = store.create_note(state, folder_id) {
-        // Switch to Notes section if not already there
-        let section = state.section.read().clone();
-        if !matches!(section, Section::AllNotes | Section::Folder(_)) {
-            state.section.set(Section::AllNotes);
+fn create_new_space(mut state: AppState, mut store: store::DataStore) {
+    spawn(async move {
+        if let Ok(new_id) = store.create_space(&state, "").await {
+            store.switch_space(&mut state, new_id).await;
+            state
+                .renaming
+                .set(Some(state::Renaming::Space(new_id, String::new())));
+            state.space_dropdown_open.set(true);
         }
-        state.selected.set(Selected::Note(note_id));
-        state.bump_refresh();
-    }
+    });
 }
 
-fn trash_selected(state: &mut AppState, store: &mut store::DataStore) {
+fn create_new_folder(state: AppState, mut store: store::DataStore) {
+    let mut state = state;
+    spawn(async move {
+        if let Ok(fid) = store.create_folder(&state, "", None).await {
+            state
+                .renaming
+                .set(Some(state::Renaming::Folder(fid, String::new())));
+        }
+    });
+}
+
+fn create_new_note(mut state: AppState, mut store: store::DataStore) {
+    spawn(async move {
+        let folder_id = match &*state.section.read() {
+            Section::Folder(id) => Some(*id),
+            _ => None,
+        };
+        if let Ok(note_id) = store.create_note(&state, folder_id).await {
+            // Switch to Notes section if not already there
+            let section = state.section.read().clone();
+            if !matches!(section, Section::AllNotes | Section::Folder(_)) {
+                state.section.set(Section::AllNotes);
+            }
+            state.selected.set(Selected::Note(note_id));
+            state.bump_refresh();
+        }
+    });
+}
+
+fn trash_selected(mut state: AppState, mut store: store::DataStore) {
     let selected = state.selected.read().clone();
-    match selected {
-        Selected::Page(id) if store.trash_page(state, id).is_ok() => {
-            state.show_toast(
-                texts::TOAST_MOVED_TRASH.to_string(),
-                Some(state::UndoAction::RestorePage(id)),
-            );
-            state.selected.set(Selected::None);
+    spawn(async move {
+        match selected {
+            Selected::Page(id) => {
+                if store.trash_page(&state, id).await.is_ok() {
+                    state.show_toast(
+                        texts::TOAST_MOVED_TRASH.to_string(),
+                        Some(state::UndoAction::RestorePage(id)),
+                    );
+                    state.selected.set(Selected::None);
+                }
+            }
+            Selected::Note(id) => {
+                if store.trash_note(&state, id).await.is_ok() {
+                    state.show_toast(
+                        texts::TOAST_NOTE_TRASH.to_string(),
+                        Some(state::UndoAction::RestoreNote(id)),
+                    );
+                    state.selected.set(Selected::None);
+                }
+            }
+            Selected::File(id) => {
+                if store.trash_file(&state, id).await.is_ok() {
+                    state.show_toast(
+                        texts::TOAST_FILE_TRASH.to_string(),
+                        Some(state::UndoAction::RestoreFile(id)),
+                    );
+                    state.selected.set(Selected::None);
+                }
+            }
+            _ => {}
         }
-        Selected::Note(id) if store.trash_note(state, id).is_ok() => {
-            state.show_toast(
-                texts::TOAST_NOTE_TRASH.to_string(),
-                Some(state::UndoAction::RestoreNote(id)),
-            );
-            state.selected.set(Selected::None);
-        }
-        Selected::File(id) if store.trash_file(state, id).is_ok() => {
-            state.show_toast(
-                texts::TOAST_FILE_TRASH.to_string(),
-                Some(state::UndoAction::RestoreFile(id)),
-            );
-            state.selected.set(Selected::None);
-        }
-        _ => {}
-    }
+    });
 }
 
 /// Move selection up/down in the current list.
-/// Uses a single DB query per keypress — gets ordered IDs and finds neighbor.
-fn move_selection(state: &mut AppState, direction: i32) {
+/// Spawns one async task per keypress to fetch ordered IDs and pick neighbor.
+fn move_selection(state: AppState, direction: i32) {
+    let mut state = state;
     let section = state.section.read().clone();
     let current = state.selected.read().clone();
-
     let space_id = *state.space_id.read();
 
     match section {
         Section::AllPages => {
-            let ids = page_ids_ordered(space_id);
-            navigate_ids(&ids, &current, direction, state, Selected::Page);
+            spawn(async move {
+                let ids = backend::current()
+                    .list_page_ids_ordered(space_id, 200)
+                    .await
+                    .unwrap_or_default();
+                navigate_ids(&ids, &current, direction, &mut state, Selected::Page);
+            });
         }
         Section::AllNotes | Section::Folder(_) => {
             let folder_id = match &section {
                 Section::Folder(id) => Some(*id),
                 _ => None,
             };
-            let ids = note_ids_ordered(folder_id, space_id);
-            navigate_ids(&ids, &current, direction, state, Selected::Note);
+            spawn(async move {
+                let ids = backend::current()
+                    .list_note_ids_ordered(folder_id, space_id)
+                    .await
+                    .unwrap_or_default();
+                navigate_ids(&ids, &current, direction, &mut state, Selected::Note);
+            });
         }
         Section::Settings => {
             state.selected.set(Selected::SettingsRules);
         }
         _ => {}
-    }
-}
-
-fn page_ids_ordered(space_id: i64) -> Vec<i64> {
-    let conn = data::open_db().unwrap();
-    conn.prepare("SELECT id FROM web_page WHERE trashed_at IS NULL AND space_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 200")
-        .and_then(|mut s| {
-            let ids: Vec<i64> = s.query_map([space_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
-            Ok(ids)
-        })
-        .unwrap_or_default()
-}
-
-fn note_ids_ordered(folder_id: Option<i64>, space_id: i64) -> Vec<i64> {
-    let conn = data::open_db().unwrap();
-    if let Some(fid) = folder_id {
-        conn.prepare("SELECT id FROM note WHERE deleted_at IS NULL AND folder_id = ?1 ORDER BY updated_at DESC")
-            .and_then(|mut s| {
-                let v: Vec<i64> = s.query_map([fid], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
-                Ok(v)
-            })
-            .unwrap_or_default()
-    } else {
-        conn.prepare("SELECT id FROM note WHERE deleted_at IS NULL AND space_id = ?1 ORDER BY updated_at DESC")
-            .and_then(|mut s| {
-                let v: Vec<i64> = s.query_map([space_id], |r| r.get(0))?.filter_map(|r| r.ok()).collect();
-                Ok(v)
-            })
-            .unwrap_or_default()
     }
 }
 

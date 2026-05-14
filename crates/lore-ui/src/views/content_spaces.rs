@@ -79,7 +79,10 @@ pub fn ContentSpaces() -> Element {
                                                 if evt.key() == Key::Enter {
                                                     let name = rename_value.read().trim().to_string();
                                                     if !name.is_empty() {
-                                                        store.rename_space(&state, sid, &name).ok();
+                                                        let mut store = store;
+                                                        let state = state;
+                                                        let name = name.clone();
+                                                        spawn(async move { store.rename_space(&state, sid, &name).await.ok(); });
                                                     }
                                                     renaming_id.set(None);
                                                 } else if evt.key() == Key::Escape {
@@ -115,15 +118,17 @@ pub fn ContentSpaces() -> Element {
                                     if is_deleted {
                                         button { class: "btn-sm",
                                             onclick: move |_| {
-                                                let _conn = data::open_db().unwrap();
-                                                store.restore_space(&state, sid).ok();
+                                                let mut store = store;
+                                                let state = state;
+                                                spawn(async move { store.restore_space(&state, sid).await.ok(); });
                                             },
                                             "Restore"
                                         }
                                         button { class: "btn-sm btn-danger",
                                             onclick: move |_| {
-                                                let _conn = data::open_db().unwrap();
-                                                store.delete_space_permanent(&state, sid).ok();
+                                                let mut store = store;
+                                                let state = state;
+                                                spawn(async move { store.delete_space_permanent(&state, sid).await.ok(); });
                                             },
                                             "Delete permanently"
                                         }
@@ -131,7 +136,9 @@ pub fn ContentSpaces() -> Element {
                                         if !is_active {
                                             button { class: "btn-sm",
                                                 onclick: move |_| {
-                                                    store.switch_space(&mut state,sid);
+                                                    let mut store = store;
+                                                    let mut state = state;
+                                                    spawn(async move { store.switch_space(&mut state, sid).await; });
                                                 },
                                                 "Switch to"
                                             }
@@ -146,7 +153,9 @@ pub fn ContentSpaces() -> Element {
                                         if !is_active {
                                             button { class: "btn-sm btn-danger",
                                                 onclick: move |_| {
-                                                    store.trash_space(&state, sid).ok();
+                                                    let mut store = store;
+                                                    let state = state;
+                                                    spawn(async move { store.trash_space(&state, sid).await.ok(); });
                                                 },
                                                 "Delete"
                                             }

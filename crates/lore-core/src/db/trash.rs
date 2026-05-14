@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
 use super::file::delete_file_permanent;
 use super::note::delete_note_permanent;
@@ -31,14 +32,14 @@ pub fn delete_space_permanent(conn: &Connection, space_id: i64) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TrashKind {
     Page,
     Note,
     File,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrashItem {
     pub id: i64,
     pub title: String,

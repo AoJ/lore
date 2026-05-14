@@ -40,20 +40,21 @@ fn MarkdownBridge(id: i64) -> Element {
             oninput: move |evt| {
                 let md = evt.value();
                 if md.is_empty() { return; }
-
-                let (title, body) = split_title_body(&md);
-                store.save_note(id, &title, &body).ok();
-
-                store.cleanup_note_attachments(id, &md);
-
+                let space_id = *state.space_id.read();
                 let urls = lore_core::url_extract::extract_urls(&md);
-                if !urls.is_empty() {
-                    let space_id = *state.space_id.read();
-                    store.auto_archive_urls(&md, space_id);
-                    store.set_current_note_urls(urls);
-                } else {
+                if urls.is_empty() {
                     store.clear_current_note_urls();
                 }
+                spawn(async move {
+                    let mut store = store;
+                    let (title, body) = split_title_body(&md);
+                    store.save_note(id, &title, &body).await.ok();
+                    store.cleanup_note_attachments(id, &md).await;
+                    if !urls.is_empty() {
+                        store.auto_archive_urls(&md, space_id).await;
+                        store.set_current_note_urls(urls).await;
+                    }
+                });
             },
         }
     }
@@ -136,20 +137,24 @@ fn FileDropBridge(id: i64) -> Element {
                     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
                     Some((name, mime, bytes))
                 })();
-                if let Some((name, mime, bytes)) = parsed
-                    && let Ok((att_id, outcome)) = store.upload_attachment(id, &name, &mime, &bytes)
-                {
-                    insert_attachment_ref(&mut store, att_id, &name, &mime);
-                    match outcome {
-                        lore_core::db::InsertAttachmentOutcome::DedupedActive => {
-                            state.show_toast(texts::TOAST_ATTACHMENT_DEDUPED.to_string(), None);
+                if let Some((name, mime, bytes)) = parsed {
+                    let mut store = store;
+                    let mut state = state;
+                    spawn(async move {
+                        if let Ok((att_id, outcome)) = store.upload_attachment(id, &name, &mime, &bytes).await {
+                            insert_attachment_ref(&mut store, att_id, &name, &mime).await;
+                            match outcome {
+                                lore_core::db::InsertAttachmentOutcome::DedupedActive => {
+                                    state.show_toast(texts::TOAST_ATTACHMENT_DEDUPED.to_string(), None);
+                                }
+                                lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => {
+                                    state.show_toast(texts::TOAST_ATTACHMENT_REVIVED.to_string(), None);
+                                }
+                                lore_core::db::InsertAttachmentOutcome::Inserted => {}
+                            }
+                            store.refresh(&state).await;
                         }
-                        lore_core::db::InsertAttachmentOutcome::RevivedFromRemoved => {
-                            state.show_toast(texts::TOAST_ATTACHMENT_REVIVED.to_string(), None);
-                        }
-                        lore_core::db::InsertAttachmentOutcome::Inserted => {}
-                    }
-                    store.refresh(&state);
+                    });
                 }
             },
         }
@@ -195,10 +200,14 @@ fn ImagePasteBridge(id: i64) -> Element {
                 };
 
                 let name = format!("paste-{}.{}", chrono::Local::now().format("%H%M%S"), ext);
+                let mime_owned = mime.to_string();
 
-                if let Ok((att_id, _outcome)) = store.upload_image(id, &name, mime, &bytes) {
-                    insert_attachment_ref(&mut store, att_id, &name, mime);
-                }
+                let mut store = store;
+                spawn(async move {
+                    if let Ok((att_id, _outcome)) = store.upload_image(id, &name, &mime_owned, &bytes).await {
+                        insert_attachment_ref(&mut store, att_id, &name, &mime_owned).await;
+                    }
+                });
             },
         }
     }
@@ -219,7 +228,12 @@ fn split_title_body(text: &str) -> (String, String) {
 ///
 /// Public-in-module so the actions bar can reuse it when the user picks files
 /// via the +Attach button.
-pub(super) fn insert_attachment_ref(store: &mut DataStore, att_id: i64, name: &str, mime: &str) {
+pub(super) async fn insert_attachment_ref(
+    store: &mut DataStore,
+    att_id: i64,
+    name: &str,
+    mime: &str,
+) {
     let escaped_name = name.replace('\\', "\\\\").replace('\'', "\\'");
     let method = if mime.starts_with("image/") {
         "insertImage"
@@ -232,7 +246,7 @@ pub(super) fn insert_attachment_ref(store: &mut DataStore, att_id: i64, name: &s
     );
     document::eval(&js);
     if mime.starts_with("image/")
-        && let Some(uri) = store.get_attachment_data_uri(att_id)
+        && let Some(uri) = store.get_attachment_data_uri(att_id).await
     {
         let resolve_js = format!(
             "window.loreEditor && window.loreEditor.resolveAttachments({{'{}':'{}'}});",

@@ -82,7 +82,9 @@ pub fn ListTimeline() -> Element {
                                             title: "{day}: {count} activities",
                                             onclick: move |_| {
                                                 if !is_future {
-                                                    store.select_timeline_day(&state, &day_clone);
+                                                    let mut store = store;
+                                                    let day = day_clone.clone();
+                                                    spawn(async move { store.select_timeline_day(&state, &day).await; });
                                                 }
                                             },
                                         }

@@ -40,7 +40,7 @@ pub fn ListFiles() -> Element {
                                 let mime = file_data.content_type()
                                     .unwrap_or_else(|| data::mime_from_extension(&name));
                                 if let Ok(bytes) = file_data.read_bytes().await
-                                    && let Ok((id, outcome)) = store.upload_file(&state, &name, Some(&mime), &bytes)
+                                    && let Ok((id, outcome)) = store.upload_file(&state, &name, Some(&mime), &bytes).await
                                 {
                                     last_id = Some(id);
                                     match outcome {

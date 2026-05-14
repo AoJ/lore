@@ -1,8 +1,9 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileRow {
     pub id: i64,
     pub name: String,
@@ -14,7 +15,7 @@ pub struct FileRow {
 }
 
 /// Outcome of `insert_file` so the caller can show appropriate feedback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InsertFileOutcome {
     Inserted,
     DedupedActive,
