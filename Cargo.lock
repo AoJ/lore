@@ -3274,6 +3274,7 @@ name = "lore-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "mutants",
  "regex",
  "rusqlite",
@@ -3289,6 +3290,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "dirs",
  "lore-core",
  "rusqlite",

@@ -83,8 +83,21 @@ when `open()` (the boot path) actually fails.
 - **`lore-core` has zero network deps** — lets Dioxus compile for both desktop
   and (future) WASM from one codebase.
 - **Desktop calls core directly** via Rust function calls. No HTTP, no ports.
-- **Web version** (when built): `lore-server` (axum) serves vanilla JS + Pico
-  CSS frontend calling JSON API.
+- **Web version**: `lore-server` (axum) exposes the `Backend` trait surface
+  1:1 over `POST /api/<method>` JSON RPC. Per-request `db::open_existing`
+  against the same SQLite file the desktop opens (W1 phase: shared DB on
+  localhost for dev). `HttpBackend` (W3) is the WASM counterpart to
+  `LocalBackend`. Binary blobs ride as base64 strings in JSON via
+  `lore_core::serde_b64`; streaming octet-stream endpoints are a later
+  optimization.
+- **Error envelope**: every server response — handler error, route fallback,
+  JSON-rejection — serializes `lore_core::error::BackendError` as
+  `{ "code": "<snake_case>", "message": "..." }`. Codes are
+  `route_not_found` / `not_found` / `invalid_input` / `internal`; the
+  frontend branches on `code` (resource lookup miss vs. API drift vs.
+  client bug vs. server issue), the `message` is for toasts/logs only.
+  The `Backend` trait in `lore-ui` returns `Result<T, BackendError>` so
+  desktop and web surface the same codes.
 - **Boundaries enforced**, not just documented. `.sentrux/rules.toml` defines
   the layer graph; `sentrux check` (via `make check-arch`) fails if anyone
   introduces a forbidden import.

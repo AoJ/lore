@@ -9,7 +9,6 @@
 //! existing DB call sites in `store.rs` / `main.rs`; no domain model is
 //! introduced — that's deliberate, see CLAUDE.md (web-version phasing).
 
-use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -19,6 +18,13 @@ use lore_core::db::{
     InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats, TrashItem, WebPageDetail,
     WebPageRow,
 };
+use lore_core::error::BackendError;
+
+/// Trait method return type. Wraps `BackendError` so the same error codes
+/// (`not_found`, `route_not_found`, `invalid_input`, `internal`) surface
+/// identically whether the call goes through `LocalBackend` (in-process)
+/// or `HttpBackend` (W3, parses the server's JSON error body).
+pub type Result<T> = std::result::Result<T, BackendError>;
 
 pub mod local;
 

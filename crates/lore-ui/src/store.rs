@@ -12,6 +12,7 @@ use crate::backend;
 use crate::state::{AppState, Section, Selected};
 use dioxus::prelude::*;
 use lore_core::db::{TrashItem, WebPageRow};
+use lore_core::error::BackendError;
 use std::collections::HashMap;
 
 /// Central data store, provided as Dioxus context alongside AppState.
@@ -180,11 +181,13 @@ impl DataStore {
 
     // ---- Note mutations ----
 
-    pub async fn save_note(&mut self, note_id: i64, title: &str, body: &str) -> Result<(), String> {
-        backend::current()
-            .update_note(note_id, title, body)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn save_note(
+        &mut self,
+        note_id: i64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), BackendError> {
+        backend::current().update_note(note_id, title, body).await?;
         // Don't refresh list on every keystroke — polling will catch it
         Ok(())
     }
@@ -193,30 +196,27 @@ impl DataStore {
         &mut self,
         state: &AppState,
         folder_id: Option<i64>,
-    ) -> Result<i64, String> {
+    ) -> Result<i64, BackendError> {
         let space_id = *state.space_id.read();
         let id = backend::current()
             .create_note("", "", folder_id, space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         self.refresh(state).await;
         Ok(id)
     }
 
-    pub async fn trash_note(&mut self, state: &AppState, note_id: i64) -> Result<(), String> {
-        backend::current()
-            .trash_note(note_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn trash_note(&mut self, state: &AppState, note_id: i64) -> Result<(), BackendError> {
+        backend::current().trash_note(note_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn restore_note(&mut self, state: &AppState, note_id: i64) -> Result<(), String> {
-        backend::current()
-            .restore_note(note_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn restore_note(
+        &mut self,
+        state: &AppState,
+        note_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().restore_note(note_id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -226,50 +226,47 @@ impl DataStore {
         state: &AppState,
         note_id: i64,
         folder_id: Option<i64>,
-    ) -> Result<(), String> {
-        backend::current()
-            .move_note(note_id, folder_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().move_note(note_id, folder_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
     // ---- Page mutations ----
 
-    pub async fn trash_page(&mut self, state: &AppState, page_id: i64) -> Result<(), String> {
-        backend::current()
-            .trash_page(page_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn trash_page(&mut self, state: &AppState, page_id: i64) -> Result<(), BackendError> {
+        backend::current().trash_page(page_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn restore_page(&mut self, state: &AppState, page_id: i64) -> Result<(), String> {
-        backend::current()
-            .restore_page(page_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn restore_page(
+        &mut self,
+        state: &AppState,
+        page_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().restore_page(page_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn retry_page(&mut self, state: &AppState, page_id: i64) -> Result<(), String> {
+    pub async fn retry_page(&mut self, state: &AppState, page_id: i64) -> Result<(), BackendError> {
         backend::current()
             .update_page_status(page_id, "queued")
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn add_url(&mut self, state: &AppState, raw_url: &str) -> Result<String, String> {
+    pub async fn add_url(
+        &mut self,
+        state: &AppState,
+        raw_url: &str,
+    ) -> Result<String, BackendError> {
         let space_id = *state.space_id.read();
         let outcome = backend::current()
             .archive_url(raw_url, Some(space_id), None, None)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         self.refresh(state).await;
         Ok(format!("[{}] {}", outcome.category, raw_url))
     }
@@ -281,12 +278,11 @@ impl DataStore {
         state: &AppState,
         name: &str,
         parent_id: Option<i64>,
-    ) -> Result<i64, String> {
+    ) -> Result<i64, BackendError> {
         let space_id = *state.space_id.read();
         let id = backend::current()
             .create_folder(name, parent_id, space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         self.refresh(state).await;
         Ok(id)
     }
@@ -296,31 +292,30 @@ impl DataStore {
         state: &AppState,
         folder_id: i64,
         name: &str,
-    ) -> Result<(), String> {
-        backend::current()
-            .rename_folder(folder_id, name)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().rename_folder(folder_id, name).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn delete_folder(&mut self, state: &AppState, folder_id: i64) -> Result<(), String> {
-        backend::current()
-            .delete_folder(folder_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn delete_folder(
+        &mut self,
+        state: &AppState,
+        folder_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().delete_folder(folder_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
     // ---- Space mutations ----
 
-    pub async fn create_space(&mut self, state: &AppState, name: &str) -> Result<i64, String> {
-        let id = backend::current()
-            .create_space(name)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn create_space(
+        &mut self,
+        state: &AppState,
+        name: &str,
+    ) -> Result<i64, BackendError> {
+        let id = backend::current().create_space(name).await?;
         self.refresh(state).await;
         Ok(id)
     }
@@ -330,29 +325,28 @@ impl DataStore {
         state: &AppState,
         space_id: i64,
         name: &str,
-    ) -> Result<(), String> {
-        backend::current()
-            .rename_space(space_id, name)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().rename_space(space_id, name).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn trash_space(&mut self, state: &AppState, space_id: i64) -> Result<(), String> {
-        backend::current()
-            .trash_space(space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn trash_space(
+        &mut self,
+        state: &AppState,
+        space_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().trash_space(space_id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn restore_space(&mut self, state: &AppState, space_id: i64) -> Result<(), String> {
-        backend::current()
-            .restore_space(space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn restore_space(
+        &mut self,
+        state: &AppState,
+        space_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().restore_space(space_id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -361,11 +355,8 @@ impl DataStore {
         &mut self,
         state: &AppState,
         space_id: i64,
-    ) -> Result<(), String> {
-        backend::current()
-            .delete_space_permanent(space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().delete_space_permanent(space_id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -376,11 +367,8 @@ impl DataStore {
         &mut self,
         state: &AppState,
         page_id: i64,
-    ) -> Result<(), String> {
-        backend::current()
-            .delete_page_permanent(page_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().delete_page_permanent(page_id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -389,11 +377,8 @@ impl DataStore {
         &mut self,
         state: &AppState,
         note_id: i64,
-    ) -> Result<(), String> {
-        backend::current()
-            .delete_note_permanent(note_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), BackendError> {
+        backend::current().delete_note_permanent(note_id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -406,39 +391,33 @@ impl DataStore {
         name: &str,
         mime_type: Option<&str>,
         data: &[u8],
-    ) -> Result<(i64, lore_core::db::InsertFileOutcome), String> {
+    ) -> Result<(i64, lore_core::db::InsertFileOutcome), BackendError> {
         let space_id = *state.space_id.read();
         let result = backend::current()
             .insert_file(name, mime_type, data, space_id)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         self.refresh(state).await;
         Ok(result)
     }
 
-    pub async fn trash_file(&mut self, state: &AppState, id: i64) -> Result<(), String> {
-        backend::current()
-            .trash_file(id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn trash_file(&mut self, state: &AppState, id: i64) -> Result<(), BackendError> {
+        backend::current().trash_file(id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn restore_file(&mut self, state: &AppState, id: i64) -> Result<(), String> {
-        backend::current()
-            .restore_file(id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn restore_file(&mut self, state: &AppState, id: i64) -> Result<(), BackendError> {
+        backend::current().restore_file(id).await?;
         self.refresh(state).await;
         Ok(())
     }
 
-    pub async fn delete_file_permanent(&mut self, state: &AppState, id: i64) -> Result<(), String> {
-        backend::current()
-            .delete_file_permanent(id)
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn delete_file_permanent(
+        &mut self,
+        state: &AppState,
+        id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().delete_file_permanent(id).await?;
         self.refresh(state).await;
         Ok(())
     }
@@ -479,11 +458,10 @@ impl DataStore {
         name: &str,
         mime_type: &str,
         data: &[u8],
-    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String> {
+    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), BackendError> {
         backend::current()
             .insert_attachment(note_id, name, mime_type, data)
             .await
-            .map_err(|e| e.to_string())
     }
 
     /// Upload a generic file as a note attachment (file-block, not inline image).
@@ -493,11 +471,10 @@ impl DataStore {
         name: &str,
         mime_type: &str,
         data: &[u8],
-    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), String> {
+    ) -> Result<(i64, lore_core::db::InsertAttachmentOutcome), BackendError> {
         backend::current()
             .insert_attachment(note_id, name, mime_type, data)
             .await
-            .map_err(|e| e.to_string())
     }
 
     pub async fn get_attachment_data_uri(&self, attachment_id: i64) -> Option<String> {
@@ -557,15 +534,10 @@ impl DataStore {
         &mut self,
         state: &AppState,
         attachment_id: i64,
-    ) -> Result<lore_core::db::AttachmentRow, String> {
+    ) -> Result<lore_core::db::AttachmentRow, BackendError> {
         let b = backend::current();
-        b.restore_attachment(attachment_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        let row = b
-            .get_attachment(attachment_id)
-            .await
-            .map_err(|e| e.to_string())?;
+        b.restore_attachment(attachment_id).await?;
+        let row = b.get_attachment(attachment_id).await?;
         self.refresh(state).await;
         Ok(row)
     }

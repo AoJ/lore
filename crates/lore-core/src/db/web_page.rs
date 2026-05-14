@@ -222,6 +222,9 @@ pub struct WebPageDetail {
 pub struct WebPageSnapshot {
     pub size_bytes: i64,
     pub plain_text_preview: Option<String>,
+    /// PNG bytes of the page screenshot. Base64-encoded when serialized to
+    /// JSON (HTTP API); native serde formats see raw bytes via the helper.
+    #[serde(with = "crate::serde_b64::opt_vec")]
     pub screenshot: Option<Vec<u8>>,
 }
 
