@@ -38,6 +38,11 @@ const SELECTOR_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct TestApp {
     /// Base URL of the spawned server, e.g. `http://127.0.0.1:54321`.
     pub base_url: String,
+    /// Port the server is bound to. Exposed so `restart_server` can rebind
+    /// on the same port after `stop_server` kills the process.
+    pub server_port: u16,
+    /// Path to the SQLite DB used by the server subprocess.
+    pub db_path: std::path::PathBuf,
     /// Currently-open Chromium page, already past `wait_for_navigation`.
     /// Tests usually call `wait_for(...)` first to ensure WASM is mounted.
     pub page: chromiumoxide::Page,
@@ -89,6 +94,8 @@ impl TestApp {
 
         let app = TestApp {
             base_url,
+            server_port: port,
+            db_path: db_path.clone(),
             page,
             _browser: browser,
             _browser_handler: handler_task,
@@ -312,6 +319,30 @@ impl TestApp {
             .await
             .context("take screenshot")?;
         std::fs::write(&path, bytes).with_context(|| format!("write {}", path.display()))?;
+        Ok(())
+    }
+
+    /// Kill the server process. The DB and the open browser page are kept
+    /// intact. Use together with `restart_server` to test offline/recovery.
+    pub fn stop_server(&mut self) {
+        let _ = self.server.kill();
+        let _ = self.server.wait();
+    }
+
+    /// Spawn a fresh `lore-serve` process on the same port against the same
+    /// DB. Waits until the server accepts HTTP connections before returning.
+    /// Call only after `stop_server`.
+    pub async fn restart_server(&mut self) -> Result<()> {
+        let bin = std::env::var("LORE_SERVER_BIN")
+            .unwrap_or_else(|_| default_server_bin().display().to_string());
+        self.server = Command::new(&bin)
+            .env("LORE_DB", &self.db_path)
+            .env("LORE_PORT", self.server_port.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("restart lore-serve at {}", bin))?;
+        wait_for_http_ready(&self.base_url, Duration::from_secs(10)).await?;
         Ok(())
     }
 }

@@ -183,6 +183,9 @@ fn AppLayout() -> Element {
             // Revision indicator
             RevisionIndicator {}
 
+            // Offline banner (outside keyboard trap, fixed position)
+            OfflineBanner {}
+
             // Toast overlay (outside keyboard trap)
             toast::Toast {}
         }
@@ -213,6 +216,22 @@ fn RevisionIndicator() -> Element {
                 }
             }
             span { "r{rev}" }
+        }
+    }
+}
+
+/// Shown when the backend is unreachable. Keeps data visible but warns that
+/// writes are not persisted. Disappears automatically on reconnect.
+#[component]
+fn OfflineBanner() -> Element {
+    let store = use_context::<store::DataStore>();
+    if *store.backend_online.read() {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "offline-banner",
+            span { class: "offline-banner-icon", "⚠" }
+            span { "Backend unavailable — data is read-only. Changes will not be saved until the connection is restored." }
         }
     }
 }

@@ -7,7 +7,9 @@
       "Bash(cargo build:*)",
       "Bash(LORE_DB=/Users/dev/workspace/lore/db.sqlite cargo run:*)",
       "Bash(kill 5432)",
-      "Bash(screencapture:*)"
+      "Bash(screencapture:*)",
+      "Bash(cargo test *)",
+      "Bash(make e2e *)"
     ]
   }
 }

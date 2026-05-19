@@ -27,10 +27,6 @@ async fn main() -> anyhow::Result<()> {
     // Drops the connection immediately — every handler opens its own.
     let _ = lore_core::db::open(&db_path)?;
 
-    let state = Arc::new(AppState {
-        db_path: db_path.clone(),
-    });
-
     let port: u16 = std::env::var("LORE_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -39,6 +35,11 @@ async fn main() -> anyhow::Result<()> {
     let static_dir = std::env::var("LORE_STATIC").unwrap_or_else(|_| {
         let manifest = env!("CARGO_MANIFEST_DIR");
         format!("{}/static", manifest)
+    });
+
+    let state = Arc::new(AppState {
+        db_path: db_path.clone(),
+        static_dir: std::path::PathBuf::from(&static_dir),
     });
 
     // API router: every endpoint is `POST /api/<method>` with JSON in/out.
@@ -153,6 +154,11 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .nest("/api", api)
+        // index.html served with no-store so stale bundle hashes never stick.
+        // The JS/WASM assets already have content hashes in their filenames
+        // (dx build), so ServeDir's default headers are fine for them.
+        .route("/", get(handlers::serve_index))
+        .route("/index.html", get(handlers::serve_index))
         // Static files (W3: WASM bundle); only catches non-`/api/*` paths
         // because the `nest` above owns everything under `/api`.
         .fallback_service(ServeDir::new(&static_dir).append_index_html_on_directories(true))

@@ -58,6 +58,9 @@ pub struct DataStore {
     /// our own write as an external edit, and push a stale `smartReplace`
     /// that wipes out keystrokes the user typed during the save.
     pub saves_in_flight: Signal<u32>,
+    /// False when the backend is unreachable (network error). Data signals
+    /// retain their last-known values until the connection recovers.
+    pub backend_online: Signal<bool>,
 
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
@@ -85,6 +88,7 @@ impl DataStore {
             open_note_id: Signal::new(None),
             open_note_updated_at: Signal::new(None),
             saves_in_flight: Signal::new(0),
+            backend_online: Signal::new(true),
             last_poll_rev: Signal::new(0),
         }
     }
@@ -104,11 +108,23 @@ impl DataStore {
             }
         }
 
-        let new_rev = backend::current().get_revision().await.unwrap_or(0);
-        if new_rev != *self.last_poll_rev.read() {
-            self.last_poll_rev.set(new_rev);
-            self.revision.set(new_rev);
-            self.refresh(state).await;
+        match backend::current().get_revision().await {
+            Ok(new_rev) => {
+                let was_offline = !*self.backend_online.read();
+                if was_offline {
+                    self.backend_online.set(true);
+                }
+                if was_offline || new_rev != *self.last_poll_rev.read() {
+                    self.last_poll_rev.set(new_rev);
+                    self.revision.set(new_rev);
+                    self.refresh(state).await;
+                }
+            }
+            Err(_) => {
+                self.backend_online.set(false);
+                // Keep last_poll_rev and all data signals unchanged so the
+                // UI retains its current content while the backend is down.
+            }
         }
 
         // Open-note external-edit refresh. If a note is open and the
@@ -565,7 +581,7 @@ impl DataStore {
         Some(format!("data:{};base64,{}", mime, b64))
     }
 
-    pub async fn cleanup_note_attachments(&self, note_id: i64, markdown: &str) {
+    pub async fn cleanup_note_attachments(&mut self, note_id: i64, markdown: &str) {
         // Extract attachment IDs referenced in markdown:
         //   ![...](https://attachment.lore.invalid/123)   (images)
         //   [...](https://attachment.lore.invalid/123)    (file blocks)
@@ -583,10 +599,19 @@ impl DataStore {
                 used_ids.push(id);
             }
         }
-        backend::current()
+        if backend::current()
             .cleanup_orphaned_attachments(note_id, &used_ids)
             .await
-            .ok();
+            .is_ok()
+        {
+            // Bump revision signal so RemovedAttachments re-fetches immediately
+            // (cleanup may have soft-deleted attachments removed from markdown).
+            if let Ok(new_rev) = backend::current().get_revision().await {
+                if new_rev != *self.revision.read() {
+                    self.revision.set(new_rev);
+                }
+            }
+        }
     }
 
     pub async fn list_active_attachments(&self, note_id: i64) -> Vec<lore_core::db::AttachmentRow> {

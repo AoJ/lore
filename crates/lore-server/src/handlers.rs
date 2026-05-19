@@ -41,6 +41,7 @@ use lore_core::search;
 #[derive(Clone)]
 pub struct AppState {
     pub db_path: PathBuf,
+    pub static_dir: PathBuf,
 }
 
 pub type AppStateExt = State<Arc<AppState>>;
@@ -100,6 +101,27 @@ pub async fn route_not_found() -> ApiError {
     ApiError(BackendError::route_not_found(
         "no such API endpoint on this server",
     ))
+}
+
+/// Serves `index.html` with `Cache-Control: no-store` so the browser always
+/// fetches a fresh copy. The JS/WASM assets already carry content hashes in
+/// their filenames (from `dx build`), so only the HTML entry point needs
+/// this — without it the browser may load a stale `index.html` that
+/// references old bundle hashes after a redeploy.
+pub async fn serve_index(State(state): AppStateExt) -> Response {
+    let path = state.static_dir.join("index.html");
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "text/html; charset=utf-8")
+            .header("Cache-Control", "no-store")
+            .body(axum::body::Body::from(bytes))
+            .unwrap(),
+        Err(_) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(axum::body::Body::from("index.html not found"))
+            .unwrap(),
+    }
 }
 
 /// JSON request extractor that converts axum's `JsonRejection` (missing
