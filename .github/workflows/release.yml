@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm   # Raspberry Pi / Oracle Ampere
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest       # Apple Silicon
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GTK3 + WebKit (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build
+        run: |
+          cargo build --release \
+            --package lore-cli \
+            --package lore-server \
+            --package lore-worker \
+            --package lore-ui \
+            --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          TARGET_DIR="target/${{ matrix.target }}/release"
+          ARCHIVE="lore-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          mkdir staging
+          for bin in lore lore-serve lore-worker lore-desktop; do
+            [ -f "$TARGET_DIR/$bin" ] && cp "$TARGET_DIR/$bin" staging/
+          done
+          tar -czf "$ARCHIVE" -C staging .
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE }}
+          generate_release_notes: true
