@@ -125,13 +125,11 @@ async fn banner_clears_and_data_intact_after_reconnect() {
     // Banner must disappear within the next few poll cycles.
     app.wait_until(
         || async {
-            Ok(
-                if app.page.find_element(".offline-banner").await.is_err() {
-                    Some(())
-                } else {
-                    None
-                },
-            )
+            Ok(if app.page.find_element(".offline-banner").await.is_err() {
+                Some(())
+            } else {
+                None
+            })
         },
         Duration::from_secs(12),
     )
@@ -156,7 +154,9 @@ async fn banner_clears_and_data_intact_after_reconnect() {
 #[tokio::test]
 async fn offline_class_toggles_with_connectivity() {
     let mut app = TestApp::spawn().await.expect("spawn");
-    app.wait_for_default(".app-layout").await.expect("app-layout mounted");
+    app.wait_for_default(".app-layout")
+        .await
+        .expect("app-layout mounted");
 
     // Helper: evaluate whether .app-layout has the 'offline' class.
     let has_offline_class = |page: chromiumoxide::Page| async move {
@@ -233,7 +233,11 @@ async fn offline_keystrokes_flushed_on_reconnect() {
     // Wait for the note to appear in the list, then open it.
     app.wait_until(
         || async {
-            let items = app.page.find_elements(".list-item").await.unwrap_or_default();
+            let items = app
+                .page
+                .find_elements(".list-item")
+                .await
+                .unwrap_or_default();
             Ok(if items.is_empty() { None } else { Some(()) })
         },
         Duration::from_secs(8),
@@ -280,7 +284,8 @@ async fn offline_keystrokes_flushed_on_reconnect() {
     // Wait for the offline class to appear.
     app.wait_until(
         || async {
-            let js = "document.querySelector('.app-layout')?.classList.contains('offline') ?? false";
+            let js =
+                "document.querySelector('.app-layout')?.classList.contains('offline') ?? false";
             let offline: bool = app
                 .page
                 .evaluate(js)

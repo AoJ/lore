@@ -148,7 +148,11 @@ impl DataStore {
                                 // Can't confirm server state — use ours.
                                 (title, body)
                             };
-                        if self.save_note(id, &merged_title, &merged_body).await.is_ok() {
+                        if self
+                            .save_note(id, &merged_title, &merged_body)
+                            .await
+                            .is_ok()
+                        {
                             self.pending_note_save.set(None);
                         }
                     }

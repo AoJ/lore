@@ -18,13 +18,22 @@ pub struct MergeResult {
 
 pub fn three_way_merge(base: &str, ours: &str, theirs: &str) -> MergeResult {
     if ours == theirs {
-        return MergeResult { text: ours.to_string(), had_conflict: false };
+        return MergeResult {
+            text: ours.to_string(),
+            had_conflict: false,
+        };
     }
     if ours == base {
-        return MergeResult { text: theirs.to_string(), had_conflict: false };
+        return MergeResult {
+            text: theirs.to_string(),
+            had_conflict: false,
+        };
     }
     if theirs == base {
-        return MergeResult { text: ours.to_string(), had_conflict: false };
+        return MergeResult {
+            text: ours.to_string(),
+            had_conflict: false,
+        };
     }
 
     let base_l: Vec<&str> = base.lines().collect();
@@ -114,11 +123,7 @@ fn lcs_pairs<T: Eq>(a: &[T], b: &[T]) -> Vec<(usize, usize)> {
 
 // ---- 3-way application --------------------------------------------------
 
-fn apply_three_way<'a>(
-    base: &[&'a str],
-    ours: &[Hunk<'a>],
-    theirs: &[Hunk<'a>],
-) -> MergeResult {
+fn apply_three_way<'a>(base: &[&'a str], ours: &[Hunk<'a>], theirs: &[Hunk<'a>]) -> MergeResult {
     let mut result: Vec<&str> = Vec::new();
     let mut had_conflict = false;
     let mut oi = 0usize;
@@ -192,8 +197,12 @@ fn apply_three_way<'a>(
                     // Pure insertions at the boundary (base_start == base_end ==
                     // region_end) never satisfy `< region_end` — advance manually
                     // so the loop doesn't stall on the same pair forever.
-                    if oi == oi_before { oi += 1; }
-                    if ti == ti_before { ti += 1; }
+                    if oi == oi_before {
+                        oi += 1;
+                    }
+                    if ti == ti_before {
+                        ti += 1;
+                    }
                 }
             }
         }
@@ -201,7 +210,10 @@ fn apply_three_way<'a>(
 
     emit_base(base, base_pos, base.len(), &mut result);
 
-    MergeResult { text: result.join("\n"), had_conflict }
+    MergeResult {
+        text: result.join("\n"),
+        had_conflict,
+    }
 }
 
 fn emit_base<'a>(base: &[&'a str], from: usize, to: usize, out: &mut Vec<&'a str>) {
@@ -257,8 +269,16 @@ mod tests {
     fn overlapping_conflict_contains_both_versions() {
         let r = m("original", "ours version", "theirs version");
         assert!(r.had_conflict);
-        assert!(r.text.contains("ours version"), "missing ours: {:?}", r.text);
-        assert!(r.text.contains("theirs version"), "missing theirs: {:?}", r.text);
+        assert!(
+            r.text.contains("ours version"),
+            "missing ours: {:?}",
+            r.text
+        );
+        assert!(
+            r.text.contains("theirs version"),
+            "missing theirs: {:?}",
+            r.text
+        );
     }
 
     #[test]

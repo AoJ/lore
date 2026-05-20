@@ -140,7 +140,11 @@ fn AppLayout() -> Element {
     let store = use_context::<store::DataStore>();
 
     let offline = !*store.backend_online.read();
-    let layout_class = if offline { "app-layout offline" } else { "app-layout" };
+    let layout_class = if offline {
+        "app-layout offline"
+    } else {
+        "app-layout"
+    };
 
     rsx! {
         // Offline banner sits above the app in document flow — pushes content
