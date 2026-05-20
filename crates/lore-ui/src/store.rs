@@ -15,6 +15,9 @@ use lore_core::db::{TrashItem, WebPageRow};
 use lore_core::error::BackendError;
 use std::collections::HashMap;
 
+/// (note_id, title, body, base_title, base_body) queued while offline.
+type PendingNoteSave = (i64, String, String, String, String);
+
 /// Central data store, provided as Dioxus context alongside AppState.
 #[derive(Clone, Copy)]
 pub struct DataStore {
@@ -64,7 +67,7 @@ pub struct DataStore {
     /// Keystroke content queued while offline: (note_id, title, body, base_title, base_body).
     /// base_* is the last successfully written server content — merge ancestor on reconnect.
     /// Only the latest content per note is kept; base stays fixed for the whole offline stint.
-    pub pending_note_save: Signal<Option<(i64, String, String, String, String)>>,
+    pub pending_note_save: Signal<Option<PendingNoteSave>>,
 
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
@@ -683,10 +686,10 @@ impl DataStore {
         {
             // Bump revision signal so RemovedAttachments re-fetches immediately
             // (cleanup may have soft-deleted attachments removed from markdown).
-            if let Ok(new_rev) = backend::current().get_revision().await {
-                if new_rev != *self.revision.read() {
-                    self.revision.set(new_rev);
-                }
+            if let Ok(new_rev) = backend::current().get_revision().await
+                && new_rev != *self.revision.read()
+            {
+                self.revision.set(new_rev);
             }
         }
     }

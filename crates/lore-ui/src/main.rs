@@ -369,32 +369,26 @@ fn trash_selected(mut state: AppState, mut store: store::DataStore) {
     let selected = state.selected.read().clone();
     spawn(async move {
         match selected {
-            Selected::Page(id) => {
-                if store.trash_page(&state, id).await.is_ok() {
-                    state.show_toast(
-                        texts::TOAST_MOVED_TRASH.to_string(),
-                        Some(state::UndoAction::RestorePage(id)),
-                    );
-                    state.selected.set(Selected::None);
-                }
+            Selected::Page(id) if store.trash_page(&state, id).await.is_ok() => {
+                state.show_toast(
+                    texts::TOAST_MOVED_TRASH.to_string(),
+                    Some(state::UndoAction::RestorePage(id)),
+                );
+                state.selected.set(Selected::None);
             }
-            Selected::Note(id) => {
-                if store.trash_note(&state, id).await.is_ok() {
-                    state.show_toast(
-                        texts::TOAST_NOTE_TRASH.to_string(),
-                        Some(state::UndoAction::RestoreNote(id)),
-                    );
-                    state.selected.set(Selected::None);
-                }
+            Selected::Note(id) if store.trash_note(&state, id).await.is_ok() => {
+                state.show_toast(
+                    texts::TOAST_NOTE_TRASH.to_string(),
+                    Some(state::UndoAction::RestoreNote(id)),
+                );
+                state.selected.set(Selected::None);
             }
-            Selected::File(id) => {
-                if store.trash_file(&state, id).await.is_ok() {
-                    state.show_toast(
-                        texts::TOAST_FILE_TRASH.to_string(),
-                        Some(state::UndoAction::RestoreFile(id)),
-                    );
-                    state.selected.set(Selected::None);
-                }
+            Selected::File(id) if store.trash_file(&state, id).await.is_ok() => {
+                state.show_toast(
+                    texts::TOAST_FILE_TRASH.to_string(),
+                    Some(state::UndoAction::RestoreFile(id)),
+                );
+                state.selected.set(Selected::None);
             }
             _ => {}
         }
