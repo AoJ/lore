@@ -125,10 +125,19 @@ pub fn ContentNote(id: i64) -> Element {
                 NoteActions { id, current_folder_id }
             }
         },
-        None => rsx! {
-            div { class: "content-panel",
-                p { class: "error", "Note not found" }
+        None => {
+            let offline = !*store.backend_online.read();
+            rsx! {
+                div { class: "content-panel",
+                    p { class: "error",
+                        if offline {
+                            "No connection to backend — note cannot be loaded."
+                        } else {
+                            "Note not found."
+                        }
+                    }
+                }
             }
-        },
+        }
     }
 }

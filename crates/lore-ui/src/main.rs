@@ -137,10 +137,16 @@ fn StartupError(path: String, message: String) -> Element {
 #[component]
 fn AppLayout() -> Element {
     let state = use_context::<AppState>();
+    let store = use_context::<store::DataStore>();
 
-    // Read signals INSIDE rsx! so reactivity works — don't clone into locals
+    let offline = !*store.backend_online.read();
+    let layout_class = if offline { "app-layout offline" } else { "app-layout" };
+
     rsx! {
-        div { class: "app-layout",
+        // Offline banner sits above the app in document flow — pushes content
+        // down rather than overlapping it.
+        OfflineBanner {}
+        div { class: "{layout_class}",
             // Global keyboard handler
             div {
                 tabindex: "0",
@@ -182,9 +188,6 @@ fn AppLayout() -> Element {
 
             // Revision indicator
             RevisionIndicator {}
-
-            // Offline banner (outside keyboard trap, fixed position)
-            OfflineBanner {}
 
             // Toast overlay (outside keyboard trap)
             toast::Toast {}

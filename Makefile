@@ -66,7 +66,7 @@ web-clean:
 # they need a built web bundle + Chromium, which `make check` doesn't.
 e2e: web
 	cargo build -p lore-server
-	cargo test -p lore-e2e --tests -- --nocapture
+	cargo test -p lore-e2e --tests -- --nocapture --test-threads 1
 
 worker:
 	LORE_DB=$(DB) cargo run -p lore-worker -- --db $(DB)

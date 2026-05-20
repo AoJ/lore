@@ -9,7 +9,12 @@
       "Bash(kill 5432)",
       "Bash(screencapture:*)",
       "Bash(cargo test *)",
-      "Bash(make e2e *)"
+      "Bash(make e2e *)",
+      "Bash(kill %1)",
+      "Bash(tee /tmp/e2e-out.txt)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(grep -E \"^test |^running |FAILED|ok$|error\\\\[\")",
+      "Bash(grep -E \"FAILED|ok$|error\")"
     ]
   }
 }

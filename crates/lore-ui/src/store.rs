@@ -61,9 +61,16 @@ pub struct DataStore {
     /// False when the backend is unreachable (network error). Data signals
     /// retain their last-known values until the connection recovers.
     pub backend_online: Signal<bool>,
+    /// Keystroke content queued while offline: (note_id, title, body, base_title, base_body).
+    /// base_* is the last successfully written server content — merge ancestor on reconnect.
+    /// Only the latest content per note is kept; base stays fixed for the whole offline stint.
+    pub pending_note_save: Signal<Option<(i64, String, String, String, String)>>,
 
     // ---- Internal ----
     last_poll_rev: Signal<i64>,
+    /// Last successfully synced note content: (note_id, title, body).
+    /// Updated after every online save_note; used as merge base when first queueing offline.
+    last_online_note: Signal<Option<(i64, String, String)>>,
 }
 
 impl DataStore {
@@ -89,7 +96,9 @@ impl DataStore {
             open_note_updated_at: Signal::new(None),
             saves_in_flight: Signal::new(0),
             backend_online: Signal::new(true),
+            pending_note_save: Signal::new(None),
             last_poll_rev: Signal::new(0),
+            last_online_note: Signal::new(None),
         }
     }
 
@@ -113,6 +122,36 @@ impl DataStore {
                 let was_offline = !*self.backend_online.read();
                 if was_offline {
                     self.backend_online.set(true);
+                    // Flush queued keystrokes. Fetch the server's current version
+                    // first — if it changed while we were offline, 3-way merge
+                    // rather than blindly overwriting.
+                    let pending = self.pending_note_save.read().clone();
+                    if let Some((id, title, body, base_title, base_body)) = pending {
+                        let (merged_title, merged_body) =
+                            if let Ok(server) = backend::current().get_note(id).await {
+                                if server.title == base_title && server.body == base_body {
+                                    // Server unchanged — our edits apply cleanly.
+                                    (title, body)
+                                } else {
+                                    // Concurrent edit: 3-way merge on body; prefer
+                                    // ours for title (last writer wins on single-line).
+                                    use lore_core::merge::three_way_merge;
+                                    let bm = three_way_merge(&base_body, &body, &server.body);
+                                    let merged_title = if title != base_title {
+                                        title
+                                    } else {
+                                        server.title
+                                    };
+                                    (merged_title, bm.text)
+                                }
+                            } else {
+                                // Can't confirm server state — use ours.
+                                (title, body)
+                            };
+                        if self.save_note(id, &merged_title, &merged_body).await.is_ok() {
+                            self.pending_note_save.set(None);
+                        }
+                    }
                 }
                 if was_offline || new_rev != *self.last_poll_rev.read() {
                     self.last_poll_rev.set(new_rev);
@@ -160,7 +199,11 @@ impl DataStore {
     }
 
     /// Refresh all data for current view. Called after mutations and on poll.
+    /// No-op while the backend is offline — cached data is preserved as-is.
     pub async fn refresh(&mut self, state: &AppState) {
+        if !*self.backend_online.read() {
+            return;
+        }
         let space_id = *state.space_id.read();
         let section = state.section.read().clone();
         let b = backend::current();
@@ -255,6 +298,33 @@ impl DataStore {
         title: &str,
         body: &str,
     ) -> Result<(), BackendError> {
+        if !*self.backend_online.read() {
+            // Determine the merge base: the last successfully written content for
+            // this note. On subsequent offline keystrokes the base stays fixed so
+            // the merge ancestor doesn't drift as the user types.
+            let existing = self.pending_note_save.read().clone();
+            let (base_title, base_body) = match existing {
+                Some((eid, _, _, bt, bb)) if eid == note_id => (bt, bb),
+                _ => {
+                    if let Some((lid, lt, lb)) = self.last_online_note.read().clone()
+                        && lid == note_id
+                    {
+                        (lt, lb)
+                    } else {
+                        // No cached base — use current content (no-conflict merge).
+                        (title.to_string(), body.to_string())
+                    }
+                }
+            };
+            self.pending_note_save.set(Some((
+                note_id,
+                title.to_string(),
+                body.to_string(),
+                base_title,
+                base_body,
+            )));
+            return Ok(());
+        }
         let b = backend::current();
         // Increment-on-entry / decrement-on-exit so `poll()` skips the
         // external-edit detector for the full duration of the round-trip
@@ -276,6 +346,9 @@ impl DataStore {
             {
                 self.open_note_updated_at.set(Some(n.updated_at));
             }
+            // Cache the written content so we have a merge base if we go offline.
+            self.last_online_note
+                .set(Some((note_id, title.to_string(), body.to_string())));
             // Don't refresh list on every keystroke — polling will catch it
             Ok::<(), BackendError>(())
         }

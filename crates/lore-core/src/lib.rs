@@ -1,5 +1,6 @@
 pub mod db;
 pub mod error;
+pub mod merge;
 pub mod rules;
 pub mod serde_b64;
 pub mod url_extract;
