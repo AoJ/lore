@@ -544,6 +544,58 @@ async fn total_size_aggregates_across_snapshots() {
     );
 }
 
+/// UI re-archive button must actually toggle the DB status to `queued` —
+/// reproduces user-reported "click Re-archive, worker says no work" issue.
+#[tokio::test]
+async fn clicking_reachive_button_flips_status_to_queued() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    // Seed an archived page (status = archived, 1 snapshot).
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/btn", "Btn", &["body"])
+        .expect("seed");
+    // Page rows come from `list_pages` which only sees archived pages by
+    // default, so manually flip to archived (seed creates `archived` already).
+    let conn = app.conn().unwrap();
+    conn.execute(
+        "UPDATE web_page SET status = 'archived' WHERE id = ?1",
+        rusqlite::params![page_id],
+    )
+    .unwrap();
+    drop(conn);
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("page row");
+    app.click(".list-item").await.expect("open detail");
+
+    // Click the Re-archive button by text (button label).
+    app.wait_for_default(".page-actions").await.expect("actions");
+    app.click_text(".page-actions .btn", "Re-archive")
+        .await
+        .expect("Re-archive button");
+
+    // Status in DB must flip to queued within a poll tick.
+    let pid = page_id;
+    let _ = app
+        .wait_until(
+            || async {
+                let v = app
+                    .api_post("get_page", json!({ "page_id": pid }))
+                    .await
+                    .ok();
+                match v.as_ref().map(|x| x["status"].as_str()) {
+                    Some(Some("queued")) => Ok(Some(())),
+                    _ => Ok(None),
+                }
+            },
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("Re-archive button must set status to queued");
+}
+
 /// Full re-archive cycle: archive → worker → re-archive → worker → 2 versions.
 /// Validates the user-visible loop: clicking "Re-archive" actually produces a
 /// new snapshot when the worker runs next, instead of silently doing nothing.
