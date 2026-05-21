@@ -735,6 +735,166 @@ async fn new_snapshot_appears_in_picker_without_changing_selection() {
     assert_eq!(rows, 2);
 }
 
+/// `get_page` exposes the new thumbnail/full-screenshot split: small thumb
+/// in the JSON payload, full fetched separately via `get_snapshot_full_screenshot`.
+#[tokio::test]
+async fn snapshot_thumb_and_full_screenshot_are_independent_endpoints() {
+    let app = TestApp::spawn().await.expect("spawn app");
+
+    // Synthesize a 1x1 PNG for the "full screenshot" and a different one
+    // for the thumb. Worker normally produces these from Chrome PNGs;
+    // here we just need two distinct blobs to assert on.
+    let full_png: Vec<u8> = vec![
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, // signature
+        0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D', b'R',
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00,
+        0x90, 0x77, 0x53, 0xDE, // CRC
+        0x00, 0x00, 0x00, 0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14,
+        0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+    ];
+    let thumb_png: Vec<u8> = vec![1, 2, 3, 4, 5];
+
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/thumb", "T", &[])
+        .expect("seed page");
+    let snap_id = app
+        .add_snapshot_with_screenshots(
+            page_id,
+            "body",
+            Some(&full_png),
+            Some(&thumb_png),
+        )
+        .expect("seed snapshot with screenshots");
+
+    // get_page returns the thumb (small), and has_full_screenshot flag.
+    let detail = app
+        .api_post("get_page", json!({ "page_id": page_id }))
+        .await
+        .expect("get_page");
+    let snap = &detail["snapshot"];
+    assert!(
+        snap["screenshot_thumb"].is_string(),
+        "thumb should be in get_page payload, got {:?}",
+        snap["screenshot_thumb"]
+    );
+    assert_eq!(
+        snap["has_full_screenshot"], true,
+        "has_full_screenshot flag must be true when full exists"
+    );
+
+    // Full screenshot lazy endpoint returns the full bytes (b64).
+    let full_resp = app
+        .api_post(
+            "get_snapshot_full_screenshot",
+            json!({ "snapshot_id": snap_id }),
+        )
+        .await
+        .expect("get_snapshot_full_screenshot");
+    let b64 = full_resp["data_b64"].as_str().expect("data_b64 present");
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .expect("decode b64");
+    assert_eq!(
+        decoded, full_png,
+        "lazy endpoint must return the exact full-screenshot bytes"
+    );
+}
+
+/// Legacy snapshot (full screenshot, no thumb) must render a clickable
+/// placeholder so the user can still discover and load the full image.
+/// Without this they see an empty area and no affordance.
+#[tokio::test]
+async fn legacy_snapshot_shows_placeholder_for_full_screenshot() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let full_png: Vec<u8> = vec![
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+        b'I', b'H', b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+        0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14, 0x00, 0x00, 0x00,
+        0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/legacy", "L", &[])
+        .expect("seed page");
+    // Legacy shape: full screenshot present, thumb NULL (m0010 didn't run
+    // on it). seed_page_with_snapshots' empty `&[]` body skips snapshots
+    // so we add this one explicitly.
+    let snap_id = app
+        .add_snapshot_with_screenshots(page_id, "body", Some(&full_png), None)
+        .expect("seed legacy snapshot");
+
+    let _ = snap_id;
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("page row");
+    app.click(".list-item").await.expect("open detail");
+
+    // Sanity: the detail panel actually rendered for our page (catches the
+    // case where clicking the wrong row left us on an empty content panel).
+    app.wait_for(".content-page", Duration::from_secs(5))
+        .await
+        .expect("detail panel rendered");
+
+    let placeholder = app
+        .wait_for(".screenshot-placeholder", Duration::from_secs(5))
+        .await
+        .expect("placeholder visible for legacy snapshot (full screenshot but no thumb)");
+    let label = placeholder
+        .inner_text()
+        .await
+        .expect("label text")
+        .unwrap_or_default();
+    assert!(
+        label.contains("Load full screenshot"),
+        "placeholder shows load CTA, got: '{}'",
+        label
+    );
+
+    // Clicking the placeholder must trigger lazy-fetch and swap to the full
+    // image — placeholder disappears, img appears.
+    app.click(".screenshot-placeholder")
+        .await
+        .expect("click placeholder");
+    app.wait_for(".page-screenshot img", Duration::from_secs(5))
+        .await
+        .expect("full screenshot loads after placeholder click");
+}
+
+/// Lazy endpoint returns null for snapshots that don't have a full
+/// screenshot (HTTP-only fetch or legacy snapshot from before m0010).
+#[tokio::test]
+async fn full_screenshot_endpoint_returns_null_when_absent() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/no-shot", "N", &["body only"])
+        .expect("seed");
+    let arr = app
+        .api_post("list_page_versions", json!({ "page_id": page_id }))
+        .await
+        .expect("list");
+    let snap_id = arr.as_array().unwrap()[0]["id"].as_i64().unwrap();
+
+    let resp = app
+        .api_post(
+            "get_snapshot_full_screenshot",
+            json!({ "snapshot_id": snap_id }),
+        )
+        .await
+        .expect("full screenshot endpoint");
+    assert!(
+        resp["data_b64"].is_null(),
+        "data_b64 should be null when no full screenshot, got {:?}",
+        resp["data_b64"]
+    );
+}
+
 /// Selecting a different version in the picker updates the header label
 /// and the rendered preview text.
 #[tokio::test]

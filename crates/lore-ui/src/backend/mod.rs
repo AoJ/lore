@@ -168,6 +168,11 @@ pub trait Backend: Send + Sync {
     /// Delete one snapshot version. Refuses if it's the only one for its page.
     async fn delete_page_version(&self, snapshot_id: i64) -> Result<()>;
 
+    /// Lazy load: full-size screenshot PNG for one snapshot. `Ok(None)` when
+    /// the snapshot has no full screenshot (legacy or HTTP-only). Heavy
+    /// payload — the detail view only calls this on click-to-enlarge.
+    async fn get_snapshot_full_screenshot(&self, snapshot_id: i64) -> Result<Option<Vec<u8>>>;
+
     /// Mark a page for re-fetch by the worker. Toggles status back to `queued`;
     /// worker picks it up on its next run.
     async fn request_reachive(&self, page_id: i64) -> Result<()>;

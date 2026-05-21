@@ -262,6 +262,10 @@ impl Backend for LocalBackend {
         ok(db::delete_page_version(&self.conn()?, snapshot_id))
     }
 
+    async fn get_snapshot_full_screenshot(&self, snapshot_id: i64) -> Result<Option<Vec<u8>>> {
+        ok(db::get_snapshot_full_screenshot(&self.conn()?, snapshot_id))
+    }
+
     async fn request_reachive(&self, page_id: i64) -> Result<()> {
         ok(db::request_reachive(&self.conn()?, page_id))
     }

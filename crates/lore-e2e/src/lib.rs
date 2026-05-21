@@ -465,7 +465,7 @@ impl TestApp {
             },
         )?;
         for body in snapshot_bodies {
-            db::insert_snapshot(&conn, page_id, "<html></html>", body, None)?;
+            db::insert_snapshot(&conn, page_id, "<html></html>", body, None, None)?;
         }
         Ok(page_id)
     }
@@ -485,7 +485,21 @@ impl TestApp {
     /// `seed_page_with_snapshots` produced). Returns the new snapshot id.
     pub fn add_snapshot(&self, page_id: i64, plain_text: &str) -> anyhow::Result<i64> {
         let conn = self.conn()?;
-        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, None)
+        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, None, None)
+    }
+
+    /// Same as `add_snapshot` but with explicit screenshot bytes. Used by
+    /// the thumb/full-load lazy-fetch test where we need a real screenshot
+    /// + thumb in the DB.
+    pub fn add_snapshot_with_screenshots(
+        &self,
+        page_id: i64,
+        plain_text: &str,
+        full: Option<&[u8]>,
+        thumb: Option<&[u8]>,
+    ) -> anyhow::Result<i64> {
+        let conn = self.conn()?;
+        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, full, thumb)
     }
 
     /// Run the `lore-worker` binary against the test DB and wait for it

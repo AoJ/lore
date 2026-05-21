@@ -51,21 +51,29 @@ pub struct PageDetailView {
     pub last_error: Option<String>,
     pub has_snapshot: bool,
     pub plain_text_preview: Option<String>,
-    pub screenshot_base64: Option<String>,
+    /// Down-scaled thumbnail (PNG, base64). Default view in the detail
+    /// panel. `None` for snapshots without screenshots (HTTP fallback) and
+    /// for legacy snapshots that pre-date migration 0010 (in which case
+    /// the UI fetches the full screenshot lazily as a fallback).
+    pub screenshot_thumb_base64: Option<String>,
+    /// True if the snapshot has a full-size screenshot the UI can fetch
+    /// lazily on click. Drives "click to enlarge" affordance.
+    pub has_full_screenshot: bool,
 }
 
 pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
     let p = crate::backend::current().get_page(id).await?;
-    let (plain_text_preview, screenshot_base64, has_snapshot) = match p.snapshot {
-        Some(s) => {
-            let b64 = s.screenshot.as_ref().map(|bytes| {
-                use base64::Engine;
-                base64::engine::general_purpose::STANDARD.encode(bytes)
-            });
-            (s.plain_text_preview, b64, true)
-        }
-        None => (None, None, false),
-    };
+    let (plain_text_preview, screenshot_thumb_base64, has_full_screenshot, has_snapshot) =
+        match p.snapshot {
+            Some(s) => {
+                let b64 = s.screenshot_thumb.as_ref().map(|bytes| {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                });
+                (s.plain_text_preview, b64, s.has_full_screenshot, true)
+            }
+            None => (None, None, false, false),
+        };
     let total_size_display = if p.total_size_bytes > 0 {
         Some(format_size_short(p.total_size_bytes))
     } else {
@@ -86,7 +94,8 @@ pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
         last_error: p.last_error,
         has_snapshot,
         plain_text_preview,
-        screenshot_base64,
+        screenshot_thumb_base64,
+        has_full_screenshot,
     })
 }
 

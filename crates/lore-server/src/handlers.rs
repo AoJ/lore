@@ -606,6 +606,23 @@ pub async fn delete_page_version(
     Ok(Json(()))
 }
 
+#[derive(Serialize)]
+pub struct SnapshotScreenshotDto {
+    /// Base64-encoded PNG bytes. `None` (`null` in JSON) when the snapshot
+    /// has no full-size screenshot — caller renders nothing in that case.
+    pub data_b64: Option<String>,
+}
+
+pub async fn get_snapshot_full_screenshot(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<SnapshotIdReq>,
+) -> ApiResult<SnapshotScreenshotDto> {
+    let bytes = db::get_snapshot_full_screenshot(&conn(&s)?, req.snapshot_id)
+        .map_err(ApiError::from)?;
+    let data_b64 = bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(&b));
+    Ok(Json(SnapshotScreenshotDto { data_b64 }))
+}
+
 pub async fn request_reachive(
     State(s): AppStateExt,
     JsonReq(req): JsonReq<PageIdReq>,

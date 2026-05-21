@@ -1,8 +1,8 @@
 [package]
 name = "lore-worker"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "lore-worker"
@@ -13,6 +13,10 @@ anyhow = "1"
 chromiumoxide = "0.7"
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
+# Only the PNG codec — JPEG/GIF/TIFF etc. would balloon binary size for no
+# use. Worker screenshots arrive from Chrome as PNG and the thumbnail is
+# re-encoded as PNG too (lossless previews, sub-100 KB at our 600 px width).
+image = { version = "0.25", default-features = false, features = ["png"] }
 lore-core = { path = "../lore-core" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 rusqlite = "0.34"

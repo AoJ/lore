@@ -256,6 +256,13 @@ fn RevisionIndicator() -> Element {
                     "{crate::texts::SCHEMA_OUTDATED_LABEL}"
                 }
             }
+            // Build identity: lets the user (and bug reports) tell which
+            // binary is actually running. `lore_core::version::full()`
+            // is "{crate_version} ({git_sha})", injected by build.rs.
+            span { class: "app-version",
+                title: crate::texts::TIP_APP_VERSION,
+                "{lore_core::version::full()}"
+            }
             span { "r{rev}" }
         }
     }

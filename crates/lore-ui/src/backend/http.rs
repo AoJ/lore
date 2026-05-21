@@ -535,6 +535,27 @@ impl Backend for HttpBackend {
         call(&self.base_url, "delete_page_version", &R { snapshot_id }).await
     }
 
+    async fn get_snapshot_full_screenshot(&self, snapshot_id: i64) -> Result<Option<Vec<u8>>> {
+        #[derive(Serialize)]
+        struct R {
+            snapshot_id: i64,
+        }
+        #[derive(Deserialize)]
+        struct Dto {
+            data_b64: Option<String>,
+        }
+        let dto: Dto = call(
+            &self.base_url,
+            "get_snapshot_full_screenshot",
+            &R { snapshot_id },
+        )
+        .await?;
+        match dto.data_b64 {
+            Some(b) => Ok(Some(decode_b64(&b)?)),
+            None => Ok(None),
+        }
+    }
+
     async fn request_reachive(&self, page_id: i64) -> Result<()> {
         #[derive(Serialize)]
         struct R {

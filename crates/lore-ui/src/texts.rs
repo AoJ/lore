@@ -103,6 +103,8 @@ pub const TOAST_REACHIVE_QUEUED: &str = "Queued for re-archive.";
 pub const TOAST_VERSION_DELETED: &str = "Snapshot version deleted.";
 pub const TIP_TOTAL_SIZE: &str = "Total size across all snapshot versions (text + HTML + screenshots).";
 pub const TIP_PAGE_ID: &str = "Internal page ID — handy for cross-referencing or bug reports.";
+pub const TIP_APP_VERSION: &str = "Build version + git short SHA. Include in bug reports.";
+pub const BTN_LOAD_SCREENSHOT: &str = "Load full screenshot";
 
 // Page status labels (worker pipeline).
 pub const STATUS_QUEUED: &str = "queued";

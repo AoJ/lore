@@ -1,17 +1,90 @@
 use anyhow::Result;
 
+/// Cap on the stored full-screenshot height. Long-scroll pages (forums,
+/// landing pages) can render at 20 000+ px tall — storing the whole strip
+/// is mostly wasted bytes since the thumbnail and on-screen view rarely
+/// show below the fold. 3000 px ≈ 2.5 viewport heights at 1280×1024,
+/// which is enough context without ballooning the DB.
+const MAX_FULL_HEIGHT: u32 = 3000;
+
+/// Target thumbnail height. The thumb keeps the page's full aspect ratio
+/// so the user gets a real preview of the layout (top to bottom), not just
+/// the first 200 px of header / sticky ad. A typical 1280-wide page comes
+/// out as roughly 85×200 — narrow, but recognisable. Will live in the
+/// detail view's left column once we redo the layout side-by-side.
+const THUMB_HEIGHT: u32 = 200;
+
 /// Result of rendering a web page.
 pub struct RenderedPage {
     pub html: String,
     pub plain_text: String,
     pub title: Option<String>,
     pub screenshot: Option<Vec<u8>>,
+    /// Down-scaled preview of `screenshot` for cheap rendering in the
+    /// detail view. `None` when no full screenshot was captured (HTTP
+    /// fallback) or when thumbnail generation failed.
+    pub screenshot_thumb: Option<Vec<u8>>,
     /// True when the page was fetched via the HTTP fallback after Chrome
     /// failed. The snapshot is still usable (worker stores it the same way),
     /// but the summary counts it as a warning and the user knows the
     /// rendering is degraded (no JS execution, no screenshot, often
     /// truncated content).
     pub via_fallback: bool,
+}
+
+/// Crop the captured screenshot to `MAX_FULL_HEIGHT` (keeping the top of
+/// the page) and produce a height-scaled thumbnail. Returns
+/// `(cropped_full_png, thumb_png)`; the thumb is `None` only if the page
+/// was already shorter than `THUMB_HEIGHT` or encoding failed (the full
+/// path then stands alone).
+///
+/// Both decode and encode steps are best-effort: any failure falls back
+/// to the original `raw_png`, so a single weird page can't fail the whole
+/// archive — the worker still stores the unmodified screenshot.
+fn process_screenshot(raw_png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+    use image::ImageReader;
+    use std::io::Cursor;
+
+    let Ok(img) = ImageReader::with_format(Cursor::new(raw_png), image::ImageFormat::Png).decode()
+    else {
+        return (raw_png.to_vec(), None);
+    };
+
+    // Crop the bottom off if the page is taller than the cap. Image-level
+    // crop (not just CSS) so the DB doesn't carry a 20 000-px strip.
+    let cropped = if img.height() > MAX_FULL_HEIGHT {
+        img.crop_imm(0, 0, img.width(), MAX_FULL_HEIGHT)
+    } else {
+        img
+    };
+
+    let full_bytes = encode_png(&cropped).unwrap_or_else(|| raw_png.to_vec());
+
+    // Skip thumb when the source is already at-or-below the target height —
+    // a no-op resize would still re-encode and grow the byte count.
+    let thumb = if cropped.height() > THUMB_HEIGHT {
+        let width = ((cropped.width() as u64 * THUMB_HEIGHT as u64)
+            / cropped.height() as u64)
+            .max(1) as u32;
+        let resized = cropped.resize_exact(
+            width,
+            THUMB_HEIGHT,
+            image::imageops::FilterType::Triangle,
+        );
+        encode_png(&resized)
+    } else {
+        None
+    };
+
+    (full_bytes, thumb)
+}
+
+fn encode_png(img: &image::DynamicImage) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+    let mut buf = Vec::with_capacity(64 * 1024);
+    img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .ok()?;
+    Some(buf)
 }
 
 /// Renderer backend trait. Implementations can be local (headless Chrome)
@@ -113,11 +186,23 @@ impl LocalRenderer {
         drop(browser);
         handle.abort();
 
+        // Crop the full to a sane height and derive the height-scaled
+        // thumbnail in one decode pass. If there's no screenshot at all
+        // (rare, page.screenshot failed), both stay None.
+        let (screenshot, screenshot_thumb) = match screenshot {
+            Some(raw) => {
+                let (cropped, thumb) = process_screenshot(&raw);
+                (Some(cropped), thumb)
+            }
+            None => (None, None),
+        };
+
         Ok(RenderedPage {
             html,
             plain_text,
             title,
             screenshot,
+            screenshot_thumb,
             via_fallback: false,
         })
     }
@@ -155,6 +240,7 @@ impl Renderer for HttpRenderer {
             plain_text,
             title,
             screenshot: None,
+            screenshot_thumb: None,
             // HTTP renderer alone doesn't mark via_fallback — only the
             // FallbackRenderer flips it when it falls back after a Chrome
             // failure, so we can distinguish "intentional HTTP-only" from

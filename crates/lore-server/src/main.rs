@@ -113,6 +113,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/list_page_versions", post(handlers::list_page_versions))
         .route("/get_page_version", post(handlers::get_page_version))
         .route("/delete_page_version", post(handlers::delete_page_version))
+        .route(
+            "/get_snapshot_full_screenshot",
+            post(handlers::get_snapshot_full_screenshot),
+        )
         .route("/request_reachive", post(handlers::request_reachive))
         // Files
         .route("/list_files", post(handlers::list_files))

@@ -115,6 +115,7 @@ fn fetch_and_store(
                 &rendered.html,
                 &rendered.plain_text,
                 rendered.screenshot.as_deref(),
+                rendered.screenshot_thumb.as_deref(),
             )?;
 
             db::update_status(conn, page_id, "archived")?;

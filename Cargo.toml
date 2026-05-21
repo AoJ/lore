@@ -1,3 +1,10 @@
 [workspace]
 members = ["crates/lore-core", "crates/lore-cli", "crates/lore-ui", "crates/lore-server", "crates/lore-worker", "crates/lore-e2e"]
 resolver = "3"
+
+# Shared package metadata — bumped here, every workspace crate inherits
+# via `version.workspace = true` so a release bump is a one-line change.
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "MIT"

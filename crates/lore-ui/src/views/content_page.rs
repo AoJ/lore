@@ -35,6 +35,10 @@ pub fn ContentPage(id: i64) -> Element {
     let mut selected_snapshot_id = use_signal(|| Option::<i64>::None);
     let mut selected_snapshot = use_signal(|| Option::<lore_core::db::SnapshotContent>::None);
     let mut version_picker_open = use_signal(|| false);
+    // Lazy-loaded full screenshot for the currently displayed snapshot.
+    // `None` until the user clicks "expand"; cleared on snapshot change so
+    // we don't keep the previous version's PNG in memory.
+    let mut full_screenshot_b64 = use_signal(|| Option::<String>::None);
 
     // Reactive loader: re-runs on page id change, an explicit refresh
     // bump (delete-version, re-archive — same-tab user actions), or the
@@ -89,9 +93,13 @@ pub fn ContentPage(id: i64) -> Element {
     });
 
     // Fetch the body of whichever snapshot is selected. `None` means no
-    // snapshots exist yet (queued/failed page).
+    // snapshots exist yet (queued/failed page). Also resets the lazy-loaded
+    // full screenshot — without this, switching to v2 would still show v1's
+    // expanded PNG until the user re-clicked.
     use_effect(move || {
         let sid = *selected_snapshot_id.read();
+        full_screenshot_b64.set(None);
+        screenshot_expanded.set(false);
         spawn(async move {
             match sid {
                 Some(s) => {
@@ -136,16 +144,30 @@ pub fn ContentPage(id: i64) -> Element {
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| p.title.clone());
 
-    let (preview, screenshot_b64) = match active_snap.as_ref() {
-        Some(s) => {
-            let b64 = s.screenshot.as_ref().map(|bytes| {
+    // Default render uses the cheap thumbnail. The full screenshot is loaded
+    // lazily into `full_screenshot_b64` on first click-to-enlarge — and
+    // reused while the user keeps it open. Falls back to thumb-less mode
+    // for snapshots without a thumb (legacy or HTTP-only) where the lazy
+    // full-screenshot is the only image source.
+    let preview = active_snap
+        .as_ref()
+        .map(|s| s.plain_text_preview.clone())
+        .unwrap_or_else(|| p.plain_text_preview.clone());
+
+    let thumb_b64: Option<String> = active_snap
+        .as_ref()
+        .and_then(|s| {
+            s.screenshot_thumb.as_ref().map(|bytes| {
                 use base64::Engine;
                 base64::engine::general_purpose::STANDARD.encode(bytes)
-            });
-            (s.plain_text_preview.clone(), b64)
-        }
-        None => (p.plain_text_preview.clone(), p.screenshot_base64.clone()),
-    };
+            })
+        })
+        .or_else(|| p.screenshot_thumb_base64.clone());
+
+    let has_full_for_active = active_snap
+        .as_ref()
+        .map(|s| s.has_full_screenshot)
+        .unwrap_or(p.has_full_screenshot);
 
     let header_date = active_version_view
         .as_ref()
@@ -295,11 +317,94 @@ pub fn ContentPage(id: i64) -> Element {
                     {texts::BTN_DELETE}
                 }
             }
-            if let Some(ref b64) = screenshot_b64 {
-                div {
-                    class: if *screenshot_expanded.read() { "page-screenshot expanded" } else { "page-screenshot" },
-                    onclick: move |_| { screenshot_expanded.toggle(); },
-                    img { src: "data:image/png;base64,{b64}" }
+            {
+                // Three render states, in order of preference:
+                //   - Thumb image (cheap, default) — when snapshot has one
+                //   - Full image (expanded or fallback) — when no thumb but
+                //     full is already loaded into memory
+                //   - Placeholder "Load full screenshot" button — when no
+                //     thumb but a full exists in DB (legacy snapshot before
+                //     m0010, or a future case where thumb generation failed).
+                //     Without this the user sees nothing and has no way to
+                //     access the screenshot.
+                let expanded = *screenshot_expanded.read();
+                let full = full_screenshot_b64.read().clone();
+                let active_id_for_load = *selected_snapshot_id.read();
+
+                // Click behavior is identical for the image and the
+                // placeholder: toggle expanded + lazy-fetch the full PNG
+                // the first time. Inlined twice (instead of a shared closure)
+                // because Dioxus event handlers each need their own `move`
+                // capture; a single FnMut closure can't be moved twice.
+                let img_src: Option<(String, bool)> = if expanded && full.is_some() {
+                    full.clone().map(|b| (b, true))
+                } else if let Some(t) = thumb_b64.clone() {
+                    Some((t, false))
+                } else {
+                    full.clone().map(|b| (b, true))
+                };
+
+                match img_src {
+                    Some((src, is_full)) => rsx! {
+                        div {
+                            class: if expanded { "page-screenshot expanded" } else { "page-screenshot" },
+                            onclick: move |_| {
+                                let now_expanded = !*screenshot_expanded.read();
+                                screenshot_expanded.set(now_expanded);
+                                if full_screenshot_b64.read().is_none()
+                                    && has_full_for_active
+                                    && let Some(sid) = active_id_for_load
+                                {
+                                    spawn(async move {
+                                        if let Ok(Some(bytes)) =
+                                            backend::current().get_snapshot_full_screenshot(sid).await
+                                        {
+                                            use base64::Engine;
+                                            full_screenshot_b64.set(Some(
+                                                base64::engine::general_purpose::STANDARD.encode(&bytes),
+                                            ));
+                                        }
+                                    });
+                                }
+                            },
+                            img {
+                                src: "data:image/png;base64,{src}",
+                                class: if is_full { "page-screenshot-img full" } else { "page-screenshot-img thumb" },
+                            }
+                        }
+                    },
+                    None if has_full_for_active => rsx! {
+                        // Snapshot has a full screenshot in DB but no thumb
+                        // (legacy pre-m0010 row, or a future case where
+                        // thumb generation failed). Without this affordance
+                        // the user sees nothing.
+                        button {
+                            class: "screenshot-placeholder",
+                            onclick: move |_| {
+                                let now_expanded = !*screenshot_expanded.read();
+                                screenshot_expanded.set(now_expanded);
+                                if full_screenshot_b64.read().is_none()
+                                    && let Some(sid) = active_id_for_load
+                                {
+                                    spawn(async move {
+                                        if let Ok(Some(bytes)) =
+                                            backend::current().get_snapshot_full_screenshot(sid).await
+                                        {
+                                            use base64::Engine;
+                                            full_screenshot_b64.set(Some(
+                                                base64::engine::general_purpose::STANDARD.encode(&bytes),
+                                            ));
+                                        }
+                                    });
+                                }
+                            },
+                            span { class: "screenshot-placeholder-icon", "🖼" }
+                            span { class: "screenshot-placeholder-label",
+                                {texts::BTN_LOAD_SCREENSHOT}
+                            }
+                        }
+                    },
+                    None => rsx! {},
                 }
             }
             if p.has_snapshot {

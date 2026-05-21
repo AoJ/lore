@@ -50,10 +50,16 @@ pub struct WebPageDetail {
 pub struct WebPageSnapshot {
     pub size_bytes: i64,
     pub plain_text_preview: Option<String>,
-    /// PNG bytes of the page screenshot. Base64-encoded when serialized to
-    /// JSON (HTTP API); native serde formats see raw bytes via the helper.
+    /// PNG bytes of the down-scaled thumbnail. This is what the detail panel
+    /// shows by default — much cheaper to ship than the full screenshot.
+    /// `None` on legacy snapshots that pre-date migration 0010 (in which
+    /// case the UI falls back to the full screenshot via the lazy endpoint).
     #[serde(with = "crate::serde_b64::opt_vec")]
-    pub screenshot: Option<Vec<u8>>,
+    pub screenshot_thumb: Option<Vec<u8>>,
+    /// True iff a full-size screenshot exists for this snapshot. Lets the
+    /// UI decide whether to render the "click to enlarge" affordance
+    /// without shipping the bytes up-front.
+    pub has_full_screenshot: bool,
 }
 
 /// Per-version metadata for the "Versions" list in page detail.
@@ -89,8 +95,14 @@ pub struct SnapshotContent {
     pub title: Option<String>,
     pub size_bytes: i64,
     pub plain_text_preview: Option<String>,
+    /// Thumbnail (down-scaled PNG) shown by default. `None` for legacy
+    /// snapshots — see `WebPageSnapshot::screenshot_thumb`.
     #[serde(with = "crate::serde_b64::opt_vec")]
-    pub screenshot: Option<Vec<u8>>,
+    pub screenshot_thumb: Option<Vec<u8>>,
+    /// Full-size screenshot is loaded lazily on click via
+    /// `get_snapshot_full_screenshot` — this flag tells the UI whether to
+    /// render the click-to-enlarge button at all.
+    pub has_full_screenshot: bool,
     pub content_hash: Option<String>,
     pub change_summary: Option<String>,
 }
@@ -202,6 +214,7 @@ pub fn insert_snapshot(
     html_content: &str,
     plain_text: &str,
     screenshot: Option<&[u8]>,
+    screenshot_thumb: Option<&[u8]>,
 ) -> Result<i64> {
     use sha2::{Digest, Sha256};
 
@@ -252,14 +265,15 @@ pub fn insert_snapshot(
     conn.execute(
         "INSERT INTO web_page_snapshot \
             (web_page_id, version, html_content, plain_text, screenshot, \
-             title, content_hash, change_summary) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             screenshot_thumb, title, content_hash, change_summary) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             web_page_id,
             version,
             html_content,
             plain_text,
             screenshot,
+            screenshot_thumb,
             current_title,
             content_hash,
             change_summary,
@@ -322,7 +336,8 @@ pub fn list_page_versions(conn: &Connection, web_page_id: i64) -> Result<Vec<Sna
 pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotContent> {
     conn.query_row(
         "SELECT id, version, fetched_at, title, LENGTH(plain_text), \
-                SUBSTR(plain_text, 1, 2000), screenshot, content_hash, change_summary \
+                SUBSTR(plain_text, 1, 2000), screenshot_thumb, \
+                screenshot IS NOT NULL, content_hash, change_summary \
          FROM web_page_snapshot WHERE id = ?1",
         [snapshot_id],
         |row| {
@@ -333,13 +348,31 @@ pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotC
                 title: row.get(3)?,
                 size_bytes: row.get(4)?,
                 plain_text_preview: row.get(5)?,
-                screenshot: row.get(6)?,
-                content_hash: row.get(7)?,
-                change_summary: row.get(8)?,
+                screenshot_thumb: row.get(6)?,
+                has_full_screenshot: row.get(7)?,
+                content_hash: row.get(8)?,
+                change_summary: row.get(9)?,
             })
         },
     )
     .map_err(Into::into)
+}
+
+/// Full-size screenshot PNG bytes for a snapshot. Returns `None` if the
+/// snapshot has no full screenshot (`screenshot` column is NULL), which
+/// the UI uses to gracefully no-op the click-to-enlarge action. Errors
+/// only on DB issues.
+#[cfg(feature = "sqlite")]
+pub fn get_snapshot_full_screenshot(
+    conn: &Connection,
+    snapshot_id: i64,
+) -> Result<Option<Vec<u8>>> {
+    let bytes: Option<Vec<u8>> = conn.query_row(
+        "SELECT screenshot FROM web_page_snapshot WHERE id = ?1",
+        [snapshot_id],
+        |row| row.get(0),
+    )?;
+    Ok(bytes)
 }
 
 /// Delete a single snapshot version. Refuses if it's the only version for its
@@ -588,14 +621,16 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
 
     let snapshot = conn
         .query_row(
-            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), screenshot \
+            "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), \
+                    screenshot_thumb, screenshot IS NOT NULL \
              FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
             [id],
             |row| {
                 Ok(WebPageSnapshot {
                     size_bytes: row.get(0)?,
                     plain_text_preview: row.get(1)?,
-                    screenshot: row.get(2)?,
+                    screenshot_thumb: row.get(2)?,
+                    has_full_screenshot: row.get(3)?,
                 })
             },
         )
