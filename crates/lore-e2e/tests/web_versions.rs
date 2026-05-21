@@ -802,6 +802,160 @@ async fn snapshot_thumb_and_full_screenshot_are_independent_endpoints() {
     );
 }
 
+/// Snapshots with readability_html render the Article tab by default
+/// (iframe srcdoc) and the Raw tab switches to the plain-text preview.
+/// Snapshots without readability skip the tabs entirely and show plain
+/// text directly — no empty Article shell.
+#[tokio::test]
+async fn article_tab_renders_readability_iframe_and_raw_fallback() {
+    let app = TestApp::spawn().await.expect("spawn app");
+
+    // Page A: has readability extract → Article tab visible, defaults to it.
+    let page_a = app
+        .seed_page_with_snapshots("https://example.test/with-article", "A", &[])
+        .expect("seed page A");
+    app.add_snapshot_with_readability(
+        page_a,
+        "raw plain text body",
+        "<article><h1>Hello</h1><p>article body</p></article>",
+        "article body plain",
+    )
+    .expect("seed article snapshot");
+
+    // Page B: no readability — should render the plain preview directly.
+    let page_b = app
+        .seed_page_with_snapshots(
+            "https://example.test/no-article",
+            "B",
+            &["raw text only, no extract"],
+        )
+        .expect("seed page B");
+    let _ = page_b;
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("rows render");
+
+    // Open page A (alphabetic order: title "A" first).
+    app.click_text(".list-item-title", "A").await.expect("open A");
+
+    // Tabs render, Article is active, iframe present.
+    app.wait_for(".content-tabs", Duration::from_secs(5))
+        .await
+        .expect("tabs visible for snapshot with readability");
+    let active_tab = app
+        .text(".content-tab.active")
+        .await
+        .expect("active tab");
+    assert!(
+        active_tab.contains("Article"),
+        "Article tab is active by default when readability exists, got: '{}'",
+        active_tab
+    );
+    app.wait_for(".content-article", Duration::from_secs(3))
+        .await
+        .expect("article iframe present");
+
+    // Switch to Raw → iframe gone, plain-text preview shown.
+    app.click_text(".content-tab", "Raw")
+        .await
+        .expect("click Raw");
+    app.wait_for(".content-preview", Duration::from_secs(3))
+        .await
+        .expect("plain preview shown after Raw click");
+    let iframe_now: bool = app
+        .page
+        .evaluate("document.querySelector('.content-article') !== null")
+        .await
+        .expect("eval iframe presence")
+        .into_value()
+        .unwrap_or(true);
+    assert!(!iframe_now, "iframe must disappear after switching to Raw");
+
+    // Open page B (no readability) → no tabs, only plain preview.
+    app.click_text(".list-item-title", "B").await.expect("open B");
+    app.wait_for(".content-preview", Duration::from_secs(5))
+        .await
+        .expect("plain preview");
+    let tabs_b: bool = app
+        .page
+        .evaluate("document.querySelector('.content-tabs') !== null")
+        .await
+        .expect("eval tabs presence")
+        .into_value()
+        .unwrap_or(true);
+    assert!(
+        !tabs_b,
+        "no tabs should render when snapshot has no readability HTML"
+    );
+}
+
+/// Real-world readability HTML contains nested double-quotes (attribute
+/// values, class names, href targets, …). The Article iframe must
+/// actually render that content, not just expose an empty shell.
+/// Reproduces a real bug: srcdoc attribute escaping inside Dioxus.
+#[tokio::test]
+async fn article_iframe_renders_html_with_nested_quotes() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/quotes", "Q", &[])
+        .expect("seed page");
+    // HTML reproducing the shape dom_smoothie typically produces:
+    // - wrapping div with id/class attributes (double-quoted)
+    // - links with href/rel attributes
+    // - inline marker like data-hpc="true"
+    // Unique marker `XYZZY-MARKER-9876` lets us look it up from inside
+    // the iframe document to prove the content actually parsed.
+    let html = r#"<div id="readability-page-1" class="page"><div data-hpc="true"><article itemprop="text"><h2 dir="auto">socket.io</h2><p dir="auto"><a href="https://example.com/foo" rel="nofollow">link</a> XYZZY-MARKER-9876</p></article></div></div>"#;
+    app.add_snapshot_with_readability(page_id, "raw text body", html, "marker XYZZY-MARKER-9876")
+        .expect("seed");
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("rows render");
+    app.click_text(".list-item-title", "Q")
+        .await
+        .expect("open page Q");
+
+    app.wait_for(".content-article", Duration::from_secs(5))
+        .await
+        .expect("article iframe present");
+
+    // Look up the marker inside the iframe's own document so we're checking
+    // what actually rendered, not just that `srcdoc=` got the attribute.
+    // `contentDocument` is null only when the iframe failed to load —
+    // exactly the symptom we'd see if quotes broke the attribute.
+    app.wait_until(
+        || async {
+            let v = app
+                .page
+                .evaluate(
+                    r#"
+                    (() => {
+                        const f = document.querySelector('.content-article');
+                        if (!f) return false;
+                        const doc = f.contentDocument;
+                        if (!doc || !doc.body) return false;
+                        return (doc.body.innerText || '').includes('XYZZY-MARKER-9876');
+                    })()
+                    "#,
+                )
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok())
+                .unwrap_or(false);
+            if v { Ok(Some(())) } else { Ok(None) }
+        },
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("marker visible inside the iframe document (escape + sandbox correct)");
+}
+
 /// Legacy snapshot (full screenshot, no thumb) must render a clickable
 /// placeholder so the user can still discover and load the full image.
 /// Without this they see an empty area and no affordance.

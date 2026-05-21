@@ -116,6 +116,10 @@ fn fetch_and_store(
                 &rendered.plain_text,
                 rendered.screenshot.as_deref(),
                 rendered.screenshot_thumb.as_deref(),
+                db::ReadabilityBundle {
+                    html: rendered.readability_html.as_deref(),
+                    text: rendered.readability_text.as_deref(),
+                },
             )?;
 
             db::update_status(conn, page_id, "archived")?;

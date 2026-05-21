@@ -506,7 +506,7 @@ fn insert_page_and_snapshot() {
 
     db::update_status(&conn, id, "fetching").unwrap();
 
-    let snap = db::insert_snapshot(&conn, id, "<html>test</html>", "test content", None, None).unwrap();
+    let snap = db::insert_snapshot(&conn, id, "<html>test</html>", "test content", None, None, db::ReadabilityBundle::default()).unwrap();
     assert!(snap > 0);
 
     db::update_status(&conn, id, "archived").unwrap();
@@ -1591,8 +1591,8 @@ fn insert_snapshot_returns_distinct_ids_and_round_trips() {
     )
     .unwrap();
 
-    let s1 = db::insert_snapshot(&conn, page_id, "<html>v1</html>", "v1 text", None, None).unwrap();
-    let s2 = db::insert_snapshot(&conn, page_id, "<html>v2</html>", "v2 text", None, None).unwrap();
+    let s1 = db::insert_snapshot(&conn, page_id, "<html>v1</html>", "v1 text", None, None, db::ReadabilityBundle::default()).unwrap();
+    let s2 = db::insert_snapshot(&conn, page_id, "<html>v2</html>", "v2 text", None, None, db::ReadabilityBundle::default()).unwrap();
     assert_ne!(s1, s2, "two snapshots must get distinct row ids");
 
     // The returned id must point to the actually-inserted row.
@@ -1683,6 +1683,7 @@ fn search_web_pages_finds_inserted_page_by_snippet_term() {
         "rare-keyword-zarquon body text",
         None,
         None,
+        db::ReadabilityBundle::default(),
     )
     .unwrap();
 

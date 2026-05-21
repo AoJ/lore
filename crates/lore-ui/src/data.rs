@@ -59,20 +59,31 @@ pub struct PageDetailView {
     /// True if the snapshot has a full-size screenshot the UI can fetch
     /// lazily on click. Drives "click to enlarge" affordance.
     pub has_full_screenshot: bool,
+    /// Cleaned `<article>` HTML from m0011 readability extraction. When
+    /// present, the detail view renders it via an `<iframe srcdoc>` as
+    /// the default "Article" tab. `None` for legacy snapshots or pages
+    /// that have no extractable article (dashboards, login walls).
+    pub readability_html: Option<String>,
 }
 
 pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
     let p = crate::backend::current().get_page(id).await?;
-    let (plain_text_preview, screenshot_thumb_base64, has_full_screenshot, has_snapshot) =
+    let (plain_text_preview, screenshot_thumb_base64, has_full_screenshot, readability_html, has_snapshot) =
         match p.snapshot {
             Some(s) => {
                 let b64 = s.screenshot_thumb.as_ref().map(|bytes| {
                     use base64::Engine;
                     base64::engine::general_purpose::STANDARD.encode(bytes)
                 });
-                (s.plain_text_preview, b64, s.has_full_screenshot, true)
+                (
+                    s.plain_text_preview,
+                    b64,
+                    s.has_full_screenshot,
+                    s.readability_html,
+                    true,
+                )
             }
-            None => (None, None, false, false),
+            None => (None, None, false, None, false),
         };
     let total_size_display = if p.total_size_bytes > 0 {
         Some(format_size_short(p.total_size_bytes))
@@ -96,6 +107,7 @@ pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
         plain_text_preview,
         screenshot_thumb_base64,
         has_full_screenshot,
+        readability_html,
     })
 }
 

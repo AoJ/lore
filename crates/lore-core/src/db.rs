@@ -35,7 +35,7 @@ pub use web_page::{
 // going through the `sqlite` feature path. The WASM client wraps URL
 // archiving through `archive_url` and never assembles one of these.
 #[cfg(feature = "sqlite")]
-pub use web_page::NewWebPage;
+pub use web_page::{NewWebPage, ReadabilityBundle};
 
 // ---- Functions — `sqlite` feature only ----
 

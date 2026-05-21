@@ -60,6 +60,10 @@ pub struct WebPageSnapshot {
     /// UI decide whether to render the "click to enlarge" affordance
     /// without shipping the bytes up-front.
     pub has_full_screenshot: bool,
+    /// Cleaned `<article>` HTML from readability extraction (m0011+). UI
+    /// renders this as the Article view; `None` on legacy snapshots or
+    /// when extraction failed (login wall, JS-only app, …).
+    pub readability_html: Option<String>,
 }
 
 /// Per-version metadata for the "Versions" list in page detail.
@@ -105,6 +109,9 @@ pub struct SnapshotContent {
     pub has_full_screenshot: bool,
     pub content_hash: Option<String>,
     pub change_summary: Option<String>,
+    /// Cleaned article HTML (m0011+). UI renders this as the default
+    /// Article view; falls back to `plain_text_preview` when None.
+    pub readability_html: Option<String>,
 }
 
 /// Outcome of `archive_url`: returns the row id plus the classifier category
@@ -207,6 +214,20 @@ fn compute_change_summary(
     )
 }
 
+/// Bundle of readability-extracted fields. Passed to `insert_snapshot` as
+/// a single optional struct so adding more fields later doesn't keep
+/// growing the function signature.
+///
+/// Only `html` and `text` are stored:
+/// - `html` is what the Article tab renders
+/// - `text` is what FTS indexes (cleaner signal than raw plain_text)
+#[cfg(feature = "sqlite")]
+#[derive(Debug, Default, Clone)]
+pub struct ReadabilityBundle<'a> {
+    pub html: Option<&'a str>,
+    pub text: Option<&'a str>,
+}
+
 #[cfg(feature = "sqlite")]
 pub fn insert_snapshot(
     conn: &Connection,
@@ -215,6 +236,7 @@ pub fn insert_snapshot(
     plain_text: &str,
     screenshot: Option<&[u8]>,
     screenshot_thumb: Option<&[u8]>,
+    readability: ReadabilityBundle<'_>,
 ) -> Result<i64> {
     use sha2::{Digest, Sha256};
 
@@ -265,8 +287,9 @@ pub fn insert_snapshot(
     conn.execute(
         "INSERT INTO web_page_snapshot \
             (web_page_id, version, html_content, plain_text, screenshot, \
-             screenshot_thumb, title, content_hash, change_summary) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             screenshot_thumb, title, content_hash, change_summary, \
+             readability_html, readability_text) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         rusqlite::params![
             web_page_id,
             version,
@@ -277,17 +300,22 @@ pub fn insert_snapshot(
             current_title,
             content_hash,
             change_summary,
+            readability.html,
+            readability.text,
         ],
     )?;
     let snapshot_id = conn.last_insert_rowid();
 
-    // Index in FTS
+    // FTS: prefer the cleaned readability text when available — much higher
+    // signal-to-noise than raw page text (no nav/footer/ad copy). Falls
+    // back to raw plain_text on legacy/extraction-failed snapshots.
+    let fts_text = readability.text.unwrap_or(plain_text);
     conn.execute(
         "INSERT INTO web_page_fts(rowid, title, plain_text, url) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![
             snapshot_id,
             current_title.unwrap_or_default(),
-            plain_text,
+            fts_text,
             url
         ],
     )?;
@@ -337,7 +365,8 @@ pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotC
     conn.query_row(
         "SELECT id, version, fetched_at, title, LENGTH(plain_text), \
                 SUBSTR(plain_text, 1, 2000), screenshot_thumb, \
-                screenshot IS NOT NULL, content_hash, change_summary \
+                screenshot IS NOT NULL, content_hash, change_summary, \
+                readability_html \
          FROM web_page_snapshot WHERE id = ?1",
         [snapshot_id],
         |row| {
@@ -352,6 +381,7 @@ pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotC
                 has_full_screenshot: row.get(7)?,
                 content_hash: row.get(8)?,
                 change_summary: row.get(9)?,
+                readability_html: row.get(10)?,
             })
         },
     )
@@ -622,7 +652,8 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
     let snapshot = conn
         .query_row(
             "SELECT LENGTH(html_content), SUBSTR(plain_text, 1, 2000), \
-                    screenshot_thumb, screenshot IS NOT NULL \
+                    screenshot_thumb, screenshot IS NOT NULL, \
+                    readability_html \
              FROM web_page_snapshot WHERE web_page_id = ?1 ORDER BY version DESC LIMIT 1",
             [id],
             |row| {
@@ -631,6 +662,7 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
                     plain_text_preview: row.get(1)?,
                     screenshot_thumb: row.get(2)?,
                     has_full_screenshot: row.get(3)?,
+                    readability_html: row.get(4)?,
                 })
             },
         )

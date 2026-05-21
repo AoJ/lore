@@ -12,6 +12,10 @@ path = "src/main.rs"
 anyhow = "1"
 chromiumoxide = "0.7"
 clap = { version = "4", features = ["derive", "env"] }
+# Mozilla Readability port — produces a cleaned <article> blob from raw
+# page HTML. Best-effort: pages without an extractable article (login
+# walls, dashboards) just return None and we store NULL.
+dom_smoothie = "0.17"
 futures-util = "0.3"
 # Only the PNG codec — JPEG/GIF/TIFF etc. would balloon binary size for no
 # use. Worker screenshots arrive from Chrome as PNG and the thumbnail is

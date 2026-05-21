@@ -52,6 +52,10 @@ const MIGRATIONS: &[Step] = &[
     Step::Code(m0008_snapshot_versioning),
     Step::Code(m0009_cleanup_internal_attachment_pages),
     Step::Sql(include_str!("../migrations/0010_snapshot_thumb.sql")),
+    Step::Sql(include_str!("../migrations/0011_snapshot_readability.sql")),
+    Step::Sql(include_str!(
+        "../migrations/0012_drop_unused_readability_fields.sql"
+    )),
 ];
 
 /// Read the current schema version of the DB.

@@ -5,6 +5,16 @@ use crate::store::DataStore;
 use crate::texts;
 use dioxus::prelude::*;
 
+/// Which content tab is currently active. `Article` shows the
+/// readability-extracted HTML in a sandboxed iframe; `Raw` shows the
+/// stored plain-text preview. The selector only renders when both
+/// views are available.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ContentTab {
+    Article,
+    Raw,
+}
+
 /// Detail view for an archived web page.
 ///
 /// Data flow:
@@ -39,6 +49,10 @@ pub fn ContentPage(id: i64) -> Element {
     // `None` until the user clicks "expand"; cleared on snapshot change so
     // we don't keep the previous version's PNG in memory.
     let mut full_screenshot_b64 = use_signal(|| Option::<String>::None);
+    // Selected content tab. Defaults to Article when readability HTML
+    // exists, otherwise Raw — set in the effect that loads `selected_snapshot`
+    // so the default reflects the actual snapshot, not last view.
+    let mut content_tab = use_signal(|| ContentTab::Raw);
 
     // Reactive loader: re-runs on page id change, an explicit refresh
     // bump (delete-version, re-archive — same-tab user actions), or the
@@ -104,6 +118,15 @@ pub fn ContentPage(id: i64) -> Element {
             match sid {
                 Some(s) => {
                     if let Ok(content) = backend::current().get_page_version(s).await {
+                        // Default tab follows the snapshot: Article if the
+                        // worker captured one, else Raw. Per-snapshot reset
+                        // keeps version switching predictable.
+                        let default = if content.readability_html.is_some() {
+                            ContentTab::Article
+                        } else {
+                            ContentTab::Raw
+                        };
+                        content_tab.set(default);
                         selected_snapshot.set(Some(content));
                     }
                 }
@@ -408,10 +431,69 @@ pub fn ContentPage(id: i64) -> Element {
                 }
             }
             if p.has_snapshot {
-                if let Some(ref text) = preview {
-                    details {
-                        summary { {texts::LABEL_CONTENT_PREVIEW} }
-                        pre { class: "content-preview", "{text}" }
+                {
+                    // Article HTML comes from the freshly loaded snapshot
+                    // (preferred) or, while that's still in flight, the
+                    // page-level snapshot loaded with `get_page` so the
+                    // first paint already shows the cleaned article.
+                    let article_html = active_snap
+                        .as_ref()
+                        .and_then(|s| s.readability_html.clone())
+                        .or_else(|| p.readability_html.clone());
+                    let tab = *content_tab.read();
+                    let has_article = article_html.is_some();
+                    rsx! {
+                        // Only show tabs when both views exist — single-view
+                        // pages don't need the chrome.
+                        if has_article {
+                            div { class: "content-tabs",
+                                button {
+                                    class: if tab == ContentTab::Article { "content-tab active" } else { "content-tab" },
+                                    onclick: move |_| content_tab.set(ContentTab::Article),
+                                    {texts::TAB_ARTICLE}
+                                }
+                                button {
+                                    class: if tab == ContentTab::Raw { "content-tab active" } else { "content-tab" },
+                                    onclick: move |_| content_tab.set(ContentTab::Raw),
+                                    {texts::TAB_RAW}
+                                }
+                            }
+                        }
+                        match (tab, article_html, preview.clone()) {
+                            (ContentTab::Article, Some(html), _) => {
+                                // srcdoc is a string attribute that the browser
+                                // parses as HTML. Any nested `"` would close the
+                                // attribute early and leave the page blank; `&`
+                                // would be reinterpreted as the start of an
+                                // entity. Escape both so realistic readability
+                                // payloads (which carry plenty of attribute
+                                // values) actually render.
+                                let escaped = html.replace('&', "&amp;").replace('"', "&quot;");
+                                rsx! {
+                                    iframe {
+                                        class: "content-article",
+                                        srcdoc: "{escaped}",
+                                        // `allow-same-origin` only — no scripts,
+                                        // no forms, no popups, no top navigation.
+                                        // We need same-origin so the iframe isn't
+                                        // treated as a unique cross-origin frame
+                                        // (which makes contentDocument inaccessible
+                                        // and triggers some surprising layout
+                                        // glitches in WebKit). dom_smoothie already
+                                        // strips scripts, so allowing same-origin
+                                        // doesn't reintroduce script capability.
+                                        // Raw attribute name — Dioxus's iframe
+                                        // element doesn't expose a typed `sandbox:`
+                                        // prop yet.
+                                        "sandbox": "allow-same-origin",
+                                    }
+                                }
+                            }
+                            (_, _, Some(text)) => rsx! {
+                                pre { class: "content-preview", "{text}" }
+                            },
+                            _ => rsx! {},
+                        }
                     }
                 }
             }

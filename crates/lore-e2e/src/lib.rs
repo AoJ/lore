@@ -465,7 +465,15 @@ impl TestApp {
             },
         )?;
         for body in snapshot_bodies {
-            db::insert_snapshot(&conn, page_id, "<html></html>", body, None, None)?;
+            db::insert_snapshot(
+                &conn,
+                page_id,
+                "<html></html>",
+                body,
+                None,
+                None,
+                db::ReadabilityBundle::default(),
+            )?;
         }
         Ok(page_id)
     }
@@ -485,7 +493,15 @@ impl TestApp {
     /// `seed_page_with_snapshots` produced). Returns the new snapshot id.
     pub fn add_snapshot(&self, page_id: i64, plain_text: &str) -> anyhow::Result<i64> {
         let conn = self.conn()?;
-        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, None, None)
+        lore_core::db::insert_snapshot(
+            &conn,
+            page_id,
+            "<html></html>",
+            plain_text,
+            None,
+            None,
+            lore_core::db::ReadabilityBundle::default(),
+        )
     }
 
     /// Same as `add_snapshot` but with explicit screenshot bytes. Used by
@@ -499,7 +515,40 @@ impl TestApp {
         thumb: Option<&[u8]>,
     ) -> anyhow::Result<i64> {
         let conn = self.conn()?;
-        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, full, thumb)
+        lore_core::db::insert_snapshot(
+            &conn,
+            page_id,
+            "<html></html>",
+            plain_text,
+            full,
+            thumb,
+            lore_core::db::ReadabilityBundle::default(),
+        )
+    }
+
+    /// Seed a snapshot with readability fields populated — used by tests
+    /// that want to assert the Article-view path without running a real
+    /// worker (no Chrome, no dom_smoothie roundtrip).
+    pub fn add_snapshot_with_readability(
+        &self,
+        page_id: i64,
+        plain_text: &str,
+        readability_html: &str,
+        readability_text: &str,
+    ) -> anyhow::Result<i64> {
+        let conn = self.conn()?;
+        lore_core::db::insert_snapshot(
+            &conn,
+            page_id,
+            "<html></html>",
+            plain_text,
+            None,
+            None,
+            lore_core::db::ReadabilityBundle {
+                html: Some(readability_html),
+                text: Some(readability_text),
+            },
+        )
     }
 
     /// Run the `lore-worker` binary against the test DB and wait for it

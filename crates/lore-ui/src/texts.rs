@@ -38,7 +38,6 @@ pub const BTN_DELETE_FOREVER: &str = "Delete forever";
 pub const BTN_UPLOAD: &str = "Upload";
 pub const BTN_SAVE_TO_DOWNLOADS: &str = "Download";
 
-pub const LABEL_CONTENT_PREVIEW: &str = "Content preview";
 
 // ---- Note editor ----
 pub const PLACEHOLDER_NOTE_TITLE: &str = "Untitled note";
@@ -105,6 +104,10 @@ pub const TIP_TOTAL_SIZE: &str = "Total size across all snapshot versions (text 
 pub const TIP_PAGE_ID: &str = "Internal page ID — handy for cross-referencing or bug reports.";
 pub const TIP_APP_VERSION: &str = "Build version + git short SHA. Include in bug reports.";
 pub const BTN_LOAD_SCREENSHOT: &str = "Load full screenshot";
+
+// Article / Raw content tabs (readability extraction, m0011+).
+pub const TAB_ARTICLE: &str = "Article";
+pub const TAB_RAW: &str = "Raw";
 
 // Page status labels (worker pipeline).
 pub const STATUS_QUEUED: &str = "queued";

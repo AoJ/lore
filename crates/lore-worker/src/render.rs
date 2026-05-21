@@ -24,12 +24,41 @@ pub struct RenderedPage {
     /// detail view. `None` when no full screenshot was captured (HTTP
     /// fallback) or when thumbnail generation failed.
     pub screenshot_thumb: Option<Vec<u8>>,
+    /// Cleaned `<article>` HTML from dom_smoothie. `None` when the page
+    /// has no extractable article (login walls, dashboards) or when the
+    /// readability parser failed. UI falls back to `plain_text`.
+    pub readability_html: Option<String>,
+    pub readability_text: Option<String>,
     /// True when the page was fetched via the HTTP fallback after Chrome
     /// failed. The snapshot is still usable (worker stores it the same way),
     /// but the summary counts it as a warning and the user knows the
     /// rendering is degraded (no JS execution, no screenshot, often
     /// truncated content).
     pub via_fallback: bool,
+}
+
+/// Run readability extraction on raw HTML. Best-effort: on any decode/parse
+/// failure (malformed HTML, no extractable article) returns `None` and the
+/// caller stores NULL columns. `base_url` lets the extractor resolve
+/// relative links / images inside the article.
+fn extract_readability(html: &str, base_url: &str) -> Option<ReadabilityExtract> {
+    let mut readability = dom_smoothie::Readability::new(html, Some(base_url), None).ok()?;
+    let article = readability.parse().ok()?;
+    // Empty content is treated as failure — happens on pages where
+    // dom_smoothie picks a tiny fragment (one nav line). Don't waste a
+    // column on that.
+    if article.text_content.is_empty() {
+        return None;
+    }
+    Some(ReadabilityExtract {
+        html: article.content.to_string(),
+        text: article.text_content.to_string(),
+    })
+}
+
+struct ReadabilityExtract {
+    html: String,
+    text: String,
 }
 
 /// Crop the captured screenshot to `MAX_FULL_HEIGHT` (keeping the top of
@@ -197,12 +226,16 @@ impl LocalRenderer {
             None => (None, None),
         };
 
+        let readability = extract_readability(&html, url);
+
         Ok(RenderedPage {
             html,
             plain_text,
             title,
             screenshot,
             screenshot_thumb,
+            readability_html: readability.as_ref().map(|r| r.html.clone()),
+            readability_text: readability.as_ref().map(|r| r.text.clone()),
             via_fallback: false,
         })
     }
@@ -234,6 +267,7 @@ impl Renderer for HttpRenderer {
 
         let html = response.text()?;
         let (title, plain_text) = extract_from_html(&html);
+        let readability = extract_readability(&html, url);
 
         Ok(RenderedPage {
             html,
@@ -241,6 +275,8 @@ impl Renderer for HttpRenderer {
             title,
             screenshot: None,
             screenshot_thumb: None,
+            readability_html: readability.as_ref().map(|r| r.html.clone()),
+            readability_text: readability.as_ref().map(|r| r.text.clone()),
             // HTTP renderer alone doesn't mark via_fallback — only the
             // FallbackRenderer flips it when it falls back after a Chrome
             // failure, so we can distinguish "intentional HTTP-only" from
