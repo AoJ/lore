@@ -113,7 +113,6 @@
 ### UI vylepšení
 - [ ] Scroll pozice — zachování při navigaci zpět
 - [ ] Back/forward navigační historie (Cmd+[, Cmd+])
-- [ ] Animace (fade-out při smazání, slide transitions)
 - [ ] Kontextové menu (pravý klik) na položkách v listu
 - [ ] Automatické smazání trash položek starších 30 dní
 - [ ] Prázdné stavy — ilustrace nebo ikony místo jen textu

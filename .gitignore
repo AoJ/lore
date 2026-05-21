@@ -9,3 +9,5 @@ mutants.out.old/
 # pick up at runtime; the source-of-truth is target/dx/, not this dir.
 crates/lore-server/static/
 db.sqlite
+db.sqlite-shm
+db.sqlite-wal
