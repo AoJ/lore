@@ -24,9 +24,15 @@ pub enum Selected {
     SettingsSpaces,
 }
 
-/// Toast notification data
+/// Toast notification data.
+///
+/// `id` is a monotonic counter bumped on every new toast. The `Toast`
+/// component reads it as a reactive dependency, so each new toast restarts
+/// its auto-dismiss countdown — without it a fresh toast posted while an
+/// old one is still on screen wouldn't get its own timer.
 #[derive(Clone, Debug)]
 pub struct ToastData {
+    pub id: u64,
     pub message: String,
     pub undo: Option<UndoAction>,
 }
@@ -90,7 +96,13 @@ impl AppState {
     }
 
     pub fn show_toast(&mut self, message: String, undo: Option<UndoAction>) {
-        self.toast.set(Some(ToastData { message, undo }));
+        // Reuse `refresh_tick` as the monotonic id source — it's already
+        // wrapping_add safe and we'd otherwise need a second counter for the
+        // same purpose. The tick gets bumped here so anything listening on
+        // it (e.g. lists that auto-refresh on action) still wakes up.
+        self.bump_refresh();
+        let id = *self.refresh_tick.read();
+        self.toast.set(Some(ToastData { id, message, undo }));
     }
 
     pub fn dismiss_toast(&mut self) {

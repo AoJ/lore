@@ -5,61 +5,91 @@ use crate::store::DataStore;
 use crate::texts;
 use dioxus::prelude::*;
 
+/// Detail view for an archived web page.
+///
+/// Data flow:
+/// - One `use_effect` loads page + version list whenever `id` or
+///   `refresh_tick` changes (the latter is bumped by the 2 s polling loop
+///   when DB revision moves, so the panel auto-refreshes when the worker
+///   appends a new snapshot or a sibling client edits).
+/// - Header shows the **currently selected** version's date/time +
+///   `vX` + size; click opens an inline popover listing all versions with
+///   diff badges. Single-version pages show no chevron and no interaction.
+/// - Title, screenshot, and plain-text preview all come from the selected
+///   snapshot; switching version repaints all three.
 #[component]
 pub fn ContentPage(id: i64) -> Element {
     let mut state = use_context::<AppState>();
     let store = use_context::<DataStore>();
+
     let mut page = use_signal(|| Option::<data::PageDetailView>::None);
     let mut load_error = use_signal(|| Option::<String>::None);
     let mut screenshot_expanded = use_signal(|| false);
     let space_id = *state.space_id.read();
     let mut backrefs = use_signal(Vec::<(i64, String)>::new);
 
-    // Version list + selection. `selected_snapshot_id = None` means "show the
-    // latest" — what `get_page` already returns. Selecting an older version
-    // re-fetches `get_page_version(snapshot_id)` and overrides the rendered
-    // preview/screenshot.
     let mut versions = use_signal(Vec::<VersionView>::new);
+    // Currently displayed snapshot id. None while loading or when the page
+    // has no snapshots yet; otherwise always points at one of `versions`.
+    // Defaults to the newest after each reload.
     let mut selected_snapshot_id = use_signal(|| Option::<i64>::None);
     let mut selected_snapshot = use_signal(|| Option::<lore_core::db::SnapshotContent>::None);
+    let mut version_picker_open = use_signal(|| false);
 
-    // Re-run on refresh tick bumps (re-archive, delete-version) so the panel
-    // reflects fresh DB state without a manual reload.
-    let refresh_tick = *state.refresh_tick.read();
-
-    use_future(move || async move {
-        let _tick = refresh_tick;
-        match data::get_page_view(id).await {
-            Ok(view) => {
-                let url = view.url.clone();
-                let title_fallback = view.title.clone();
-                page.set(Some(view));
-                load_error.set(None);
-                backrefs.set(
-                    backend::current()
-                        .find_notes_referencing_url(&url, space_id)
+    // Reactive loader: re-runs on page id change, an explicit refresh
+    // bump (delete-version, re-archive — same-tab user actions), or the
+    // polling loop's revision bump (worker appended a snapshot, sibling
+    // client edited). All three are signal reads inside the effect, so
+    // Dioxus tracks them as dependencies.
+    use_effect(move || {
+        let _ = id;
+        let _tick = *state.refresh_tick.read();
+        let _rev = *store.revision.read();
+        spawn(async move {
+            match data::get_page_view(id).await {
+                Ok(view) => {
+                    let url = view.url.clone();
+                    let title_fallback = view.title.clone();
+                    page.set(Some(view));
+                    load_error.set(None);
+                    backrefs.set(
+                        backend::current()
+                            .find_notes_referencing_url(&url, space_id)
+                            .await
+                            .unwrap_or_default(),
+                    );
+                    let metas = backend::current()
+                        .list_page_versions(id)
                         .await
-                        .unwrap_or_default(),
-                );
-                // Refresh versions panel
-                let metas = backend::current()
-                    .list_page_versions(id)
-                    .await
-                    .unwrap_or_default();
-                versions.set(
-                    metas
+                        .unwrap_or_default();
+                    let views: Vec<VersionView> = metas
                         .iter()
                         .map(|m| data::snapshot_meta_to_view(m, &title_fallback))
-                        .collect(),
-                );
+                        .collect();
+                    // Default to newest (first), but preserve current
+                    // selection if its id still exists (avoids snapping
+                    // back to v3 every poll while user inspects v1).
+                    let current = *selected_snapshot_id.read();
+                    let keep_current = current
+                        .map(|sid| views.iter().any(|v| v.id == sid))
+                        .unwrap_or(false);
+                    let new_selected = if keep_current {
+                        current
+                    } else {
+                        views.first().map(|v| v.id)
+                    };
+                    versions.set(views);
+                    selected_snapshot_id.set(new_selected);
+                }
+                Err(e) => {
+                    load_error.set(Some(format!("{:#}", e)));
+                }
             }
-            Err(e) => {
-                load_error.set(Some(format!("{:#}", e)));
-            }
-        }
+        });
     });
 
-    // When user picks a non-latest version, fetch its body.
+    // Fetch the body of whichever snapshot is selected. `None` means no
+    // snapshots exist yet (queued/failed page).
     use_effect(move || {
         let sid = *selected_snapshot_id.read();
         spawn(async move {
@@ -91,47 +121,94 @@ pub fn ContentPage(id: i64) -> Element {
         };
     };
 
-    // Resolve which snapshot to render: an explicitly selected old version,
-    // or fall back to the latest data already in `PageDetailView`.
-    let active_snapshot = selected_snapshot.read();
-    let (size_display, preview, screenshot_b64): (Option<String>, Option<String>, Option<String>) =
-        match active_snapshot.as_ref() {
-            Some(s) => {
-                let b64 = s.screenshot.as_ref().map(|bytes| {
-                    use base64::Engine;
-                    base64::engine::general_purpose::STANDARD.encode(bytes)
-                });
-                (
-                    Some(data::format_size_short_pub(s.size_bytes)),
-                    s.plain_text_preview.clone(),
-                    b64,
-                )
-            }
-            None => (
-                p.content_size.clone(),
-                p.plain_text_preview.clone(),
-                p.screenshot_base64.clone(),
-            ),
-        };
-    let viewing_old_version = active_snapshot.is_some();
+    // Resolve the "active" view-model: prefer selected snapshot's title,
+    // date, size, screenshot; fall back to page-level values when no
+    // snapshot is loaded yet.
+    let active_snap = selected_snapshot.read();
+    let versions_read = versions.read();
+    let active_version_view = selected_snapshot_id
+        .read()
+        .and_then(|sid| versions_read.iter().find(|v| v.id == sid).cloned());
+
+    let header_title = active_snap
+        .as_ref()
+        .and_then(|s| s.title.clone())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| p.title.clone());
+
+    let (preview, screenshot_b64) = match active_snap.as_ref() {
+        Some(s) => {
+            let b64 = s.screenshot.as_ref().map(|bytes| {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            });
+            (s.plain_text_preview.clone(), b64)
+        }
+        None => (p.plain_text_preview.clone(), p.screenshot_base64.clone()),
+    };
+
+    let header_date = active_version_view
+        .as_ref()
+        .map(|v| v.fetched_at_display.clone())
+        .or_else(|| p.last_fetched_at_display.clone());
+    let header_version_label = active_version_view.as_ref().map(|v| format!("v{}", v.version));
+    let header_size = p.total_size_display.clone();
+    let multi_version = versions_read.len() > 1;
 
     rsx! {
         section { class: "content-panel content-page",
-            h1 { class: "page-title", "{p.title}" }
+            h1 { class: "page-title", "{header_title}" }
             div { class: "page-url",
                 a { href: "{p.url}", target: "_blank", "{p.url}" }
             }
             div { class: "page-meta",
+                // Version selector — current vX + date. Click to open picker
+                // when there's more than one version; otherwise just a label.
+                if let Some(label) = header_version_label.as_ref() {
+                    {
+                        let is_multi = multi_version;
+                        rsx! {
+                            button {
+                                class: if is_multi { "version-selector" } else { "version-selector single" },
+                                disabled: !is_multi,
+                                onclick: move |_| {
+                                    if is_multi { version_picker_open.toggle(); }
+                                },
+                                span { class: "version-selector-num", "{label}" }
+                                if let Some(d) = header_date.as_ref() {
+                                    span { class: "version-selector-date", " · {d}" }
+                                }
+                                if is_multi {
+                                    span { class: "version-selector-chevron", " ▾" }
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(d) = header_date.as_ref() {
+                    span { "{d}" }
+                }
+                span { class: "sep", "·" }
                 span { "{p.domain}" }
                 span { class: "sep", "·" }
                 span { "{p.category}" }
                 span { class: "sep", "·" }
-                span { "{p.status}" }
-                span { class: "sep", "·" }
-                span { "{p.created_at}" }
-                if let Some(ref size) = size_display {
+                {render_status_chip(&p.status)}
+                if let Some(ref size) = header_size {
                     span { class: "sep", "·" }
-                    span { "{size}" }
+                    span { title: texts::TIP_TOTAL_SIZE, "{size}" }
+                }
+                span { class: "sep", "·" }
+                span { class: "page-id", title: texts::TIP_PAGE_ID, "#{id}" }
+            }
+            if *version_picker_open.read() && multi_version {
+                VersionPickerPopover {
+                    versions: versions_read.clone(),
+                    selected_id: *selected_snapshot_id.read(),
+                    on_select: move |sid: i64| {
+                        selected_snapshot_id.set(Some(sid));
+                        version_picker_open.set(false);
+                    },
+                    on_close: move |_| version_picker_open.set(false),
                 }
             }
             if let Some(ref error) = p.last_error {
@@ -163,7 +240,12 @@ pub fn ContentPage(id: i64) -> Element {
                         }
                     }
                 }
-                if p.status == "failed" || p.status == "queued" {
+                // Retry is only meaningful when the previous fetch errored.
+                // For `queued` / `fetching` the worker is going to (or
+                // already is) running — nudging status back to `queued`
+                // would be redundant and confuses users into thinking
+                // something failed.
+                if p.status == "failed" {
                     button { class: "btn",
                         onclick: {
                             let page_id = id;
@@ -223,24 +305,11 @@ pub fn ContentPage(id: i64) -> Element {
             if p.has_snapshot {
                 if let Some(ref text) = preview {
                     details {
-                        open: viewing_old_version,
                         summary { {texts::LABEL_CONTENT_PREVIEW} }
                         pre { class: "content-preview", "{text}" }
                     }
                 }
             }
-            // ---- Versions list ----
-            // Only render once we have at least one version. Single-version
-            // pages still show the panel so users learn the concept.
-            if !versions.read().is_empty() {
-                VersionsPanel {
-                    page_id: id,
-                    versions: versions.read().clone(),
-                    selected_id: *selected_snapshot_id.read(),
-                    on_select: move |sid: Option<i64>| selected_snapshot_id.set(sid),
-                }
-            }
-            // Back-references: which notes link to this URL
             if !backrefs.read().is_empty() {
                 div { class: "page-backrefs",
                     strong { "Referenced in:" }
@@ -276,24 +345,27 @@ pub fn ContentPage(id: i64) -> Element {
 }
 
 #[component]
-fn VersionsPanel(
-    page_id: i64,
+fn VersionPickerPopover(
     versions: Vec<VersionView>,
     selected_id: Option<i64>,
-    on_select: EventHandler<Option<i64>>,
+    on_select: EventHandler<i64>,
+    on_close: EventHandler<()>,
 ) -> Element {
-    let _ = page_id; // Reserved for future per-page actions (e.g. compare).
     let state = use_context::<AppState>();
     let store = use_context::<DataStore>();
     let multiple = versions.len() > 1;
-    // Latest is first in the list (DB returns DESC by version).
     let latest_id = versions.first().map(|v| v.id);
 
     rsx! {
-        details { class: "page-versions", open: true,
-            summary {
+        div { class: "version-picker-popover",
+            div { class: "version-picker-header",
                 span { {texts::LABEL_VERSIONS} }
                 span { class: "page-versions-count", " ({versions.len()})" }
+                button {
+                    class: "btn-icon version-picker-close",
+                    onclick: move |_| on_close.call(()),
+                    "×"
+                }
             }
             ul { class: "version-list",
                 for v in versions.iter() {
@@ -309,11 +381,7 @@ fn VersionsPanel(
                             li {
                                 key: "{vid}",
                                 class: if is_selected { "version-row selected" } else { "version-row" },
-                                onclick: move |_| {
-                                    // Clicking the latest row clears the override so the
-                                    // panel goes back to `get_page` defaults.
-                                    if is_latest { on_select.call(None); } else { on_select.call(Some(vid)); }
-                                },
+                                onclick: move |_| on_select.call(vid),
                                 span { class: "version-num", "v{v.version}" }
                                 span { class: "version-date", "{v.fetched_at_display}" }
                                 span { class: "version-size", "{v.size_display}" }
@@ -326,12 +394,8 @@ fn VersionsPanel(
                                             evt.stop_propagation();
                                             let mut store = store;
                                             let mut state2 = state;
-                                            let was_selected = selected_id == Some(vid);
                                             spawn(async move {
-                                                // No native confirm() in Dioxus desktop — rely on
-                                                // toast Undo flow once we add it. For now, just delete.
                                                 if store.delete_page_version(&mut state2, vid).await.is_ok() {
-                                                    if was_selected { /* selection cleared by re-render */ }
                                                     state2.show_toast(
                                                         texts::TOAST_VERSION_DELETED.to_string(),
                                                         None,
@@ -355,8 +419,6 @@ fn VersionsPanel(
 fn version_badges(summary: &Option<data::ChangeSummary>, is_latest: bool) -> Element {
     let badges = match summary {
         None => {
-            // v1 has no diff base. Latest gets a "current" tag; older v1s
-            // (shouldn't happen — v1 is always oldest) show nothing.
             if is_latest {
                 rsx! { span { class: "version-badge badge-current", {texts::BADGE_CURRENT} } }
             } else {
@@ -387,4 +449,21 @@ fn version_badges(summary: &Option<data::ChangeSummary>, is_latest: bool) -> Ele
         }
     };
     rsx! { {badges} }
+}
+
+/// Render the page status as a colored chip so `queued` / `fetching` /
+/// `failed` are distinguishable at a glance — previously they were all
+/// plain text and a queued page looked indistinguishable from a failed one.
+fn render_status_chip(status: &str) -> Element {
+    let (class, text) = match status {
+        "queued" => ("status-chip status-queued", texts::STATUS_QUEUED),
+        "fetching" => ("status-chip status-fetching", texts::STATUS_FETCHING),
+        "archived" => ("status-chip status-archived", texts::STATUS_ARCHIVED),
+        "failed" => ("status-chip status-failed", texts::STATUS_FAILED),
+        "skipped" => ("status-chip status-skipped", texts::STATUS_SKIPPED),
+        // Unknown statuses fall through with the raw text so we don't
+        // accidentally hide new DB values from view.
+        other => ("status-chip", other),
+    };
+    rsx! { span { class: "{class}", "{text}" } }
 }

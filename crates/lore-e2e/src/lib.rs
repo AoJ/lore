@@ -487,4 +487,33 @@ impl TestApp {
         let conn = self.conn()?;
         lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, None)
     }
+
+    /// Run the `lore-worker` binary against the test DB and wait for it
+    /// to exit. Returns the exit code so tests can assert on it
+    /// (0 ok, 1 failed, 2 degraded — see worker `main`).
+    ///
+    /// `--limit 100` is enough for any reasonable test fixture. The worker
+    /// shells out to Chrome; if Chrome is unavailable in CI it falls back
+    /// to HTTP automatically, which is fine for assertions on workflow
+    /// shape (status transitions, snapshot creation) since we don't
+    /// validate visual fidelity here.
+    pub fn run_worker(&self) -> anyhow::Result<std::process::ExitStatus> {
+        let bin = std::env::var("LORE_WORKER_BIN").unwrap_or_else(|_| {
+            let manifest = env!("CARGO_MANIFEST_DIR");
+            std::path::PathBuf::from(manifest)
+                .join("../../target/debug/lore-worker")
+                .canonicalize()
+                .unwrap_or_else(|_| {
+                    std::path::PathBuf::from(manifest).join("../../target/debug/lore-worker")
+                })
+                .display()
+                .to_string()
+        });
+        Command::new(&bin)
+            .args(["--db", &self.db_path.display().to_string(), "--limit", "100"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .with_context(|| format!("spawn lore-worker at {}", bin))
+    }
 }

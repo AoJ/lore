@@ -242,6 +242,22 @@ využívá readability_html jako čistý zdroj pro Markdown.*
 - [ ] Synchronizace/replikace (cr-sqlite nebo HTTP sync nebo něco jiného)
 - [ ] API pro externí integraci (browser extension, CLI scripting)
 
+### Audit log (napříč entitami)
+
+*Vzniklo z UX požadavku 2026-05-21: u archivovaných stránek by se hodil
+rozbalovací log akcí v dolní části detailu (kdo, kdy, co — re-archive,
+worker run, delete-version, restore, status change). Implementovat
+jednotně pro všechny entity najednou, ne ad-hoc pro stránky.*
+
+- [ ] Nová tabulka `activity_log` (entity_kind, entity_id, action, actor,
+  details JSON, timestamp). Trigger-friendly schéma.
+- [ ] Zápis z worker pipeline (queued/fetching/archived/failed/degraded),
+  z DataStore mutací (delete-version, trash, restore, re-archive),
+  z note editor (auto-save?), z file operations (upload, attach, detach)
+- [ ] Generický `log_panel.rs` komponent — rozbalovací sekce na dně detail
+  view každé entity (page, note, file). Stejný UI prvek napříč.
+- [ ] Retention policy (auto-cleanup po N dnech, default 90)
+
 ### Tagy
 - [ ] Free-form tagy na poznámkách a webových stránkách
 - [ ] Cross-space tagging (tag viditelný napříč spaces)

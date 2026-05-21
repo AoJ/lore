@@ -30,7 +30,18 @@ pub struct WebPageDetail {
     pub domain: String,
     pub category: String,
     pub status: String,
+    /// First-archive timestamp (`web_page.created_at`). UI usually shows
+    /// `last_fetched_at` instead, but this is kept for ordering / "first
+    /// seen" displays.
     pub created_at: String,
+    /// Timestamp of the most recent snapshot (`MAX(fetched_at)`). `None` if
+    /// the page has never been archived (status `queued` / `failed` and no
+    /// snapshots yet). Drives the header date in the detail view.
+    pub last_fetched_at: Option<String>,
+    /// Sum across every snapshot version of `html_content + plain_text +
+    /// screenshot + title` byte lengths. Reflects the real DB cost of
+    /// keeping a page archived, not the latest version's text size alone.
+    pub total_size_bytes: i64,
     pub last_error: Option<String>,
     pub snapshot: Option<WebPageSnapshot>,
 }
@@ -158,6 +169,32 @@ pub fn update_status_with_error(
     Ok(())
 }
 
+/// Compute the `change_summary` JSON for a snapshot vs its predecessor.
+/// Shared by `insert_snapshot` (new snapshot) and `delete_page_version`
+/// (recompute on the snapshot that newly inherits a different predecessor).
+#[cfg(feature = "sqlite")]
+fn compute_change_summary(
+    prev_title: &Option<String>,
+    prev_text_size: i64,
+    prev_hash: Option<&str>,
+    current_title: &Option<String>,
+    current_text_size: i64,
+    current_hash: &str,
+) -> String {
+    let title_changed = prev_title != current_title;
+    let size_delta_pct: i32 = if prev_text_size == 0 {
+        if current_text_size == 0 { 0 } else { 100 }
+    } else {
+        (((current_text_size - prev_text_size) as f64 / prev_text_size as f64) * 100.0).round()
+            as i32
+    };
+    let content_same = prev_hash == Some(current_hash);
+    format!(
+        "{{\"title_changed\":{},\"size_delta_pct\":{},\"content_same\":{}}}",
+        title_changed, size_delta_pct, content_same
+    )
+}
+
 #[cfg(feature = "sqlite")]
 pub fn insert_snapshot(
     conn: &Connection,
@@ -200,21 +237,17 @@ pub fn insert_snapshot(
     hasher.update(plain_text.as_bytes());
     let content_hash = format!("{:x}", hasher.finalize());
 
-    // change_summary vs previous snapshot. NULL for v1 (nothing to compare).
-    let change_summary: Option<String> = previous.as_ref().map(|(_, prev_title, prev_size, prev_hash)| {
-        let title_changed = prev_title != &current_title;
-        let new_size = plain_text.len() as i64;
-        let size_delta_pct: i32 = if *prev_size == 0 {
-            if new_size == 0 { 0 } else { 100 }
-        } else {
-            (((new_size - prev_size) as f64 / *prev_size as f64) * 100.0).round() as i32
-        };
-        let content_same = prev_hash.as_deref() == Some(content_hash.as_str());
-        format!(
-            "{{\"title_changed\":{},\"size_delta_pct\":{},\"content_same\":{}}}",
-            title_changed, size_delta_pct, content_same
-        )
-    });
+    let change_summary: Option<String> =
+        previous.as_ref().map(|(_, prev_title, prev_size, prev_hash)| {
+            compute_change_summary(
+                prev_title,
+                *prev_size,
+                prev_hash.as_deref(),
+                &current_title,
+                plain_text.len() as i64,
+                &content_hash,
+            )
+        });
 
     conn.execute(
         "INSERT INTO web_page_snapshot \
@@ -250,10 +283,16 @@ pub fn insert_snapshot(
 
 /// All snapshots for a page, newest first. Returns metadata only — body is
 /// fetched on demand via `get_page_version`.
+///
+/// `size_bytes` is the **total** per-snapshot storage cost (HTML + plain
+/// text + screenshot + title), so the version list reflects DB footprint
+/// rather than just text length.
 #[cfg(feature = "sqlite")]
 pub fn list_page_versions(conn: &Connection, web_page_id: i64) -> Result<Vec<SnapshotMeta>> {
     let mut stmt = conn.prepare(
-        "SELECT id, version, fetched_at, title, LENGTH(plain_text), \
+        "SELECT id, version, fetched_at, title, \
+                COALESCE(LENGTH(html_content),0) + COALESCE(LENGTH(plain_text),0) + \
+                  COALESCE(LENGTH(screenshot),0) + COALESCE(LENGTH(title),0), \
                 screenshot IS NOT NULL, content_hash, change_summary \
          FROM web_page_snapshot WHERE web_page_id = ?1 \
          ORDER BY version DESC",
@@ -305,12 +344,17 @@ pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotC
 
 /// Delete a single snapshot version. Refuses if it's the only version for its
 /// page — caller should trash the page instead. FTS row cleaned up too.
+///
+/// After delete, the snapshot that immediately followed the deleted one (if
+/// any) now diffs against a different predecessor — its `change_summary` is
+/// recomputed so badges stay meaningful. If the deleted version was the
+/// oldest (v1), the new oldest has its summary cleared (no predecessor).
 #[cfg(feature = "sqlite")]
 pub fn delete_page_version(conn: &Connection, snapshot_id: i64) -> Result<()> {
-    let web_page_id: i64 = conn.query_row(
-        "SELECT web_page_id FROM web_page_snapshot WHERE id = ?1",
+    let (web_page_id, deleted_version): (i64, i64) = conn.query_row(
+        "SELECT web_page_id, version FROM web_page_snapshot WHERE id = ?1",
         [snapshot_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let total: i64 = conn.query_row(
         "SELECT COUNT(*) FROM web_page_snapshot WHERE web_page_id = ?1",
@@ -330,6 +374,50 @@ pub fn delete_page_version(conn: &Connection, snapshot_id: i64) -> Result<()> {
     )
     .ok();
     conn.execute("DELETE FROM web_page_snapshot WHERE id = ?1", [snapshot_id])?;
+
+    // Recompute change_summary for whatever snapshot is now "next" after the
+    // gap (the one whose diff base just changed).
+    let next: Option<(i64, Option<String>, i64, Option<String>)> = conn
+        .query_row(
+            "SELECT id, title, LENGTH(plain_text), content_hash \
+             FROM web_page_snapshot \
+             WHERE web_page_id = ?1 AND version > ?2 \
+             ORDER BY version ASC LIMIT 1",
+            rusqlite::params![web_page_id, deleted_version],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .ok();
+
+    if let Some((next_id, next_title, next_size, next_hash)) = next {
+        // Find the new predecessor: highest version still below the gap.
+        let new_predecessor: Option<(Option<String>, i64, Option<String>)> = conn
+            .query_row(
+                "SELECT title, LENGTH(plain_text), content_hash \
+                 FROM web_page_snapshot \
+                 WHERE web_page_id = ?1 AND version < ?2 \
+                 ORDER BY version DESC LIMIT 1",
+                rusqlite::params![web_page_id, deleted_version],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .ok();
+
+        let new_summary: Option<String> = new_predecessor.map(|(pt, ps, ph)| {
+            compute_change_summary(
+                &pt,
+                ps,
+                ph.as_deref(),
+                &next_title,
+                next_size,
+                next_hash.as_deref().unwrap_or(""),
+            )
+        });
+
+        conn.execute(
+            "UPDATE web_page_snapshot SET change_summary = ?1 WHERE id = ?2",
+            rusqlite::params![new_summary, next_id],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -513,6 +601,28 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
         )
         .ok();
 
+    // Sum across all snapshots: html + text + screenshot + title columns.
+    // Returns 0 if there are no snapshots (page queued/failed) — same query,
+    // SUM-on-empty produces NULL which `COALESCE` turns into 0.
+    let total_size_bytes: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM( \
+                COALESCE(LENGTH(html_content),0) + COALESCE(LENGTH(plain_text),0) + \
+                COALESCE(LENGTH(screenshot),0) + COALESCE(LENGTH(title),0) \
+             ), 0) FROM web_page_snapshot WHERE web_page_id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let last_fetched_at: Option<String> = conn
+        .query_row(
+            "SELECT MAX(fetched_at) FROM web_page_snapshot WHERE web_page_id = ?1",
+            [id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap_or(None);
+
     Ok(WebPageDetail {
         url,
         title,
@@ -520,6 +630,8 @@ pub fn get_page(conn: &Connection, id: i64) -> Result<WebPageDetail> {
         category,
         status,
         created_at: created_at.chars().take(10).collect(),
+        last_fetched_at,
+        total_size_bytes,
         last_error,
         snapshot,
     })
@@ -543,6 +655,12 @@ pub fn archive_url(
     source: Option<&str>,
 ) -> Result<ArchiveOutcome> {
     let parsed = url::Url::parse(raw_url)?;
+    // Refuse internal attachment URLs — they are a UI rendering protocol,
+    // not real pages. Without this guard a user pasting a copied attachment
+    // link into the URL box would create a fake page entry.
+    if parsed.host_str() == Some(INTERNAL_ATTACHMENT_HOST) {
+        anyhow::bail!("refusing to archive internal attachment URL: {}", raw_url);
+    }
     let rules = load_rules(conn)?;
     let normalized = rules::normalize_url(&parsed);
     let domain = parsed.host_str().unwrap_or("unknown").to_string();
@@ -569,14 +687,33 @@ pub fn archive_url(
     Ok(ArchiveOutcome { id, category })
 }
 
+/// Host suffix used by the file-attachment block in notes: links like
+/// `https://attachment.lore.invalid/42` are an in-DB protocol, not real
+/// pages. Archiving them would dirty the Web list with bogus rows.
+pub const INTERNAL_ATTACHMENT_HOST: &str = "attachment.lore.invalid";
+
+/// True if `url` points at our internal attachment protocol — used to filter
+/// out internal links from auto-archive and (defensively) from manual adds.
+fn is_internal_url(url: &str) -> bool {
+    url::Url::parse(url)
+        .map(|u| u.host_str() == Some(INTERNAL_ATTACHMENT_HOST))
+        .unwrap_or(false)
+}
+
 /// Auto-archive every URL embedded in `text` that isn't already in the DB.
 /// Returns count of new pages queued. Errors during URL parse are skipped
 /// silently — best-effort, called from note save paths.
+///
+/// Internal attachment URLs (`attachment.lore.invalid/...`) are filtered
+/// out — they are renderable inside notes but are not real pages.
 #[cfg(feature = "sqlite")]
 pub fn auto_archive_from_text(conn: &Connection, text: &str, space_id: i64) -> Result<usize> {
     let urls = crate::url_extract::extract_urls(text);
     let mut queued = 0usize;
     for url in urls {
+        if is_internal_url(&url) {
+            continue;
+        }
         if find_page_by_url(conn, &url)?.is_some() {
             continue;
         }

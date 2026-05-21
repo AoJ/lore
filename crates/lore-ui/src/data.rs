@@ -30,38 +30,48 @@ pub fn db_path() -> std::path::PathBuf {
 /// Display-ready web page record. Wraps `lore_core::db::WebPageDetail`
 /// with UI concerns: NULL-title fallback, byte-size formatting,
 /// base64-encoded screenshot for inline rendering.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PageDetailView {
     pub url: String,
+    /// Page-level title (latest known). Snapshot views may override with
+    /// the title captured at that snapshot's fetch time.
     pub title: String,
     pub domain: String,
     pub category: String,
     pub status: String,
+    /// First-archive date — kept for reference but UI shows
+    /// `last_fetched_at_display` in the header instead.
     pub created_at: String,
+    /// Date/time of the most recent snapshot, formatted for display
+    /// (`YYYY-MM-DD HH:MM`). `None` if the page has never been archived.
+    pub last_fetched_at_display: Option<String>,
+    /// Aggregate size across all snapshots (text + html + screenshot + title),
+    /// formatted. Reflects actual DB cost, not just the latest version.
+    pub total_size_display: Option<String>,
     pub last_error: Option<String>,
     pub has_snapshot: bool,
-    pub content_size: Option<String>,
     pub plain_text_preview: Option<String>,
     pub screenshot_base64: Option<String>,
 }
 
 pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
     let p = crate::backend::current().get_page(id).await?;
-    let (content_size, plain_text_preview, screenshot_base64, has_snapshot) = match p.snapshot {
+    let (plain_text_preview, screenshot_base64, has_snapshot) = match p.snapshot {
         Some(s) => {
             let b64 = s.screenshot.as_ref().map(|bytes| {
                 use base64::Engine;
                 base64::engine::general_purpose::STANDARD.encode(bytes)
             });
-            (
-                Some(format_size_short(s.size_bytes)),
-                s.plain_text_preview,
-                b64,
-                true,
-            )
+            (s.plain_text_preview, b64, true)
         }
-        None => (None, None, None, false),
+        None => (None, None, false),
     };
+    let total_size_display = if p.total_size_bytes > 0 {
+        Some(format_size_short(p.total_size_bytes))
+    } else {
+        None
+    };
+    let last_fetched_at_display = p.last_fetched_at.as_deref().map(format_iso_to_display);
     Ok(PageDetailView {
         url: p.url,
         title: p
@@ -71,12 +81,20 @@ pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
         category: p.category,
         status: p.status,
         created_at: p.created_at,
+        last_fetched_at_display,
+        total_size_display,
         last_error: p.last_error,
         has_snapshot,
-        content_size,
         plain_text_preview,
         screenshot_base64,
     })
+}
+
+/// Trim an ISO timestamp like `2026-05-21T14:30:00.123Z` down to a
+/// presentation-friendly `YYYY-MM-DD HH:MM`. Used by the page-detail
+/// header and the version-picker rows so they share the same format.
+pub fn format_iso_to_display(iso: &str) -> String {
+    iso.chars().take(16).collect::<String>().replace('T', " ")
 }
 
 // ---- File / size / mime helpers ----
@@ -157,12 +175,7 @@ pub fn snapshot_meta_to_view(
     VersionView {
         id: meta.id,
         version: meta.version,
-        fetched_at_display: meta
-            .fetched_at
-            .chars()
-            .take(16)
-            .collect::<String>()
-            .replace('T', " "),
+        fetched_at_display: format_iso_to_display(&meta.fetched_at),
         fetched_at_iso: meta.fetched_at.clone(),
         title_display: meta
             .title
@@ -189,11 +202,6 @@ fn format_size_short(bytes: i64) -> String {
     }
 }
 
-/// Public alias of `format_size_short` for callers that need the same compact
-/// formatter (e.g. version-selector rendering a non-current snapshot).
-pub fn format_size_short_pub(bytes: i64) -> String {
-    format_size_short(bytes)
-}
 
 /// Extract the uppercase file extension, e.g. "PDF", "PNG". Returns "FILE" if none.
 pub fn file_extension(name: &str) -> String {

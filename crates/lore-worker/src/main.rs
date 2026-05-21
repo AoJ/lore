@@ -23,11 +23,27 @@ fn main() -> Result<()> {
     let db_path = std::path::PathBuf::from(&cli.db);
     let conn = lore_core::db::open(&db_path)?;
 
-    if let Some(url) = cli.url {
-        archive::archive_url(&conn, &url)?;
+    // Non-zero exit codes:
+    //   1 — at least one page ended up as `failed` (no data stored)
+    //   2 — Chrome blew up and we degraded to HTTP fallback (data stored,
+    //       but missing JS/screenshot — user probably wants to know)
+    // Both states would otherwise hide under exit 0 + a cheerful "Done" line.
+    let exit_code = if let Some(url) = cli.url {
+        match archive::archive_url(&conn, &url)? {
+            archive::ArchiveOutcome::Ok => 0,
+            archive::ArchiveOutcome::Degraded => 2,
+            archive::ArchiveOutcome::Failed => 1,
+        }
     } else {
-        archive::archive_queued(&conn, cli.limit)?;
-    }
+        let summary = archive::archive_queued(&conn, cli.limit)?;
+        if summary.failed > 0 {
+            1
+        } else if summary.degraded > 0 {
+            2
+        } else {
+            0
+        }
+    };
 
-    Ok(())
+    std::process::exit(exit_code);
 }

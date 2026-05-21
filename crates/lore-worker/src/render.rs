@@ -6,6 +6,12 @@ pub struct RenderedPage {
     pub plain_text: String,
     pub title: Option<String>,
     pub screenshot: Option<Vec<u8>>,
+    /// True when the page was fetched via the HTTP fallback after Chrome
+    /// failed. The snapshot is still usable (worker stores it the same way),
+    /// but the summary counts it as a warning and the user knows the
+    /// rendering is degraded (no JS execution, no screenshot, often
+    /// truncated content).
+    pub via_fallback: bool,
 }
 
 /// Renderer backend trait. Implementations can be local (headless Chrome)
@@ -112,6 +118,7 @@ impl LocalRenderer {
             plain_text,
             title,
             screenshot,
+            via_fallback: false,
         })
     }
 }
@@ -148,6 +155,11 @@ impl Renderer for HttpRenderer {
             plain_text,
             title,
             screenshot: None,
+            // HTTP renderer alone doesn't mark via_fallback — only the
+            // FallbackRenderer flips it when it falls back after a Chrome
+            // failure, so we can distinguish "intentional HTTP-only" from
+            // "degraded HTTP after Chrome blew up".
+            via_fallback: false,
         })
     }
 }
@@ -246,8 +258,9 @@ impl FallbackRenderer {
 impl Renderer for FallbackRenderer {
     fn render(&self, url: &str) -> Result<RenderedPage> {
         // Try Chrome if available and hasn't permanently failed
-        if !self.chrome_failed.get()
-            && let Some(ref local) = self.local
+        let chrome_was_supposed_to_run = !self.chrome_failed.get() && self.local.is_some();
+        if let Some(ref local) = self.local
+            && !self.chrome_failed.get()
         {
             match local.render(url) {
                 Ok(page) => return Ok(page),
@@ -260,7 +273,14 @@ impl Renderer for FallbackRenderer {
                 }
             }
         }
-        self.http.render(url)
+        // HTTP path. Mark `via_fallback` only if Chrome was supposed to run
+        // and we got here because it broke — pure HTTP-only setups (no
+        // Chrome at all) aren't a warning, that's just the configured mode.
+        let mut page = self.http.render(url)?;
+        if chrome_was_supposed_to_run {
+            page.via_fallback = true;
+        }
+        Ok(page)
     }
 }
 

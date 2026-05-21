@@ -101,3 +101,12 @@ pub const BADGE_NO_CHANGE: &str = "no change";
 pub const BTN_DELETE_VERSION: &str = "Delete this version";
 pub const TOAST_REACHIVE_QUEUED: &str = "Queued for re-archive.";
 pub const TOAST_VERSION_DELETED: &str = "Snapshot version deleted.";
+pub const TIP_TOTAL_SIZE: &str = "Total size across all snapshot versions (text + HTML + screenshots).";
+pub const TIP_PAGE_ID: &str = "Internal page ID — handy for cross-referencing or bug reports.";
+
+// Page status labels (worker pipeline).
+pub const STATUS_QUEUED: &str = "queued";
+pub const STATUS_FETCHING: &str = "fetching";
+pub const STATUS_ARCHIVED: &str = "archived";
+pub const STATUS_FAILED: &str = "failed";
+pub const STATUS_SKIPPED: &str = "skipped";

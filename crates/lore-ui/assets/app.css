@@ -635,23 +635,102 @@ a:hover {
     text-decoration: underline;
 }
 
-/* ---- Versions panel ---- */
+/* ---- Versions: inline selector in header + popover ---- */
 
-.page-versions {
-    margin-top: var(--spacing-md);
+.version-selector {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--color-muted);
+    padding: 0 var(--spacing-xs);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+}
+
+.version-selector:hover:not(:disabled) {
+    background: var(--color-hover);
+    border-color: var(--color-border);
+}
+
+.version-selector.single {
+    cursor: default;
+}
+
+.version-selector-num {
+    color: var(--color-text);
+    font-weight: 600;
+    margin-right: 0.15rem;
+}
+
+.version-selector-date,
+.version-selector-chevron {
+    color: var(--color-muted);
+}
+
+/* ---- Status chip + internal id ---- */
+/* Reuses badge palette but at meta-bar size; queued vs failed look
+   distinct so users don't read "queued" as "broken". */
+.status-chip {
+    font-size: var(--font-size-badge);
+    padding: 0.05rem 0.4rem;
+    border-radius: var(--radius-pill);
+    background: var(--badge-neutral-bg);
+    color: var(--badge-neutral-fg);
+    white-space: nowrap;
+}
+.status-chip.status-queued    { background: var(--badge-warning-bg); color: var(--badge-warning-fg); }
+.status-chip.status-fetching  { background: var(--badge-info-bg);    color: var(--badge-info-fg); }
+.status-chip.status-archived  { background: var(--badge-success-bg); color: var(--badge-success-fg); }
+.status-chip.status-failed    { background: var(--badge-danger-bg);  color: var(--badge-danger-fg); }
+.status-chip.status-skipped   { background: var(--badge-neutral-bg); color: var(--color-muted); }
+
+.page-id {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    cursor: help;
+}
+
+.version-picker-popover {
+    position: relative;
+    margin-top: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     padding: var(--spacing-sm) var(--spacing-md);
     background: var(--color-bg-elevated);
+    box-shadow: var(--shadow-md);
 }
 
-.page-versions summary {
-    margin-bottom: 0;
+.version-picker-header {
+    display: flex;
+    align-items: center;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--spacing-sm);
 }
 
 .page-versions-count {
     color: var(--color-muted);
     font-weight: normal;
+}
+
+.version-picker-close {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--color-muted);
+    font-size: var(--font-size-base);
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 var(--spacing-xs);
+    border-radius: var(--radius);
+}
+
+.version-picker-close:hover {
+    background: var(--color-hover);
 }
 
 .version-list {

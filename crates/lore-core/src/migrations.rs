@@ -50,6 +50,7 @@ const MIGRATIONS: &[Step] = &[
         "../migrations/0007_revision_triggers_completion.sql"
     )),
     Step::Code(m0008_snapshot_versioning),
+    Step::Code(m0009_cleanup_internal_attachment_pages),
 ];
 
 /// Read the current schema version of the DB.
@@ -191,6 +192,48 @@ fn m0006_unescape_attachment_links(conn: &Connection) -> Result<()> {
                 rusqlite::params![fixed_title, fixed_body, id],
             )?;
         }
+    }
+    Ok(())
+}
+
+/// Remove `attachment.lore.invalid/*` rows that auto-archive accidentally
+/// pulled in before the URL filter was added. These were never real pages —
+/// they are an internal protocol for note file blocks (rendered as a custom
+/// link mark in Milkdown). Any snapshots + FTS entries go with them.
+///
+/// No-op on DBs without offending rows (idempotent).
+fn m0009_cleanup_internal_attachment_pages(conn: &Connection) -> Result<()> {
+    // Collect target page ids first — we need them to clean up FTS and
+    // snapshots before the parent row goes.
+    let page_ids: Vec<i64> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM web_page WHERE domain = 'attachment.lore.invalid'")?;
+        stmt.query_map([], |r| r.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+    for page_id in page_ids {
+        // Delete FTS rows tied to each snapshot.
+        let snapshot_ids: Vec<i64> = {
+            let mut s = conn
+                .prepare("SELECT id FROM web_page_snapshot WHERE web_page_id = ?1")?;
+            s.query_map([page_id], |r| r.get::<_, i64>(0))?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for sid in snapshot_ids {
+            conn.execute(
+                "INSERT INTO web_page_fts(web_page_fts, rowid, title, plain_text, url) \
+                 VALUES('delete', ?1, '', '', '')",
+                [sid],
+            )
+            .ok();
+        }
+        conn.execute(
+            "DELETE FROM web_page_snapshot WHERE web_page_id = ?1",
+            [page_id],
+        )?;
+        conn.execute("DELETE FROM web_page WHERE id = ?1", [page_id])?;
     }
     Ok(())
 }
