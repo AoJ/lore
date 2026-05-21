@@ -57,3 +57,11 @@ tokio = { version = "1", features = ["time"], optional = true }
 gloo-net = { version = "0.6", optional = true }
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+
+# macOS-only — objc2 bindings for setting the dock icon at runtime.
+# Both are already transitive deps (via dioxus-desktop → wry → tao),
+# pinned to the exact versions already in Cargo.lock.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSImage"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData"] }

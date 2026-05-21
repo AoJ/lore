@@ -22,6 +22,17 @@ const EDITOR_CSS: &str = include_str!("../assets/editor.css");
 fn main() {
     use dioxus::desktop::{Config, WindowBuilder};
 
+    // macOS: set the Dock icon at runtime (tao's with_window_icon is a no-op
+    // on macOS — the OS doesn't support per-window icons; dock icon is normally
+    // set via the app bundle. For dev builds we call setApplicationIconImage
+    // directly so the icon shows while running from `cargo run` / `make desktop`).
+    //
+    // Linux/Windows: tao's with_window_icon works fine, but both platforms
+    // also show the dock/taskbar icon, so we skip the RGBA path entirely and
+    // let macOS take care of it. Extend with with_window_icon for Linux if needed.
+    #[cfg(target_os = "macos")]
+    set_dock_icon();
+
     let config = Config::new().with_window(
         WindowBuilder::new()
             .with_title("lore")
@@ -30,6 +41,28 @@ fn main() {
     );
 
     LaunchBuilder::desktop().with_cfg(config).launch(app);
+}
+
+/// Set the macOS Dock icon from the bundled PNG. Must be called before the
+/// Dioxus event loop starts (but after the process is running — NSApp is
+/// already initialised by the time `main` runs in a Dioxus desktop build).
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+
+    // SAFETY: called from `main`, which is always the main thread.
+    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+    let data = NSData::with_bytes(ICON_PNG);
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        let app = NSApplication::sharedApplication(mtm);
+        // SAFETY: setting an icon image is safe; only marked unsafe because
+        // AppKit mutating calls must come from the main thread, which we hold.
+        unsafe { app.setApplicationIconImage(Some(&image)) };
+    }
 }
 
 #[cfg(feature = "web")]
@@ -81,6 +114,7 @@ fn app() -> Element {
     backend::init(Arc::new(backend::HttpBackend::new("/api".to_string())));
 
     rsx! {
+        document::Link { rel: "icon", r#type: "image/svg+xml", href: "/assets/favicon.svg" }
         document::Style { {TOKENS_CSS} }
         document::Style { {APP_CSS} }
         document::Style { {EDITOR_CSS} }

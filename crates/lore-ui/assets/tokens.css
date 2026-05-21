@@ -23,10 +23,12 @@
     --color-toast-text: #ffffff;
 
     /* ---- Typography ---- */
-    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    --font-sans:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+        sans-serif;
     --font-mono: "SF Mono", "Menlo", "Consolas", monospace;
     --font-size-base: 1rem;
-    --font-size-sm: 0.8125rem;
+    --font-size-sm: 0.8625rem;
     --font-size-xs: 0.6875rem;
     --font-size-lg: 1.25rem;
     --font-size-xl: 1.5rem;

@@ -38,11 +38,23 @@
     margin: 0.6em 0 0.3em 0;
 }
 
-.milkdown .editor h1, .milkdown .ProseMirror h1 { font-size: var(--font-size-lg); }
-.milkdown .editor h2, .milkdown .ProseMirror h2 { font-size: var(--font-size-base); font-weight: 600; }
-.milkdown .editor h3, .milkdown .ProseMirror h3 { font-size: var(--font-size-sm); font-weight: 600; }
+.milkdown .editor h1,
+.milkdown .ProseMirror h1 {
+    font-size: var(--font-size-lg);
+}
+.milkdown .editor h2,
+.milkdown .ProseMirror h2 {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+}
+.milkdown .editor h3,
+.milkdown .ProseMirror h3 {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+}
 
-.milkdown .editor code, .milkdown .ProseMirror code {
+.milkdown .editor code,
+.milkdown .ProseMirror code {
     font-family: var(--font-mono);
     background: #f5f5f5;
     padding: 0.1em 0.25em;
@@ -50,7 +62,8 @@
     font-size: 0.85em;
 }
 
-.milkdown .editor pre, .milkdown .ProseMirror pre {
+.milkdown .editor pre,
+.milkdown .ProseMirror pre {
     font-family: var(--font-mono);
     background: #f5f5f5;
     padding: var(--spacing-sm);
@@ -59,24 +72,29 @@
     font-size: var(--font-size-xs);
 }
 
-.milkdown .editor blockquote, .milkdown .ProseMirror blockquote {
+.milkdown .editor blockquote,
+.milkdown .ProseMirror blockquote {
     border-left: 2px solid var(--color-border);
     padding-left: var(--spacing-sm);
     color: var(--color-muted);
     margin: 0.3em 0;
 }
 
-.milkdown .editor ul, .milkdown .editor ol,
-.milkdown .ProseMirror ul, .milkdown .ProseMirror ol {
+.milkdown .editor ul,
+.milkdown .editor ol,
+.milkdown .ProseMirror ul,
+.milkdown .ProseMirror ol {
     padding-left: 1.25em;
     margin: 0.2em 0;
 }
 
-.milkdown .editor li, .milkdown .ProseMirror li {
+.milkdown .editor li,
+.milkdown .ProseMirror li {
     margin: 0.1em 0;
 }
 
-.milkdown .editor hr, .milkdown .ProseMirror hr {
+.milkdown .editor hr,
+.milkdown .ProseMirror hr {
     border: none;
     border-top: 1px solid var(--color-border-light);
     margin: 0.5em 0;
@@ -175,7 +193,7 @@
 }
 
 .milkdown .editor a::before {
-    content: '';
+    content: "";
     display: inline-block;
     width: 0.5em;
     height: 0.5em;
@@ -241,10 +259,18 @@
     line-height: 1;
 }
 
-.url-status-item.archived .url-status-dot { color: #34c759; }
-.url-status-item.queued .url-status-dot { color: #ffcc00; }
-.url-status-item.external .url-status-dot { color: var(--color-muted); }
-.url-status-item.failed .url-status-dot { color: var(--color-danger); }
+.url-status-item.archived .url-status-dot {
+    color: #34c759;
+}
+.url-status-item.queued .url-status-dot {
+    color: #ffcc00;
+}
+.url-status-item.external .url-status-dot {
+    color: var(--color-muted);
+}
+.url-status-item.failed .url-status-dot {
+    color: var(--color-danger);
+}
 
 /* Milkdown toolbar styling */
 .milkdown-menu,
