@@ -32,8 +32,8 @@ use serde::{Deserialize, Serialize};
 
 use lore_core::db::{
     self, ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow,
-    InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats,
-    TrashItem, WebPageDetail, WebPageRow,
+    InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SnapshotContent,
+    SnapshotMeta, SpaceRow, SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
 use lore_core::error::{BackendError, ErrorCode};
 use lore_core::search;
@@ -570,6 +570,47 @@ pub async fn update_page_status(
     JsonReq(req): JsonReq<UpdatePageStatusReq>,
 ) -> ApiResult<()> {
     db::update_status(&conn(&s)?, req.page_id, &req.status).map_err(ApiError::from)?;
+    Ok(Json(()))
+}
+
+// ---- Page versions ----
+
+pub async fn list_page_versions(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<PageIdReq>,
+) -> ApiResult<Vec<SnapshotMeta>> {
+    db::list_page_versions(&conn(&s)?, req.page_id)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+#[derive(Deserialize)]
+pub struct SnapshotIdReq {
+    pub snapshot_id: i64,
+}
+
+pub async fn get_page_version(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<SnapshotIdReq>,
+) -> ApiResult<SnapshotContent> {
+    db::get_page_version(&conn(&s)?, req.snapshot_id)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+pub async fn delete_page_version(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<SnapshotIdReq>,
+) -> ApiResult<()> {
+    db::delete_page_version(&conn(&s)?, req.snapshot_id).map_err(ApiError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn request_reachive(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<PageIdReq>,
+) -> ApiResult<()> {
+    db::request_reachive(&conn(&s)?, req.page_id).map_err(ApiError::from)?;
     Ok(Json(()))
 }
 

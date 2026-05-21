@@ -17,8 +17,8 @@ use std::collections::HashMap;
 
 use lore_core::db::{
     ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow, InsertAttachmentOutcome,
-    InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats, TrashItem, WebPageDetail,
-    WebPageRow,
+    InsertFileOutcome, NoteData, NoteRow, PageRef, SnapshotContent, SnapshotMeta, SpaceRow,
+    SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
 use lore_core::error::BackendError;
 
@@ -507,6 +507,40 @@ impl Backend for HttpBackend {
             status: &'a str,
         }
         call(&self.base_url, "update_page_status", &R { page_id, status }).await
+    }
+
+    // ---- Page versions ----
+
+    async fn list_page_versions(&self, page_id: i64) -> Result<Vec<SnapshotMeta>> {
+        #[derive(Serialize)]
+        struct R {
+            page_id: i64,
+        }
+        call(&self.base_url, "list_page_versions", &R { page_id }).await
+    }
+
+    async fn get_page_version(&self, snapshot_id: i64) -> Result<SnapshotContent> {
+        #[derive(Serialize)]
+        struct R {
+            snapshot_id: i64,
+        }
+        call(&self.base_url, "get_page_version", &R { snapshot_id }).await
+    }
+
+    async fn delete_page_version(&self, snapshot_id: i64) -> Result<()> {
+        #[derive(Serialize)]
+        struct R {
+            snapshot_id: i64,
+        }
+        call(&self.base_url, "delete_page_version", &R { snapshot_id }).await
+    }
+
+    async fn request_reachive(&self, page_id: i64) -> Result<()> {
+        #[derive(Serialize)]
+        struct R {
+            page_id: i64,
+        }
+        call(&self.base_url, "request_reachive", &R { page_id }).await
     }
 
     // ---- Files ----

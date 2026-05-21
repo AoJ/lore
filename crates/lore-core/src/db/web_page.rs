@@ -45,6 +45,45 @@ pub struct WebPageSnapshot {
     pub screenshot: Option<Vec<u8>>,
 }
 
+/// Per-version metadata for the "Versions" list in page detail.
+/// Returned by `list_page_versions` — does **not** include HTML/text/screenshot
+/// bodies (those go through `get_page_version` on demand).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotMeta {
+    pub id: i64,
+    pub version: i64,
+    pub fetched_at: String,
+    /// Title at fetch time. NULL on pre-versioning rows (caller falls back to
+    /// `web_page.title`).
+    pub title: Option<String>,
+    pub size_bytes: i64,
+    pub has_screenshot: bool,
+    /// SHA256 of plain_text. NULL only on legacy rows where backfill couldn't
+    /// run (shouldn't happen in practice — migration 0008 fills these).
+    pub content_hash: Option<String>,
+    /// JSON `{title_changed, size_delta_pct, content_same}` vs previous version.
+    /// NULL on version 1 (no previous to diff).
+    pub change_summary: Option<String>,
+}
+
+/// Full body of a specific snapshot version — what the detail view actually
+/// renders (screenshot, plain_text). HTML stays in DB, fetched separately if
+/// the user opens "View raw" (avoids shipping multi-MB pages when only the
+/// preview is needed).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotContent {
+    pub id: i64,
+    pub version: i64,
+    pub fetched_at: String,
+    pub title: Option<String>,
+    pub size_bytes: i64,
+    pub plain_text_preview: Option<String>,
+    #[serde(with = "crate::serde_b64::opt_vec")]
+    pub screenshot: Option<Vec<u8>>,
+    pub content_hash: Option<String>,
+    pub change_summary: Option<String>,
+}
+
 /// Outcome of `archive_url`: returns the row id plus the classifier category
 /// (e.g. "archive", "discard") so callers can show appropriate feedback.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -127,33 +166,179 @@ pub fn insert_snapshot(
     plain_text: &str,
     screenshot: Option<&[u8]>,
 ) -> Result<i64> {
-    let version: i64 = conn
+    use sha2::{Digest, Sha256};
+
+    // Compute current version + load previous snapshot's meta in one go —
+    // needed both for the new row and for `change_summary` diffing.
+    let previous: Option<(i64, Option<String>, i64, Option<String>)> = conn
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) + 1 FROM web_page_snapshot WHERE web_page_id = ?1",
+            "SELECT version, title, LENGTH(plain_text), content_hash \
+             FROM web_page_snapshot WHERE web_page_id = ?1 \
+             ORDER BY version DESC LIMIT 1",
             [web_page_id],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
         )
-        .unwrap_or(1);
+        .ok();
 
-    conn.execute(
-        "INSERT INTO web_page_snapshot (web_page_id, version, html_content, plain_text, screenshot)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![web_page_id, version, html_content, plain_text, screenshot],
-    )?;
-    let snapshot_id = conn.last_insert_rowid();
+    let version: i64 = previous.as_ref().map(|p| p.0 + 1).unwrap_or(1);
 
-    // Index in FTS
-    let (title, url): (Option<String>, String) = conn.query_row(
+    // Capture current title from web_page — also reused for FTS row below.
+    let (current_title, url): (Option<String>, String) = conn.query_row(
         "SELECT title, url FROM web_page WHERE id = ?1",
         [web_page_id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(plain_text.as_bytes());
+    let content_hash = format!("{:x}", hasher.finalize());
+
+    // change_summary vs previous snapshot. NULL for v1 (nothing to compare).
+    let change_summary: Option<String> = previous.as_ref().map(|(_, prev_title, prev_size, prev_hash)| {
+        let title_changed = prev_title != &current_title;
+        let new_size = plain_text.len() as i64;
+        let size_delta_pct: i32 = if *prev_size == 0 {
+            if new_size == 0 { 0 } else { 100 }
+        } else {
+            (((new_size - prev_size) as f64 / *prev_size as f64) * 100.0).round() as i32
+        };
+        let content_same = prev_hash.as_deref() == Some(content_hash.as_str());
+        format!(
+            "{{\"title_changed\":{},\"size_delta_pct\":{},\"content_same\":{}}}",
+            title_changed, size_delta_pct, content_same
+        )
+    });
+
+    conn.execute(
+        "INSERT INTO web_page_snapshot \
+            (web_page_id, version, html_content, plain_text, screenshot, \
+             title, content_hash, change_summary) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            web_page_id,
+            version,
+            html_content,
+            plain_text,
+            screenshot,
+            current_title,
+            content_hash,
+            change_summary,
+        ],
+    )?;
+    let snapshot_id = conn.last_insert_rowid();
+
+    // Index in FTS
     conn.execute(
         "INSERT INTO web_page_fts(rowid, title, plain_text, url) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![snapshot_id, title.unwrap_or_default(), plain_text, url],
+        rusqlite::params![
+            snapshot_id,
+            current_title.unwrap_or_default(),
+            plain_text,
+            url
+        ],
     )?;
 
     Ok(snapshot_id)
+}
+
+/// All snapshots for a page, newest first. Returns metadata only — body is
+/// fetched on demand via `get_page_version`.
+#[cfg(feature = "sqlite")]
+pub fn list_page_versions(conn: &Connection, web_page_id: i64) -> Result<Vec<SnapshotMeta>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, version, fetched_at, title, LENGTH(plain_text), \
+                screenshot IS NOT NULL, content_hash, change_summary \
+         FROM web_page_snapshot WHERE web_page_id = ?1 \
+         ORDER BY version DESC",
+    )?;
+    let rows = stmt
+        .query_map([web_page_id], |row| {
+            Ok(SnapshotMeta {
+                id: row.get(0)?,
+                version: row.get(1)?,
+                fetched_at: row.get(2)?,
+                title: row.get(3)?,
+                size_bytes: row.get(4)?,
+                has_screenshot: row.get(5)?,
+                content_hash: row.get(6)?,
+                change_summary: row.get(7)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// Body of a specific snapshot version — preview + screenshot for the detail
+/// pane. HTML is intentionally **not** returned (multi-MB; separate endpoint
+/// when "View raw HTML" is implemented).
+#[cfg(feature = "sqlite")]
+pub fn get_page_version(conn: &Connection, snapshot_id: i64) -> Result<SnapshotContent> {
+    conn.query_row(
+        "SELECT id, version, fetched_at, title, LENGTH(plain_text), \
+                SUBSTR(plain_text, 1, 2000), screenshot, content_hash, change_summary \
+         FROM web_page_snapshot WHERE id = ?1",
+        [snapshot_id],
+        |row| {
+            Ok(SnapshotContent {
+                id: row.get(0)?,
+                version: row.get(1)?,
+                fetched_at: row.get(2)?,
+                title: row.get(3)?,
+                size_bytes: row.get(4)?,
+                plain_text_preview: row.get(5)?,
+                screenshot: row.get(6)?,
+                content_hash: row.get(7)?,
+                change_summary: row.get(8)?,
+            })
+        },
+    )
+    .map_err(Into::into)
+}
+
+/// Delete a single snapshot version. Refuses if it's the only version for its
+/// page — caller should trash the page instead. FTS row cleaned up too.
+#[cfg(feature = "sqlite")]
+pub fn delete_page_version(conn: &Connection, snapshot_id: i64) -> Result<()> {
+    let web_page_id: i64 = conn.query_row(
+        "SELECT web_page_id FROM web_page_snapshot WHERE id = ?1",
+        [snapshot_id],
+        |r| r.get(0),
+    )?;
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM web_page_snapshot WHERE web_page_id = ?1",
+        [web_page_id],
+        |r| r.get(0),
+    )?;
+    if total <= 1 {
+        anyhow::bail!("cannot delete the only snapshot for a page; trash the page instead");
+    }
+
+    // FTS row first — once the snapshot is gone, we lose the rowid we'd
+    // hand to the FTS contentless-table delete command.
+    conn.execute(
+        "INSERT INTO web_page_fts(web_page_fts, rowid, title, plain_text, url) \
+         VALUES('delete', ?1, '', '', '')",
+        [snapshot_id],
+    )
+    .ok();
+    conn.execute("DELETE FROM web_page_snapshot WHERE id = ?1", [snapshot_id])?;
+    Ok(())
+}
+
+/// Mark a page for re-archivace by the worker. Just toggles status back to
+/// `queued`; the worker picks it up on its next run (current architecture —
+/// no daemon mode yet). Idempotent.
+#[cfg(feature = "sqlite")]
+pub fn request_reachive(conn: &Connection, page_id: i64) -> Result<()> {
+    update_status(conn, page_id, "queued")
 }
 
 #[cfg(feature = "sqlite")]

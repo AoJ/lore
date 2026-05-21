@@ -422,3 +422,69 @@ async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler)> 
     let config = config.build().map_err(|e| anyhow!("{}", e))?;
     Browser::launch(config).await.context("launch chromium")
 }
+
+// ---- DB seeding helpers ----
+//
+// The test process opens its own SQLite connection to the same DB the server
+// uses (WAL mode tolerates concurrent readers + one writer). Helpers below
+// are thin convenience wrappers — tests reach for them whenever HTTP seeding
+// would mean wiring up a fixture for state the API doesn't expose directly
+// (e.g. pre-existing snapshot versions, which would otherwise require
+// running the headless-Chrome worker).
+
+impl TestApp {
+    /// Open a short-lived rusqlite connection to the test DB. Uses
+    /// `open_existing` so it doesn't re-run migrations — the server's
+    /// initial `db::open` already did that on startup.
+    pub fn conn(&self) -> anyhow::Result<rusqlite::Connection> {
+        lore_core::db::open_existing(&self.db_path)
+    }
+
+    /// Insert a page (status `archived`) plus N snapshots, returning the
+    /// page id. Each snapshot gets a distinct plain_text so `content_hash`
+    /// values differ and `change_summary` reflects the diff.
+    pub fn seed_page_with_snapshots(
+        &self,
+        url: &str,
+        title: &str,
+        snapshot_bodies: &[&str],
+    ) -> anyhow::Result<i64> {
+        use lore_core::db::{self, NewWebPage};
+        let conn = self.conn()?;
+        let page_id = db::insert_web_page(
+            &conn,
+            &NewWebPage {
+                url,
+                url_normalized: url,
+                title: Some(title),
+                domain: "example.test",
+                category: "archive",
+                status: "archived",
+                source: None,
+                space_id: Some(1),
+            },
+        )?;
+        for body in snapshot_bodies {
+            db::insert_snapshot(&conn, page_id, "<html></html>", body, None)?;
+        }
+        Ok(page_id)
+    }
+
+    /// Update a page's title — used between snapshot inserts to verify
+    /// `title_changed` ends up true in the next snapshot's `change_summary`.
+    pub fn set_page_title(&self, page_id: i64, title: &str) -> anyhow::Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE web_page SET title = ?1 WHERE id = ?2",
+            rusqlite::params![title, page_id],
+        )?;
+        Ok(())
+    }
+
+    /// Add one more snapshot to an existing page (in addition to whatever
+    /// `seed_page_with_snapshots` produced). Returns the new snapshot id.
+    pub fn add_snapshot(&self, page_id: i64, plain_text: &str) -> anyhow::Result<i64> {
+        let conn = self.conn()?;
+        lore_core::db::insert_snapshot(&conn, page_id, "<html></html>", plain_text, None)
+    }
+}

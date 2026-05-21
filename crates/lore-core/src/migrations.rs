@@ -49,6 +49,7 @@ const MIGRATIONS: &[Step] = &[
     Step::Sql(include_str!(
         "../migrations/0007_revision_triggers_completion.sql"
     )),
+    Step::Code(m0008_snapshot_versioning),
 ];
 
 /// Read the current schema version of the DB.
@@ -191,6 +192,55 @@ fn m0006_unescape_attachment_links(conn: &Connection) -> Result<()> {
             )?;
         }
     }
+    Ok(())
+}
+
+/// Snapshot versioning support — see `web_page.rs` for how these are used.
+///
+/// Adds three columns to `web_page_snapshot`:
+/// - `title` — title at fetch time (`web_page.title` may change later)
+/// - `content_hash` — SHA256 of `plain_text`; diff detection vs previous version
+/// - `change_summary` — JSON with `{title_changed, size_delta_pct, content_same}`,
+///   NULL for version 1 (no previous to diff against)
+///
+/// Backfills `content_hash` once on existing rows from current `plain_text`.
+/// Deterministic, idempotent — re-running yields the same value, so we only
+/// hash rows where it is still NULL (post-migration rows always have it set
+/// by `insert_snapshot`).
+///
+/// `title` is **not** backfilled — historical snapshots stay NULL; UI falls
+/// back to `web_page.title` for these. `change_summary` is also NULL on legacy
+/// rows (no meaningful diff for pre-versioning data).
+fn m0008_snapshot_versioning(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "ALTER TABLE web_page_snapshot ADD COLUMN title TEXT;\
+         ALTER TABLE web_page_snapshot ADD COLUMN content_hash TEXT;\
+         ALTER TABLE web_page_snapshot ADD COLUMN change_summary TEXT;",
+    )?;
+
+    // Backfill content_hash from existing plain_text. One-shot — newly
+    // inserted snapshots have the hash filled at insert time.
+    let ids: Vec<i64> = {
+        let mut stmt =
+            conn.prepare("SELECT id FROM web_page_snapshot WHERE content_hash IS NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    for id in ids {
+        let plain_text: Option<String> = conn.query_row(
+            "SELECT plain_text FROM web_page_snapshot WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )?;
+        let mut hasher = Sha256::new();
+        hasher.update(plain_text.unwrap_or_default().as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        conn.execute(
+            "UPDATE web_page_snapshot SET content_hash = ?1 WHERE id = ?2",
+            rusqlite::params![hash, id],
+        )?;
+    }
+
     Ok(())
 }
 

@@ -91,3 +91,13 @@ pub const LABEL_ERROR: &str = "Error";
 pub const BTN_RETRY: &str = "Retry";
 pub const BTN_MOVE_TO: &str = "Move to...";
 pub const MOVE_TO_ROOT: &str = "Notes (root)";
+
+// ---- Web archive — versions ----
+pub const BTN_REACHIVE: &str = "Re-archive";
+pub const LABEL_VERSIONS: &str = "Versions";
+pub const BADGE_CURRENT: &str = "current";
+pub const BADGE_TITLE_CHANGED: &str = "title changed";
+pub const BADGE_NO_CHANGE: &str = "no change";
+pub const BTN_DELETE_VERSION: &str = "Delete this version";
+pub const TOAST_REACHIVE_QUEUED: &str = "Queued for re-archive.";
+pub const TOAST_VERSION_DELETED: &str = "Snapshot version deleted.";

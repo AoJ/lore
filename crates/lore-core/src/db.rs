@@ -27,7 +27,8 @@ pub use note::{NoteData, NoteRow};
 pub use space::{SpaceRow, SpaceStats};
 pub use trash::{TrashItem, TrashKind};
 pub use web_page::{
-    ArchiveOutcome, ClassificationRule, WebPageDetail, WebPageRow, WebPageSnapshot,
+    ArchiveOutcome, ClassificationRule, SnapshotContent, SnapshotMeta, WebPageDetail, WebPageRow,
+    WebPageSnapshot,
 };
 
 // `NewWebPage<'a>` is a thin SQL insert parameter — used only by callers
@@ -68,9 +69,10 @@ pub use space::{
 pub use trash::{cleanup_old_trash, delete_space_permanent, list_trash, trash_count};
 #[cfg(feature = "sqlite")]
 pub use web_page::{
-    archive_url, auto_archive_from_text, check_urls_status, delete_page, ensure_page,
-    find_page_by_url, get_page, insert_snapshot, insert_web_page, list_page_ids_ordered,
-    list_pages, load_rules, restore_page, trash_page, update_status, update_status_with_error,
+    archive_url, auto_archive_from_text, check_urls_status, delete_page, delete_page_version,
+    ensure_page, find_page_by_url, get_page, get_page_version, insert_snapshot, insert_web_page,
+    list_page_ids_ordered, list_page_versions, list_pages, load_rules, request_reachive,
+    restore_page, trash_page, update_status, update_status_with_error,
 };
 
 #[cfg(feature = "sqlite")]

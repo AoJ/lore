@@ -15,8 +15,8 @@ use std::sync::{Arc, OnceLock};
 
 use lore_core::db::{
     ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow, InsertAttachmentOutcome,
-    InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats, TrashItem, WebPageDetail,
-    WebPageRow,
+    InsertFileOutcome, NoteData, NoteRow, PageRef, SnapshotContent, SnapshotMeta, SpaceRow,
+    SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
 use lore_core::error::BackendError;
 
@@ -155,6 +155,22 @@ pub trait Backend: Send + Sync {
     async fn restore_page(&self, page_id: i64) -> Result<()>;
     async fn delete_page_permanent(&self, page_id: i64) -> Result<()>;
     async fn update_page_status(&self, page_id: i64, status: &str) -> Result<()>;
+
+    // ---- Page versions ----
+
+    /// All snapshots for a page, newest first. Metadata only — body fetched
+    /// on demand via `get_page_version`.
+    async fn list_page_versions(&self, page_id: i64) -> Result<Vec<SnapshotMeta>>;
+
+    /// Body of a specific snapshot version for the detail pane.
+    async fn get_page_version(&self, snapshot_id: i64) -> Result<SnapshotContent>;
+
+    /// Delete one snapshot version. Refuses if it's the only one for its page.
+    async fn delete_page_version(&self, snapshot_id: i64) -> Result<()>;
+
+    /// Mark a page for re-fetch by the worker. Toggles status back to `queued`;
+    /// worker picks it up on its next run.
+    async fn request_reachive(&self, page_id: i64) -> Result<()>;
 
     // ---- Files ----
 

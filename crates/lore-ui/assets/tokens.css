@@ -2,42 +2,101 @@
    lore — Design Tokens
    Single source of truth for all visual constants.
    Referenced by app.css via var(--token-name).
+   No raw colors, font sizes, shadows or radii should appear elsewhere.
    ================================================================ */
 
 :root {
-    /* ---- Colors ---- */
+    /* ---- Core palette ---- */
     --color-bg: #ffffff;
+    --color-bg-subtle: #f8f8f8;        /* paragraph cards, code blocks */
+    --color-bg-elevated: #fafafa;      /* version panels, popovers' inner blocks */
     --color-sidebar: #f5f5f5;
     --color-list: #ffffff;
     --color-text: #1d1d1f;
+    --color-text-on-accent: #ffffff;   /* text on accent / danger fills */
     --color-muted: #86868b;
     --color-accent: #007aff;
     --color-accent-hover: #0062cc;
     --color-border: #e0e0e0;
     --color-border-light: #ececec;
+    --color-border-strong: #cccccc;
     --color-hover: #f0f0f0;
     --color-selected: #e8e8ed;
+    --color-selected-soft: #e8f1ff;    /* row-level pale-blue highlight */
     --color-danger: #ff3b30;
     --color-danger-hover: #d63029;
     --color-toast-bg: #323232;
     --color-toast-text: #ffffff;
+
+    /* ---- Status surfaces (error / warning / success) ---- */
+    --color-error-bg: #fef2f2;         /* error block bg */
+    --color-error-bg-soft: #fff5f5;    /* input/field error bg */
+    --color-error-border: #fecaca;
+    --color-error-text: #7f1d1d;
+    --color-error-text-strong: #b91c1c;
+
+    /* Soft-info surfaces (backref chips etc.) */
+    --color-info-bg: #f0f7ff;
+    --color-info-bg-hover: #e0efff;
+
+    /* ---- Badge palette (chip pills used in lists/panels) ----
+       Each variant has matching foreground + background. */
+    --badge-neutral-bg: #e0e0e0;
+    --badge-neutral-fg: var(--color-text);
+    --badge-success-bg: #d4e7d4;
+    --badge-success-fg: #2a572a;
+    --badge-warning-bg: #f3e1c5;
+    --badge-warning-fg: #6b4a0e;
+    --badge-info-bg: #e1e7f3;
+    --badge-info-fg: #2d3e6b;
+    --badge-danger-bg: #ffe0e0;
+    --badge-danger-fg: #b00020;
+
+    /* Toast color variants. Default toast bg is `--color-toast-bg`. */
+    --toast-warning-bg: #f4a300;
+    --toast-danger-bg: #c0392b;
+
+    /* ---- URL status indicators (in note editor) ---- */
+    --status-ok: #34c759;              /* link is archived OK */
+    --status-pending: #ffcc00;         /* archival queued/fetching */
+
+    /* ---- Heatmap palette (GitHub-style 4-step green ramp) ---- */
+    --heatmap-l0: var(--color-border-light);
+    --heatmap-l1: #9be9a8;
+    --heatmap-l2: #40c463;
+    --heatmap-l3: #30a14e;
+    --heatmap-l4: #216e39;
+
+    /* ---- Shadows ---- */
+    /* sm: thin status bars (offline banner). md: cards/popovers/dropdowns.
+       lg: floating toasts (more spread, higher opacity for emphasis). */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 0.25rem 1rem rgba(0, 0, 0, 0.2);
+    --focus-ring: 0 0 0 0.125rem rgba(0, 122, 255, 0.15);
 
     /* ---- Typography ---- */
     --font-sans:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
         sans-serif;
     --font-mono: "SF Mono", "Menlo", "Consolas", monospace;
-    --font-size-base: 1rem;
-    --font-size-sm: 0.8625rem;
+    --font-size-micro: 0.5rem;         /* heatmap day labels, micro indicators */
+    --font-size-mini: 0.5625rem;       /* one notch above micro */
     --font-size-xs: 0.6875rem;
+    --font-size-badge: 0.7rem;         /* slightly larger than xs for pill chips */
+    --font-size-sm: 0.8625rem;
+    --font-size-base: 1rem;
+    --font-size-md: 1.125rem;          /* between base and lg */
     --font-size-lg: 1.25rem;
     --font-size-xl: 1.5rem;
+    --font-size-hero: 2.5rem;          /* large emphasis (empty state, hero) */
 
     /* ---- Dimensions ---- */
     --sidebar-width: 10rem;
     --list-width: 16rem;
     --radius: 0.375rem;
     --radius-lg: 0.5rem;
+    --radius-pill: 0.6rem;             /* badge/chip rounding */
 
     /* ---- Spacing ---- */
     --spacing-xs: 0.25rem;

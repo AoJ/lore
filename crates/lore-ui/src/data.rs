@@ -94,6 +94,90 @@ pub fn format_file_size(bytes: i64) -> String {
     }
 }
 
+// ---- Snapshot version view-model ----
+
+/// Lightweight parse of `change_summary` JSON. We control the producer
+/// (`insert_snapshot` in `lore-core`), so the format is fixed:
+/// `{"title_changed":bool,"size_delta_pct":i32,"content_same":bool}`.
+/// Avoids pulling `serde_json` into the UI for three fields.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChangeSummary {
+    pub title_changed: bool,
+    pub size_delta_pct: i32,
+    pub content_same: bool,
+}
+
+pub fn parse_change_summary(json: &str) -> Option<ChangeSummary> {
+    let extract_bool = |key: &str| -> Option<bool> {
+        let needle = format!("\"{}\":", key);
+        let start = json.find(&needle)? + needle.len();
+        let rest = json[start..].trim_start();
+        if rest.starts_with("true") {
+            Some(true)
+        } else if rest.starts_with("false") {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    let extract_i32 = |key: &str| -> Option<i32> {
+        let needle = format!("\"{}\":", key);
+        let start = json.find(&needle)? + needle.len();
+        let rest = &json[start..];
+        let end = rest.find(|c: char| c != '-' && !c.is_ascii_digit())?;
+        rest[..end].parse().ok()
+    };
+    Some(ChangeSummary {
+        title_changed: extract_bool("title_changed")?,
+        size_delta_pct: extract_i32("size_delta_pct")?,
+        content_same: extract_bool("content_same")?,
+    })
+}
+
+/// Display-ready snapshot version row for the "Versions" panel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VersionView {
+    pub id: i64,
+    pub version: i64,
+    /// "2026-05-21 14:30" — trimmed from ISO timestamp for display.
+    pub fetched_at_display: String,
+    /// Original ISO string, used for export filename and ordering.
+    pub fetched_at_iso: String,
+    pub title_display: String,
+    pub size_display: String,
+    pub has_screenshot: bool,
+    /// Empty on version 1 (no diff base).
+    pub summary: Option<ChangeSummary>,
+}
+
+pub fn snapshot_meta_to_view(
+    meta: &lore_core::db::SnapshotMeta,
+    page_title_fallback: &str,
+) -> VersionView {
+    VersionView {
+        id: meta.id,
+        version: meta.version,
+        fetched_at_display: meta
+            .fetched_at
+            .chars()
+            .take(16)
+            .collect::<String>()
+            .replace('T', " "),
+        fetched_at_iso: meta.fetched_at.clone(),
+        title_display: meta
+            .title
+            .clone()
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| page_title_fallback.to_string()),
+        size_display: format_size_short(meta.size_bytes),
+        has_screenshot: meta.has_screenshot,
+        summary: meta
+            .change_summary
+            .as_deref()
+            .and_then(parse_change_summary),
+    }
+}
+
 /// Compact size formatter for page snapshot metadata (KB/MB/B, one decimal).
 fn format_size_short(bytes: i64) -> String {
     if bytes > 1_000_000 {
@@ -103,6 +187,12 @@ fn format_size_short(bytes: i64) -> String {
     } else {
         format!("{} B", bytes)
     }
+}
+
+/// Public alias of `format_size_short` for callers that need the same compact
+/// formatter (e.g. version-selector rendering a non-current snapshot).
+pub fn format_size_short_pub(bytes: i64) -> String {
+    format_size_short(bytes)
 }
 
 /// Extract the uppercase file extension, e.g. "PDF", "PNG". Returns "FILE" if none.

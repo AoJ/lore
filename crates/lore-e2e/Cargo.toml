@@ -18,3 +18,13 @@ futures-util = "0.3"
 serde_json = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
+
+# `lore-core` is the one in-process dep allowed by the architecture rules.
+# Lets tests seed DB state directly via the same SQL helpers the server
+# uses, instead of going through a fragile HTTP-only setup. Test DB and
+# server share the same WAL-mode SQLite file — concurrent reads + writes
+# are safe.
+lore-core = { path = "../lore-core" }
+# Pinned to the same version `lore-core` uses; just for the `params!`
+# macro and the `Connection` type in seeding helpers — no SQL elsewhere.
+rusqlite = "0.34"

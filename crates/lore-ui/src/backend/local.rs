@@ -13,8 +13,8 @@ use std::path::PathBuf;
 
 use lore_core::db::{
     self, ArchiveOutcome, AttachmentRow, ClassificationRule, FileRow, FolderRow,
-    InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SpaceRow, SpaceStats,
-    TrashItem, WebPageDetail, WebPageRow,
+    InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SnapshotContent,
+    SnapshotMeta, SpaceRow, SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
 use lore_core::search;
 
@@ -246,6 +246,24 @@ impl Backend for LocalBackend {
 
     async fn update_page_status(&self, page_id: i64, status: &str) -> Result<()> {
         ok(db::update_status(&self.conn()?, page_id, status))
+    }
+
+    // ---- Page versions ----
+
+    async fn list_page_versions(&self, page_id: i64) -> Result<Vec<SnapshotMeta>> {
+        ok(db::list_page_versions(&self.conn()?, page_id))
+    }
+
+    async fn get_page_version(&self, snapshot_id: i64) -> Result<SnapshotContent> {
+        ok(db::get_page_version(&self.conn()?, snapshot_id))
+    }
+
+    async fn delete_page_version(&self, snapshot_id: i64) -> Result<()> {
+        ok(db::delete_page_version(&self.conn()?, snapshot_id))
+    }
+
+    async fn request_reachive(&self, page_id: i64) -> Result<()> {
+        ok(db::request_reachive(&self.conn()?, page_id))
     }
 
     // ---- Files ----

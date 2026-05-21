@@ -118,10 +118,123 @@
 - [ ] Prázdné stavy — ilustrace nebo ikony místo jen textu
 
 ### Web archivace — pokročilé
-- [ ] Re-archivace stránky (nová verze, zachování staré)
-- [ ] Prohlížení starších verzí
-- [ ] Readability extrakce (čistý obsah článku)
-- [ ] Export archivovaných stránek
+
+Rozplánováno do tří fází; každá je samostatně dokončitelná, ale staví na předchozí.
+DB schéma se mění v každé fázi (jedna migrace na fázi). Backend trait roste o
+~3–5 metod na fázi. UI komponenty `content_page.rs` se postupně rozšiřuje
+(nepřepisuje), nakonec se rozdělí do pod-komponent jako `content_note/`.
+
+---
+
+#### Fáze A — Verzování + re-archivace + ruční mazání verzí  ✅
+
+*Společný základ pro vše ostatní: snapshot je first-class entita s ID a metadaty,
+worker při každém fetchi zakládá novou verzi (už dnes), UI ji umí vybrat a smazat.*
+
+**Hotovo:** Migrace 0008 (`title`, `content_hash`, `change_summary` + jednorázový hash backfill).
+`insert_snapshot` počítá hash a diffuje proti předchozí verzi. Nové `lore-core` funkce
+`list_page_versions`, `get_page_version`, `delete_page_version`, `request_reachive`.
+Backend trait + obě implementace + HTTP route. `DataStore::reachive_page` + `delete_page_version`.
+UI: tlačítko "Re-archive", sekce "Versions" s badges (current, no change, title changed, ±%),
+klik na verzi přepne preview/screenshot, × tlačítko smaže verzi (kromě jediné). CSS v `app.css`.
+
+**Schéma (migrace 0008):**
+- `web_page_snapshot.content_hash TEXT` — SHA256 plain_textu (diff detekce)
+- `web_page_snapshot.title TEXT` — titulek v době fetche (dnes se ukládá jen na `web_page`, takže verze nezachycuje rename)
+- `web_page_snapshot.change_summary TEXT` — JSON `{title_changed: bool, size_delta_pct: i32, content_same: bool}`, vyplněn workerem při insertu
+- Backfill kód: pro existující snapshoty spočítat `content_hash` z `plain_text`, `title` zkopírovat z `web_page.title`
+
+**lore-core:**
+- `db::list_page_versions(page_id) → Vec<SnapshotMeta>` (id, version, fetched_at, title, size_bytes, content_hash, change_summary)
+- `db::get_snapshot(snapshot_id) → SnapshotContent` (html_content, plain_text, screenshot)
+- `db::delete_snapshot(snapshot_id)` — smaže jednu verzi (s FTS cleanup; první/jedinou verzi nesmazat → error)
+- `insert_snapshot`: spočítat hash, načíst předchozí verzi a vyplnit `change_summary`
+
+**Worker:** žádná změna chování — fetch už dnes zakládá novou verzi přes `insert_snapshot`. Jen `insert_snapshot` v `lore-core` dostane víc práce (hash, summary).
+
+**Backend trait + HTTP API:**
+- `list_page_versions`, `get_page_version`, `delete_page_version`, `request_reachive` (= dnešní `update_page_status('queued')`, jen explicitní název pro re-archivaci)
+
+**UI (`content_page.rs`):**
+- Tlačítko "Re-archive" vedle "Open in browser" — volá `request_reachive`
+- Sekce "Versions" pod meta — collapsible seznam verzí: `v3 · 2026-05-21 · 12.4 KB · [titulek se změnil] [-15%]`
+- Kliknutí na verzi přepne zobrazení (screenshot, plain_text_preview) na vybranou
+- "Delete this version" tlačítko u každé verze (kromě jediné/aktuální)
+- Aktuální = nejvyšší `version`; selector se default-uje na aktuální
+
+**Hotová fáze umožní:** vidět celou historii archivace, ručně vyvolat re-fetch, mazat zastaralé snapshoty (např. když web změnil layout a starý snapshot už nemá hodnotu).
+
+---
+
+#### Fáze B — Readability extrakce + Article-first view
+
+*Postavena na Fázi A: každá nová verze už pojme readability HTML/text.
+Backfill starých snapshotů (re-extrakce z uloženého raw HTML) jako bonus.*
+
+**Knihovna:** `dom_smoothie` ([Rust port Mozilla Readability](https://github.com/niklak/dom_smoothie), MIT, žádné JS) nebo `readability` ([dtolnay's port](https://github.com/kumabook/readability), MIT). Vybrat při startu fáze — `dom_smoothie` má lepší účet aktivních releases.
+
+**Schéma (migrace 0009):**
+- `web_page_snapshot.readability_html TEXT` — vyextrahovaný `<article>` HTML
+- `web_page_snapshot.readability_text TEXT` — plain text z readability_html (pro FTS)
+- `web_page_snapshot.byline TEXT`, `excerpt TEXT`, `reading_time_sec INT` — metadata vrácená Readability
+- FTS preference: pokud `readability_text` non-null, indexovat ten místo `plain_text` (čistší signal)
+
+**Worker (`lore-worker/src/render.rs`):**
+- Po `page.content().await` zavolat readability extrakci na HTML
+- Při failu (web bez článkové struktury) `readability_*` zůstanou NULL → UI fallback na plain_text
+- `RenderedPage` rozšířit o `readability_html: Option<String>`, atd.; `insert_snapshot` ukládá tyto pole
+
+**Backfill:** **NE**. Migrace přidá jen sloupce s NULL — nepouští readability na existujících snapshotech. Důvod: pokud extrakce vrátí prázdno (článek bez článkové struktury), zůstanou NULL navždy a migrace by je při každém startu zkoušela znovu naplnit. Pro existující data: UI fallback na `plain_text`.
+
+**lore-core:**
+- `db::SnapshotContent` rozšířit o `readability_*` pole
+- Re-index FTS: při insertu/migraci přepnout zdroj plain_text na readability_text když existuje
+
+**Backend trait:** rozšíření existujícího `get_page_version`, nové metody netřeba.
+
+**UI (`content_page.rs`):**
+- Pokud snapshot.readability_html existuje → render jako article (default view)
+- Header: `byline · reading_time · excerpt` pod titulkem
+- "View raw" link/tab přepne na současný plain_text_preview + raw HTML preview
+- Tabs nebo segmented control `Article | Raw`; preference per-page persisted v `localStorage`/`SessionStorage` (pro pozdější web; zatím session signal)
+
+**Hotová fáze umožní:** čisté čtení článku jako v Pocket/Instapaper, bez reklam/navigace; FTS hledá v relevantním obsahu místo v UI stringách.
+
+---
+
+#### Fáze C — Export (HTML, Markdown, JSON)
+
+*Postaveno na Fázi A+B: export bere konkrétní verzi (default aktuální), 
+využívá readability_html jako čistý zdroj pro Markdown.*
+
+**lore-core (nový modul `lore_core::export`):**
+- `export_html(snapshot, page_meta) → String` — self-contained: title, meta, embed base64 screenshot, inline CSS, readability_html jako tělo, raw HTML jako `<details>` na konci
+- `export_markdown(snapshot, page_meta) → String` — frontmatter (url, archived_at, title), pak HTML→MD konverze z `readability_html` (preferovaná knihovna: `html2md` nebo `htmd`)
+- `export_json(snapshot, page_meta) → String` — strukturovaný DTO (url, title, byline, archived_at, plain_text, readability_text, content_hash, version, screenshot_b64)
+- Sdílený `ExportFormat` enum + `export(snapshot, page_meta, format) → (filename, bytes)` factory
+
+**Backend trait + HTTP API:**
+- `export_page(page_id, snapshot_id, format) → (filename, Vec<u8>)` — vrací bytes + suggested filename
+- Server přidá raw GET endpoint `/api/pages/{page_id}/export/{snapshot_id}?format=html` pro browser download anchor (analog k `/api/files/{id}/raw`)
+
+**UI (`content_page.rs`):**
+- "Export" tlačítko → popover/menu s volbami: HTML / Markdown / JSON
+- Per-version: export bere aktuálně vybranou verzi
+- Desktop: `rfd::AsyncFileDialog::save_file()` + `write(bytes)`
+- Web: `<a href="/api/pages/.../export/...?format=X" download>` přes anchor click
+
+**Filename konvence:** `{domain}-{slug-from-title}-{YYYY-MM-DD}-{HHMMSS}.{ext}` (např. `nytimes-com-rise-of-ai-2026-05-21-143052.html`). Čas povinný — testovací fáze produkuje víc verzí denně, samotné datum by způsobilo přepisování při Save dialogu.
+
+**Hotová fáze umožní:** archivovaný obsah dostat ven (do Obsidianu jako .md, do pipeline jako .json, ke sdílení jako self-contained .html).
+
+---
+
+#### Mimo rámec těchto fází (zapsáno pro pozdější vlnu)
+
+- **Auto re-fetch** stránek starších než N dní (vyžaduje cron-style worker mode)
+- **Bulk export** všech archivovaných stránek jako ZIP — přidat až s Phase 3+1 tlačítkem v Settings
+- **Diff viewer** — side-by-side porovnání dvou verzí (vyžaduje text-diff knihovnu typu `similar`)
+- **Auto-spawning workeru** — aktuálně `retry_page` jen nastaví `status='queued'` a spoléhá na ručně puštěný `make worker`. Pro web verzi server bude muset worker spouštět sám (subprocess nebo embedded). Vyřešit až bude bottleneck.
 
 ### Platformy
 - [ ] Web verze (Dioxus WASM nebo lore-server s vanilla JS frontendem)

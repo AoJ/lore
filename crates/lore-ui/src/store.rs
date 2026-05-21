@@ -432,6 +432,32 @@ impl DataStore {
         Ok(())
     }
 
+    /// Queue a fresh fetch for an already-archived page. Worker picks it up
+    /// on next run; new snapshot lands as a new version (existing ones kept).
+    pub async fn reachive_page(
+        &mut self,
+        state: &AppState,
+        page_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().request_reachive(page_id).await?;
+        self.refresh(state).await;
+        Ok(())
+    }
+
+    /// Delete one historical snapshot version. Backend refuses if it's the
+    /// only one — UI shouldn't even show the button in that case.
+    pub async fn delete_page_version(
+        &mut self,
+        state: &mut AppState,
+        snapshot_id: i64,
+    ) -> Result<(), BackendError> {
+        backend::current().delete_page_version(snapshot_id).await?;
+        // Revision bump from FTS+snapshot delete will trigger polling refresh
+        // automatically, but we want the open page detail to update now.
+        state.bump_refresh();
+        Ok(())
+    }
+
     pub async fn add_url(
         &mut self,
         state: &AppState,
