@@ -109,6 +109,13 @@ pub const BTN_LOAD_SCREENSHOT: &str = "Load full screenshot";
 pub const TAB_ARTICLE: &str = "Article";
 pub const TAB_RAW: &str = "Raw";
 
+// Export menu (Phase C).
+pub const BTN_EXPORT: &str = "Export…";
+pub const EXPORT_HTML: &str = "HTML (self-contained)";
+pub const EXPORT_MARKDOWN: &str = "Markdown (+ frontmatter)";
+pub const EXPORT_JSON: &str = "JSON (full data)";
+pub const TOAST_EXPORTED: &str = "Snapshot exported.";
+
 // Page status labels (worker pipeline).
 pub const STATUS_QUEUED: &str = "queued";
 pub const STATUS_FETCHING: &str = "fetching";

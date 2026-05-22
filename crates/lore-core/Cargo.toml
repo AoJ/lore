@@ -16,13 +16,19 @@ base64 = "0.22"
 rusqlite = { version = "0.34", features = ["bundled", "vtab"], optional = true }
 sha2 = { version = "0.10", optional = true }
 regex = { version = "1", optional = true }
+# HTML→Markdown for the export module. Pure Rust, turndown.js port.
+# Behind `sqlite` because export functions need DB access to load
+# snapshots — typing the format-only helpers separately would split the
+# module without a real consumer for the pure half.
+htmd = { version = "0.5", optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = ["sqlite"]
 # Pulls in rusqlite + native code so `db::*`, `migrations`, `search`,
 # and the `From<rusqlite::Error>` impls compile. Disable for WASM
 # builds: `default-features = false`.
-sqlite = ["dep:rusqlite", "dep:sha2", "dep:regex"]
+sqlite = ["dep:rusqlite", "dep:sha2", "dep:regex", "dep:htmd", "dep:serde_json"]
 
 [dev-dependencies]
 tempfile = "3"

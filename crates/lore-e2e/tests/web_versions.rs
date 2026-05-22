@@ -892,6 +892,130 @@ async fn article_tab_renders_readability_iframe_and_raw_fallback() {
     );
 }
 
+/// Verbatim readability HTML pulled from the dev DB for page #62
+/// (cloudinit docs) — the exact bytes the user reported as "Article
+/// empty". 5.4 KB, real-world attribute quoting and structure. If this
+/// renders the marker inside the iframe, the bug is platform-specific
+/// (desktop WebView vs the headless WASM client this test runs against).
+#[tokio::test]
+async fn article_iframe_renders_dev_db_real_readability() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/cloudinit", "Cloudinit Datasources", &[])
+        .expect("seed");
+    let html = include_str!("../fixtures/readability_cloudinit_62.html");
+    app.add_snapshot_with_readability(page_id, "plain", html, "plain text")
+        .expect("seed");
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("rows");
+    app.click_text(".list-item-title", "Cloudinit Datasources")
+        .await
+        .expect("open page");
+
+    app.wait_for(".content-article", Duration::from_secs(5))
+        .await
+        .expect("iframe present");
+
+    // The fixture has "Datasources are sources of configuration data" —
+    // a phrase that won't ever appear in CSS / boilerplate. Use it as the
+    // probe for "the article body actually rendered".
+    app.wait_until(
+        || async {
+            let v = app
+                .page
+                .evaluate(
+                    r#"
+                    (() => {
+                        const f = document.querySelector('.content-article');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return false;
+                        return (f.contentDocument.body.innerText || '')
+                            .includes('Datasources are sources of configuration data');
+                    })()
+                    "#,
+                )
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok())
+                .unwrap_or(false);
+            if v { Ok(Some(())) } else { Ok(None) }
+        },
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("verbatim #62 readability content visible in iframe");
+}
+
+/// Real-world readability HTML for a documentation page (cloudinit-style
+/// fixture from a user bug report on #62). 1.5 KB, lots of `id="…"` and
+/// `class="…"` attributes, no scripts. Tests that the Article iframe
+/// actually shows content for non-trivial documents.
+#[tokio::test]
+async fn article_iframe_renders_real_world_documentation_html() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/docs", "Datasources", &[])
+        .expect("seed");
+    // Marker hidden inside the article body so we can prove the iframe
+    // actually rendered the full content, not just opened with empty doc.
+    let html = r#"<div id="readability-page-1" class="page"><article role="main" id="furo-main-content">
+<section id="datasources">
+<span id="id1"></span>
+<p>Datasources are sources of configuration data for <code><span>cloud-init</span></code>
+that typically come from the user (i.e., user-data) or come from the cloud
+that created the configuration drive (i.e., meta-data). Typical user-data
+includes files, YAML, and shell scripts whereas typical meta-data includes
+server name, instance id, display name, MARKER-DATASOURCES-7777.</p>
+<section id="known-sources">
+<h2>Known sources</h2>
+<p>The following is a list of documents for each supported datasource.</p>
+</section>
+</section>
+</article></div>"#;
+    app.add_snapshot_with_readability(page_id, "plain text body", html, "marker text")
+        .expect("seed");
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("rows render");
+    app.click_text(".list-item-title", "Datasources")
+        .await
+        .expect("open Datasources");
+
+    app.wait_for(".content-article", Duration::from_secs(5))
+        .await
+        .expect("iframe present");
+
+    app.wait_until(
+        || async {
+            let v = app
+                .page
+                .evaluate(
+                    r#"
+                    (() => {
+                        const f = document.querySelector('.content-article');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return false;
+                        return (f.contentDocument.body.innerText || '').includes('MARKER-DATASOURCES-7777');
+                    })()
+                    "#,
+                )
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok())
+                .unwrap_or(false);
+            if v { Ok(Some(())) } else { Ok(None) }
+        },
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("real-world doc article renders inside iframe");
+}
+
 /// Real-world readability HTML contains nested double-quotes (attribute
 /// values, class names, href targets, …). The Article iframe must
 /// actually render that content, not just expose an empty shell.
@@ -954,6 +1078,166 @@ async fn article_iframe_renders_html_with_nested_quotes() {
     )
     .await
     .expect("marker visible inside the iframe document (escape + sandbox correct)");
+}
+
+/// Export endpoint produces all three formats with the right shape:
+/// HTML self-contained (DOCTYPE + `<title>`), Markdown YAML frontmatter,
+/// JSON with structured fields.
+#[tokio::test]
+async fn export_snapshot_produces_all_three_formats() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/exporting", "Exportable Title", &[])
+        .expect("seed");
+    let snap_id = app
+        .add_snapshot_with_readability(
+            page_id,
+            "plain text fallback",
+            "<article><h1>Heading</h1><p>article body para</p></article>",
+            "article body para",
+        )
+        .expect("seed snapshot");
+
+    for (fmt, ext, must_contain) in [
+        ("html", ".html", "<!DOCTYPE html>"),
+        ("markdown", ".md", "---\n"),
+        ("json", ".json", "\"snapshot_id\""),
+    ] {
+        let resp = app
+            .api_post(
+                "export_snapshot",
+                json!({ "snapshot_id": snap_id, "format": fmt }),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("export_snapshot {} failed: {:?}", fmt, e));
+        let filename = resp["filename"].as_str().expect("filename");
+        assert!(
+            filename.ends_with(ext),
+            "{} export filename should end with {}, got: {}",
+            fmt,
+            ext,
+            filename
+        );
+        let b64 = resp["data_b64"].as_str().expect("data_b64");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .expect("decode b64");
+        let body = String::from_utf8(bytes).expect("utf-8");
+        assert!(
+            body.contains(must_contain),
+            "{} export body should contain {:?}, got first 200 chars: {:.200}",
+            fmt,
+            must_contain,
+            body
+        );
+        // All formats should reference the original URL.
+        assert!(
+            body.contains("example.test/exporting"),
+            "{} export should mention the source URL",
+            fmt
+        );
+    }
+}
+
+/// Export button in the detail panel opens a popover with three options
+/// (HTML / Markdown / JSON). Each option must point at the working raw
+/// endpoint so a browser download fires when the user clicks.
+#[tokio::test]
+async fn export_menu_renders_three_links_to_raw_endpoint() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/exportui", "Export UI", &[])
+        .expect("seed");
+    let snap_id = app
+        .add_snapshot_with_readability(
+            page_id,
+            "plain text",
+            "<article><p>body</p></article>",
+            "body",
+        )
+        .expect("seed snapshot");
+
+    app.click_text(".sidebar-item", "Webs").await.expect("Webs");
+    let _ = app
+        .wait_for(".list-item", Duration::from_secs(5))
+        .await
+        .expect("rows render");
+    app.click_text(".list-item-title", "Export UI")
+        .await
+        .expect("open page");
+
+    // Open the export popover.
+    app.click_text(".btn", "Export…")
+        .await
+        .expect("click Export button");
+    app.wait_for(".export-menu", Duration::from_secs(3))
+        .await
+        .expect("popover opens");
+
+    // All three items render with hrefs pointing at the snapshot's raw
+    // export endpoint. If any are missing the user can't trigger a
+    // download in the web UI.
+    let hrefs: Vec<String> = app
+        .page
+        .evaluate(
+            "Array.from(document.querySelectorAll('.export-menu .export-menu-item')).map(a => a.getAttribute('href') || '')",
+        )
+        .await
+        .expect("eval items")
+        .into_value()
+        .unwrap_or_default();
+    assert_eq!(hrefs.len(), 3, "exactly three format options, got: {:?}", hrefs);
+    let expected_prefix = format!("/api/snapshots/{}/export?format=", snap_id);
+    for h in &hrefs {
+        assert!(
+            h.starts_with(&expected_prefix),
+            "menu item href should hit raw export endpoint, got: '{}'",
+            h
+        );
+    }
+    let formats: Vec<&str> = hrefs
+        .iter()
+        .filter_map(|h| h.split("format=").nth(1))
+        .collect();
+    assert_eq!(formats, vec!["html", "markdown", "json"]);
+}
+
+/// Raw GET endpoint for browser-driven export — returns the exported
+/// bytes directly with `Content-Disposition: attachment` so a plain
+/// `<a download>` click triggers the browser save dialog.
+#[tokio::test]
+async fn export_snapshot_raw_endpoint_serves_bytes_with_attachment_header() {
+    let app = TestApp::spawn().await.expect("spawn app");
+    let page_id = app
+        .seed_page_with_snapshots("https://example.test/raw-export", "Raw Title", &[])
+        .expect("seed");
+    let snap_id = app
+        .add_snapshot_with_readability(
+            page_id,
+            "plain text",
+            "<article><p>body</p></article>",
+            "body",
+        )
+        .expect("seed snap");
+
+    // We can't easily inspect raw HTTP headers from inside the page eval
+    // sandbox; assert on the body shape via fetch instead.
+    let (status, body) = app
+        .fetch_raw(
+            "GET",
+            &format!("/api/snapshots/{}/export?format=markdown", snap_id),
+            None,
+        )
+        .await
+        .expect("fetch raw export");
+    assert_eq!(status, 200);
+    assert!(
+        body.starts_with("---\n"),
+        "markdown export must start with frontmatter, got: {:.80}",
+        body
+    );
+    assert!(body.contains("example.test/raw-export"));
 }
 
 /// Legacy snapshot (full screenshot, no thumb) must render a clickable

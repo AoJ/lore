@@ -16,13 +16,19 @@ async fn server_boots_wasm_mounts_sidebar_renders() {
         .await
         .expect("sidebar element");
 
-    // The default seeded space ("Personal") should show in the space switcher.
-    let active = app
-        .wait_for_default(".space-name")
-        .await
-        .expect("space switcher mounted");
-    let text = active.inner_text().await.unwrap().unwrap_or_default();
-    assert_eq!(text, "Personal", "default space name");
+    // The default seeded space ("Personal") shows up once the spaces
+    // signal is populated from the backend. The element mounts immediately
+    // with a fallback "Space" label, so polling on the element alone races
+    // the initial fetch — wait until the label flips to the real name.
+    app.wait_until(
+        || async {
+            let txt = app.text(".space-name").await.ok().unwrap_or_default();
+            if txt == "Personal" { Ok(Some(())) } else { Ok(None) }
+        },
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("default space name resolves to 'Personal' after initial fetch");
 }
 
 #[tokio::test]

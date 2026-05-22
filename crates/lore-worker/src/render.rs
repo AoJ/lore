@@ -1,17 +1,19 @@
 use anyhow::Result;
 
-/// Cap on the stored full-screenshot height. Long-scroll pages (forums,
-/// landing pages) can render at 20 000+ px tall — storing the whole strip
-/// is mostly wasted bytes since the thumbnail and on-screen view rarely
-/// show below the fold. 3000 px ≈ 2.5 viewport heights at 1280×1024,
-/// which is enough context without ballooning the DB.
-const MAX_FULL_HEIGHT: u32 = 3000;
+/// Height cap applied only when computing the thumbnail. Long-scroll
+/// pages (forums, landing pages) can render at 20 000+ px tall, which
+/// would make the height-scaled thumbnail an unreadable sliver of
+/// pixels. Cropping the *thumbnail source* to 3000 px (~2.5 viewport
+/// heights at 1280×1024) keeps the preview legible while the stored
+/// full screenshot keeps the entire page intact for later viewing.
+const THUMB_SOURCE_MAX_HEIGHT: u32 = 3000;
 
-/// Target thumbnail height. The thumb keeps the page's full aspect ratio
-/// so the user gets a real preview of the layout (top to bottom), not just
-/// the first 200 px of header / sticky ad. A typical 1280-wide page comes
-/// out as roughly 85×200 — narrow, but recognisable. Will live in the
-/// detail view's left column once we redo the layout side-by-side.
+/// Target thumbnail height. The thumb keeps the cropped source's aspect
+/// ratio so the user gets a real preview of the layout (top to bottom),
+/// not just the first 200 px of header / sticky ad. A typical 1280-wide
+/// page comes out as roughly 85×200 — narrow, but recognisable. Will
+/// live in the detail view's left column once we redo the layout
+/// side-by-side.
 const THUMB_HEIGHT: u32 = 200;
 
 /// Result of rendering a web page.
@@ -61,15 +63,19 @@ struct ReadabilityExtract {
     text: String,
 }
 
-/// Crop the captured screenshot to `MAX_FULL_HEIGHT` (keeping the top of
-/// the page) and produce a height-scaled thumbnail. Returns
-/// `(cropped_full_png, thumb_png)`; the thumb is `None` only if the page
-/// was already shorter than `THUMB_HEIGHT` or encoding failed (the full
-/// path then stands alone).
+/// Keep the captured screenshot intact and produce a thumbnail.
+/// Returns `(full_png_unchanged, thumb_png)`; `thumb` is `None` only when
+/// the source is already small enough (≤ `THUMB_HEIGHT`) or encoding
+/// failed.
 ///
-/// Both decode and encode steps are best-effort: any failure falls back
-/// to the original `raw_png`, so a single weird page can't fail the whole
-/// archive — the worker still stores the unmodified screenshot.
+/// The thumbnail uses a cropped source (top `THUMB_SOURCE_MAX_HEIGHT`
+/// pixels) so it stays legible even for 20 000-px-tall pages — without
+/// that, height-scaling the full strip would yield a one-pixel-wide
+/// sliver. The stored full screenshot is **not** cropped: the user has
+/// the entire page available when they click to enlarge.
+///
+/// Decode/encode failures fall back to the original `raw_png` for the
+/// full path so a single weird PNG can't fail the whole archive.
 fn process_screenshot(raw_png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
     use image::ImageReader;
     use std::io::Cursor;
@@ -79,23 +85,22 @@ fn process_screenshot(raw_png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         return (raw_png.to_vec(), None);
     };
 
-    // Crop the bottom off if the page is taller than the cap. Image-level
-    // crop (not just CSS) so the DB doesn't carry a 20 000-px strip.
-    let cropped = if img.height() > MAX_FULL_HEIGHT {
-        img.crop_imm(0, 0, img.width(), MAX_FULL_HEIGHT)
+    // Crop just for the thumbnail source — leaves the full screenshot
+    // alone. `crop_imm` is borrow-friendly, so we don't have to clone
+    // the entire `img` to keep both views.
+    let thumb_source = if img.height() > THUMB_SOURCE_MAX_HEIGHT {
+        img.crop_imm(0, 0, img.width(), THUMB_SOURCE_MAX_HEIGHT)
     } else {
-        img
+        img.clone()
     };
 
-    let full_bytes = encode_png(&cropped).unwrap_or_else(|| raw_png.to_vec());
-
-    // Skip thumb when the source is already at-or-below the target height —
-    // a no-op resize would still re-encode and grow the byte count.
-    let thumb = if cropped.height() > THUMB_HEIGHT {
-        let width = ((cropped.width() as u64 * THUMB_HEIGHT as u64)
-            / cropped.height() as u64)
+    // Skip thumb when the source is already at-or-below the target height
+    // — a no-op resize would still re-encode and grow the byte count.
+    let thumb = if thumb_source.height() > THUMB_HEIGHT {
+        let width = ((thumb_source.width() as u64 * THUMB_HEIGHT as u64)
+            / thumb_source.height() as u64)
             .max(1) as u32;
-        let resized = cropped.resize_exact(
+        let resized = thumb_source.resize_exact(
             width,
             THUMB_HEIGHT,
             image::imageops::FilterType::Triangle,
@@ -105,7 +110,7 @@ fn process_screenshot(raw_png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         None
     };
 
-    (full_bytes, thumb)
+    (raw_png.to_vec(), thumb)
 }
 
 fn encode_png(img: &image::DynamicImage) -> Option<Vec<u8>> {

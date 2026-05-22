@@ -18,6 +18,10 @@ pub const EXPECTED_DB_SCHEMA_VERSION: u32 = 12;
 // feature is on by default for desktop/server/worker/cli builds; WASM
 // consumers (`HttpBackend` in `lore-ui::backend`) compile with
 // `--no-default-features` and only get the types from `db::*`.
+// Export types are always available so `HttpBackend` (WASM) can speak
+// the same `Format` enum as `LocalBackend`. The actual SQL-touching
+// `export_snapshot` function is gated inside the module behind `sqlite`.
+pub mod export;
 #[cfg(feature = "sqlite")]
 pub mod migrations;
 #[cfg(feature = "sqlite")]

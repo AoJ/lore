@@ -401,6 +401,20 @@ async fn wait_for_http_ready(base_url: &str, timeout: Duration) -> Result<()> {
 
 async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler)> {
     let browser_path = std::env::var("LORE_BROWSER").ok();
+    // Per-instance profile dir. chromiumoxide's default points every
+    // launched browser at `$TMPDIR/chromiumoxide-runner`, so two tests
+    // (or a test + a leftover Chromium from a previous crash) race on
+    // `SingletonLock` and the loser fails with
+    // `Failed to create … SingletonLock: File exists`. Pinning each test
+    // to its own dir avoids the lock entirely.
+    let profile_dir = std::env::temp_dir().join(format!(
+        "lore-e2e-chromium-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
     // Headless Chromium aggressively throttles `setTimeout` in non-focused
     // contexts. `gloo-timers::future::sleep` (the web build's `platform::
     // sleep`) is just `setTimeout` under the hood, so the 2 s poll loop
@@ -410,6 +424,7 @@ async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler)> 
     let mut config = BrowserConfig::builder()
         .no_sandbox()
         .window_size(1280, 800)
+        .user_data_dir(&profile_dir)
         .arg("--disable-gpu")
         .arg("--disable-background-timer-throttling")
         .arg("--disable-renderer-backgrounding")

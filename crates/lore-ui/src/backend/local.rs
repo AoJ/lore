@@ -16,6 +16,7 @@ use lore_core::db::{
     InsertAttachmentOutcome, InsertFileOutcome, NoteData, NoteRow, PageRef, SnapshotContent,
     SnapshotMeta, SpaceRow, SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
+use lore_core::error::BackendError;
 use lore_core::search;
 
 use super::{Backend, Result};
@@ -264,6 +265,16 @@ impl Backend for LocalBackend {
 
     async fn get_snapshot_full_screenshot(&self, snapshot_id: i64) -> Result<Option<Vec<u8>>> {
         ok(db::get_snapshot_full_screenshot(&self.conn()?, snapshot_id))
+    }
+
+    async fn export_snapshot(
+        &self,
+        snapshot_id: i64,
+        format: lore_core::export::Format,
+    ) -> Result<(String, Vec<u8>)> {
+        let exported = lore_core::export::export_snapshot(&self.conn()?, snapshot_id, format)
+            .map_err(BackendError::from)?;
+        Ok((exported.filename, exported.bytes))
     }
 
     async fn request_reachive(&self, page_id: i64) -> Result<()> {

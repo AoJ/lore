@@ -200,6 +200,26 @@ Backfill starých snapshotů (re-extrakce z uloženého raw HTML) jako bonus.*
 
 **Hotová fáze umožní:** čisté čtení článku jako v Pocket/Instapaper, bez reklam/navigace; FTS hledá v relevantním obsahu místo v UI stringách.
 
+**Tech debt — známý desktop bug:**
+
+Article tab **nerenderuje obsah na desktopu** (WKWebView via wry `dioxus://` custom-scheme). Web variant (Blink/Chromium) funguje. Co jsme zkoušeli a co selhalo:
+
+| Přístup | Web (Chromium) | Desktop (WKWebView) | Poznámka |
+|---|---|---|---|
+| `srcdoc` + manual escape `&`/`"` | ✓ render | ✗ blank (attribute is set, body empty) | Aktuální stav — fallback. Web funguje, desktop ne. |
+| `srcdoc` s `sandbox=""` | ✓ | ✗ | Sandbox bez "allow-same-origin" treats iframe as cross-origin |
+| `srcdoc` s `sandbox="allow-same-origin"` | ✓ | ✗ | Same fail jako bez sandbox |
+| `data:text/html;base64,...` jako `src` | ✗ (cross-origin doc inaccessible) | netestováno | Mohl by fungovat na desktopu ale e2e testy nedosáhnou na contentDocument |
+| `document::eval` + `contentDocument.write()` | ✓ | ✗ | Funguje v Blink, ne v WKWebView pro `dioxus://` parent |
+| `document::eval` + Blob URL → `iframe.src` v `use_effect` | ✓ | ✗ src se nastaví ale WKWebView ne fetch | User confirmed: src=blob:dioxus://..., ale network panel je prázdný, body iframu prázdný |
+
+**Příští kroky (k vyřešení samostatně):**
+1. **Custom protocol handler v dioxus-desktop**: `with_custom_protocol("article", ...)` který vrací HTML pro `article://snapshot/<id>`. WKWebView by ho měl umět načíst jako iframe src (standardní URL load). Vyžaduje DB path access ve windowing config (main.rs).
+2. **Nepoužívat iframe vůbec** — render readability_html přímo jako sanitized HTML uvnitř `<div>` v Dioxus (přes `dangerous_inner_html`). Ztrácíme CSS izolaci od appky, ale platí pro obě platformy stejně. Sanitizace už proběhla v dom_smoothie.
+3. **Převést na Markdown** a renderovat přes Milkdown (jako notes) — uniformní typografie napříč entitami, žádný iframe. `htmd` crate je už evaluated.
+
+Workaround dnes: desktop user může export jako HTML (otevře se v browseru) nebo přepnout na Raw tab (plain text). Web variant je plně funkční.
+
 ---
 
 #### Fáze C — Export (HTML, Markdown, JSON)

@@ -19,6 +19,7 @@ use lore_core::db::{
     SpaceStats, TrashItem, WebPageDetail, WebPageRow,
 };
 use lore_core::error::BackendError;
+use lore_core::export::Format as ExportFormat;
 
 /// Trait method return type. Wraps `BackendError` so the same error codes
 /// (`not_found`, `route_not_found`, `invalid_input`, `internal`) surface
@@ -172,6 +173,15 @@ pub trait Backend: Send + Sync {
     /// the snapshot has no full screenshot (legacy or HTTP-only). Heavy
     /// payload — the detail view only calls this on click-to-enlarge.
     async fn get_snapshot_full_screenshot(&self, snapshot_id: i64) -> Result<Option<Vec<u8>>>;
+
+    /// Export one snapshot in the requested format. Returns the suggested
+    /// filename plus raw bytes ready to be written to disk (desktop) or
+    /// passed to a Blob URL (web fallback if the GET endpoint isn't used).
+    async fn export_snapshot(
+        &self,
+        snapshot_id: i64,
+        format: ExportFormat,
+    ) -> Result<(String, Vec<u8>)>;
 
     /// Mark a page for re-fetch by the worker. Toggles status back to `queued`;
     /// worker picks it up on its next run.

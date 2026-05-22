@@ -117,6 +117,11 @@ async fn main() -> anyhow::Result<()> {
             "/get_snapshot_full_screenshot",
             post(handlers::get_snapshot_full_screenshot),
         )
+        .route("/export_snapshot", post(handlers::export_snapshot))
+        .route(
+            "/snapshots/{snapshot_id}/export",
+            get(handlers::export_snapshot_raw),
+        )
         .route("/request_reachive", post(handlers::request_reachive))
         // Files
         .route("/list_files", post(handlers::list_files))

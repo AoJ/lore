@@ -623,6 +623,59 @@ pub async fn get_snapshot_full_screenshot(
     Ok(Json(SnapshotScreenshotDto { data_b64 }))
 }
 
+#[derive(Deserialize)]
+pub struct ExportReq {
+    pub snapshot_id: i64,
+    pub format: lore_core::export::Format,
+}
+
+#[derive(Serialize)]
+pub struct ExportDto {
+    pub filename: String,
+    pub data_b64: String,
+}
+
+pub async fn export_snapshot(
+    State(s): AppStateExt,
+    JsonReq(req): JsonReq<ExportReq>,
+) -> ApiResult<ExportDto> {
+    let exported = lore_core::export::export_snapshot(&conn(&s)?, req.snapshot_id, req.format)
+        .map_err(ApiError::from)?;
+    Ok(Json(ExportDto {
+        filename: exported.filename,
+        data_b64: base64::engine::general_purpose::STANDARD.encode(&exported.bytes),
+    }))
+}
+
+/// Raw download endpoint for browser-driven exports: `<a href="..." download>`.
+/// `format` is a query parameter so the URL is constructable by the UI
+/// without a JSON body. Returns the exported bytes with
+/// `Content-Disposition: attachment; filename="..."` so the browser
+/// triggers a download dialog rather than navigating to the content.
+pub async fn export_snapshot_raw(
+    State(s): AppStateExt,
+    Path(snapshot_id): Path<i64>,
+    axum::extract::Query(query): axum::extract::Query<RawExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let exported = lore_core::export::export_snapshot(&conn(&s)?, snapshot_id, query.format)
+        .map_err(ApiError::from)?;
+    Ok((
+        [
+            (CONTENT_TYPE, query.format.mime().to_string()),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", exported.filename),
+            ),
+        ],
+        exported.bytes,
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct RawExportQuery {
+    pub format: lore_core::export::Format,
+}
+
 pub async fn request_reachive(
     State(s): AppStateExt,
     JsonReq(req): JsonReq<PageIdReq>,

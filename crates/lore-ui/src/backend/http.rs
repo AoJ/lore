@@ -556,6 +556,30 @@ impl Backend for HttpBackend {
         }
     }
 
+    async fn export_snapshot(
+        &self,
+        snapshot_id: i64,
+        format: lore_core::export::Format,
+    ) -> Result<(String, Vec<u8>)> {
+        #[derive(Serialize)]
+        struct R {
+            snapshot_id: i64,
+            format: lore_core::export::Format,
+        }
+        #[derive(Deserialize)]
+        struct Dto {
+            filename: String,
+            data_b64: String,
+        }
+        let dto: Dto = call(
+            &self.base_url,
+            "export_snapshot",
+            &R { snapshot_id, format },
+        )
+        .await?;
+        Ok((dto.filename, decode_b64(&dto.data_b64)?))
+    }
+
     async fn request_reachive(&self, page_id: i64) -> Result<()> {
         #[derive(Serialize)]
         struct R {

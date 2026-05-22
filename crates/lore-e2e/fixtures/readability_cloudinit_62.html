@@ -1,0 +1,61 @@
+<div id="readability-page-1" class="page"><article role="main" id="furo-main-content">
+          <section id="datasources">
+<span id="id1"></span>
+<p>Datasources are sources of configuration data for <code><span>cloud-init</span></code> that typically
+come from the user (i.e., user-data) or come from the cloud that created the
+configuration drive (i.e., meta-data). Typical user-data includes files,
+YAML, and shell scripts whereas typical meta-data includes server name,
+instance id, display name, and other cloud specific details.</p>
+<p>Any meta-data processed by <code><span>cloud-init</span></code>’s datasources can be inspected. See
+<a href="https://cloudinit.readthedocs.io/en/latest/explanation/instancedata.html#instance-data"><span>Instance-data</span></a> for more information.</p>
+<section id="how-to-configure-which-datasource-to-use">
+<h2>How to configure which datasource to use<a href="#how-to-configure-which-datasource-to-use" title="Permalink to this heading">¶</a></h2>
+<p>In most cases, users of <code><span>cloud-init</span></code> should not have to configure
+<code><span>cloud-init</span></code> to specify which datasource cloud-init is running on;
+<code><span>cloud-init</span></code> should be able to identify the platform.</p>
+<p>There are exceptions, however, when the <a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/openstack.html#datasource-ironic"><span>datasource does not
+identify</span></a> itself to <code><span>cloud-init</span></code>. In this case, the
+datasource detection may be overridden by configuring a single datasource
+in the <a href="https://cloudinit.readthedocs.io/en/latest/reference/base_config_reference.html#base-config-datasource-list"><span>datasource_list</span></a>
+or by using <a href="https://cloudinit.readthedocs.io/en/latest/explanation/kernel-command-line.html#kernel-datasource-override"><span>kernel command line arguments</span></a>.</p>
+</section>
+<section id="datasources-supported">
+<span id="id2"></span><h2>Datasources:<a href="#datasources-supported" title="Permalink to this heading">¶</a></h2>
+<p>The following is a page for each supported datasource:</p>
+<div>
+<ul>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/akamai.html">Akamai</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/aliyun.html">Alibaba Cloud (AliYun)</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/altcloud.html">AltCloud</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/ec2.html">Amazon EC2</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/azure.html">Azure</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/cloudcix.html">CloudCIX</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/cloudsigma.html">CloudSigma</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/cloudstack.html">CloudStack</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/configdrive.html">Config drive</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/digitalocean.html">DigitalOcean</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/exoscale.html">Exoscale</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/fallback.html">Fallback/no datasource</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/gce.html">Google Compute Engine</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/lxd.html">LXD</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/maas.html">MAAS</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/nocloud.html">NoCloud</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/none.html">None</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/nwcs.html">NWCS</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/opennebula.html">OpenNebula</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/openstack.html">OpenStack</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/oracle.html">Oracle</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/ovf.html">OVF</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/rbxcloud.html">Rbx Cloud</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/scaleway.html">Scaleway</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/smartos.html">SmartOS Datasource</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/upcloud.html">UpCloud</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/vmware.html">VMware</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/vultr.html">Vultr</a></li>
+<li><a href="https://cloudinit.readthedocs.io/en/latest/reference/datasources/wsl.html">WSL</a></li>
+</ul>
+</div>
+</section>
+</section>
+
+        </article></div>

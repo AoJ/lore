@@ -45,6 +45,7 @@ pub fn ContentPage(id: i64) -> Element {
     let mut selected_snapshot_id = use_signal(|| Option::<i64>::None);
     let mut selected_snapshot = use_signal(|| Option::<lore_core::db::SnapshotContent>::None);
     let mut version_picker_open = use_signal(|| false);
+    let mut export_menu_open = use_signal(|| false);
     // Lazy-loaded full screenshot for the currently displayed snapshot.
     // `None` until the user clicks "expand"; cleared on snapshot change so
     // we don't keep the previous version's PNG in memory.
@@ -320,6 +321,64 @@ pub fn ContentPage(id: i64) -> Element {
                         {texts::BTN_REACHIVE}
                     }
                 }
+                // Export menu — only for archived snapshots (no point
+                // exporting a queued/failed page with no snapshot yet).
+                if p.has_snapshot {
+                    {
+                        // Export task is spawned from THIS scope (ContentPage),
+                        // not from inside ExportMenu — the menu closes itself
+                        // on selection, and Dioxus aborts tasks owned by the
+                        // unmounted scope. Doing the spawn here keeps the
+                        // dialog → write → toast pipeline alive past the menu
+                        // close. The menu is reduced to a pure UI shell that
+                        // forwards the selected format upwards.
+                        let active_sid = selected_snapshot_id.read().unwrap_or(0);
+                        let on_export_choice = move |fmt: lore_core::export::Format| {
+                            export_menu_open.set(false);
+                            if active_sid <= 0 {
+                                return;
+                            }
+                            #[cfg(feature = "desktop")]
+                            spawn(async move {
+                                let mut state = state;
+                                if let Ok((filename, bytes)) =
+                                    backend::current().export_snapshot(active_sid, fmt).await
+                                {
+                                    let default_dir = dirs::download_dir().unwrap_or_default();
+                                    let handle = rfd::AsyncFileDialog::new()
+                                        .set_file_name(&filename)
+                                        .set_directory(&default_dir)
+                                        .save_file()
+                                        .await;
+                                    if let Some(h) = handle
+                                        && h.write(&bytes).await.is_ok()
+                                    {
+                                        state.show_toast(
+                                            texts::TOAST_EXPORTED.to_string(),
+                                            None,
+                                        );
+                                    }
+                                }
+                            });
+                            #[cfg(not(feature = "desktop"))]
+                            let _ = fmt;
+                        };
+                        rsx! {
+                            div { class: "export-menu-wrapper",
+                                button { class: "btn",
+                                    onclick: move |_| export_menu_open.toggle(),
+                                    {texts::BTN_EXPORT}
+                                }
+                                if *export_menu_open.read() {
+                                    ExportMenu {
+                                        snapshot_id: active_sid,
+                                        on_choose: EventHandler::new(on_export_choice),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 button { class: "btn btn-danger",
                     onclick: {
                         let page_id = id;
@@ -461,31 +520,21 @@ pub fn ContentPage(id: i64) -> Element {
                         }
                         match (tab, article_html, preview.clone()) {
                             (ContentTab::Article, Some(html), _) => {
-                                // srcdoc is a string attribute that the browser
-                                // parses as HTML. Any nested `"` would close the
-                                // attribute early and leave the page blank; `&`
-                                // would be reinterpreted as the start of an
-                                // entity. Escape both so realistic readability
-                                // payloads (which carry plenty of attribute
-                                // values) actually render.
-                                let escaped = html.replace('&', "&amp;").replace('"', "&quot;");
+                                // Web (Blink): renders correctly.
+                                // Desktop (WKWebView via dioxus:// custom
+                                // scheme): renders BLANK — see PLAN.md
+                                // "Web archivace — pokročilé" → tech debt
+                                // for the things we tried. Falling back to
+                                // srcdoc + manual escape keeps the web
+                                // build functional; desktop users see an
+                                // empty iframe and have to use the Raw tab
+                                // or the HTML export to read the article.
+                                let escaped =
+                                    html.replace('&', "&amp;").replace('"', "&quot;");
                                 rsx! {
                                     iframe {
                                         class: "content-article",
                                         srcdoc: "{escaped}",
-                                        // `allow-same-origin` only — no scripts,
-                                        // no forms, no popups, no top navigation.
-                                        // We need same-origin so the iframe isn't
-                                        // treated as a unique cross-origin frame
-                                        // (which makes contentDocument inaccessible
-                                        // and triggers some surprising layout
-                                        // glitches in WebKit). dom_smoothie already
-                                        // strips scripts, so allowing same-origin
-                                        // doesn't reintroduce script capability.
-                                        // Raw attribute name — Dioxus's iframe
-                                        // element doesn't expose a typed `sandbox:`
-                                        // prop yet.
-                                        "sandbox": "allow-same-origin",
                                     }
                                 }
                             }
@@ -636,6 +685,66 @@ fn version_badges(summary: &Option<data::ChangeSummary>, is_latest: bool) -> Ele
         }
     };
     rsx! { {badges} }
+}
+
+/// Pure UI shell for the export popover.
+///
+/// Desktop branch fires `on_choose` and lets the parent spawn the actual
+/// `backend.export_snapshot` + save-dialog task. That separation is
+/// load-bearing: Dioxus aborts tasks owned by the unmounted ExportMenu
+/// scope, so a self-contained `spawn` here would die the moment the
+/// popover closes.
+///
+/// Web branch is a plain `<a download>` pointing at the raw GET endpoint —
+/// the browser handles the save dialog natively, no Rust task needed.
+#[component]
+fn ExportMenu(snapshot_id: i64, on_choose: EventHandler<lore_core::export::Format>) -> Element {
+    let formats = [
+        (lore_core::export::Format::Html, texts::EXPORT_HTML),
+        (lore_core::export::Format::Markdown, texts::EXPORT_MARKDOWN),
+        (lore_core::export::Format::Json, texts::EXPORT_JSON),
+    ];
+
+    rsx! {
+        div { class: "export-menu",
+            for (fmt, label) in formats.iter().copied() {
+                {
+                    #[cfg(feature = "desktop")]
+                    {
+                        rsx! {
+                            button {
+                                key: "{label}",
+                                class: "export-menu-item",
+                                onclick: move |_| on_choose.call(fmt),
+                                "{label}"
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "desktop"))]
+                    {
+                        let fmt_str = match fmt {
+                            lore_core::export::Format::Html => "html",
+                            lore_core::export::Format::Markdown => "markdown",
+                            lore_core::export::Format::Json => "json",
+                        };
+                        let href = format!(
+                            "/api/snapshots/{}/export?format={}",
+                            snapshot_id, fmt_str
+                        );
+                        rsx! {
+                            a {
+                                key: "{label}",
+                                class: "export-menu-item",
+                                href: "{href}",
+                                onclick: move |_| on_choose.call(fmt),
+                                "{label}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Render the page status as a colored chip so `queued` / `fetching` /

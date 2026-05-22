@@ -643,6 +643,49 @@ a:hover {
     font-size: var(--font-size-sm);
 }
 
+/* Export menu — sits as an inline popover below the Export button.
+   Position: relative wrapper hosts both the trigger button and the
+   absolutely-positioned popover, so it follows the button on resize. */
+.export-menu-wrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+.export-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: var(--spacing-xs);
+    min-width: 14rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: var(--spacing-xs);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.export-menu-item {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    border-radius: var(--radius);
+    text-decoration: none;
+    display: block;
+}
+
+.export-menu-item:hover {
+    background: var(--color-hover);
+}
+
 /* Tab bar above the Article ↔ Raw content area. Plain buttons so the
    bar matches the rest of the meta chrome (no border-overhang). */
 .content-tabs {
