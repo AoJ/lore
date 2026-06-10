@@ -211,8 +211,8 @@ fn m0009_cleanup_internal_attachment_pages(conn: &Connection) -> Result<()> {
     // Collect target page ids first — we need them to clean up FTS and
     // snapshots before the parent row goes.
     let page_ids: Vec<i64> = {
-        let mut stmt = conn
-            .prepare("SELECT id FROM web_page WHERE domain = 'attachment.lore.invalid'")?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM web_page WHERE domain = 'attachment.lore.invalid'")?;
         stmt.query_map([], |r| r.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect()
@@ -220,8 +220,7 @@ fn m0009_cleanup_internal_attachment_pages(conn: &Connection) -> Result<()> {
     for page_id in page_ids {
         // Delete FTS rows tied to each snapshot.
         let snapshot_ids: Vec<i64> = {
-            let mut s = conn
-                .prepare("SELECT id FROM web_page_snapshot WHERE web_page_id = ?1")?;
+            let mut s = conn.prepare("SELECT id FROM web_page_snapshot WHERE web_page_id = ?1")?;
             s.query_map([page_id], |r| r.get::<_, i64>(0))?
                 .filter_map(|r| r.ok())
                 .collect()

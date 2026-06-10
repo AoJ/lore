@@ -23,7 +23,11 @@ async fn server_boots_wasm_mounts_sidebar_renders() {
     app.wait_until(
         || async {
             let txt = app.text(".space-name").await.ok().unwrap_or_default();
-            if txt == "Personal" { Ok(Some(())) } else { Ok(None) }
+            if txt == "Personal" {
+                Ok(Some(()))
+            } else {
+                Ok(None)
+            }
         },
         Duration::from_secs(5),
     )

@@ -360,7 +360,13 @@ fn build_filename(s: &FullSnapshot, format: Format) -> String {
     let stamp = compact_stamp(&s.fetched_at);
     let domain = slug_safe(&s.domain);
     if slug.is_empty() {
-        format!("{}-snapshot-{}-{}.{}", domain, s.snapshot_id, stamp, format.ext())
+        format!(
+            "{}-snapshot-{}-{}.{}",
+            domain,
+            s.snapshot_id,
+            stamp,
+            format.ext()
+        )
     } else {
         format!("{}-{}-{}.{}", domain, slug, stamp, format.ext())
     }
@@ -412,7 +418,13 @@ fn slugify(s: &str) -> String {
 #[cfg(feature = "sqlite")]
 fn slug_safe(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -462,7 +474,11 @@ mod tests {
     #[test]
     fn html_export_contains_title_and_body() {
         let (_dir, conn) = open_test_db();
-        let sid = seed(&conn, "plain text body", Some("<article><p>article body</p></article>"));
+        let sid = seed(
+            &conn,
+            "plain text body",
+            Some("<article><p>article body</p></article>"),
+        );
         let out = export_snapshot(&conn, sid, Format::Html).unwrap();
         assert!(out.filename.ends_with(".html"));
         let s = String::from_utf8(out.bytes).unwrap();
@@ -487,7 +503,11 @@ mod tests {
     #[test]
     fn markdown_export_has_frontmatter_and_body() {
         let (_dir, conn) = open_test_db();
-        let sid = seed(&conn, "plain text", Some("<article><h2>Header</h2><p>Para text</p></article>"));
+        let sid = seed(
+            &conn,
+            "plain text",
+            Some("<article><h2>Header</h2><p>Para text</p></article>"),
+        );
         let out = export_snapshot(&conn, sid, Format::Markdown).unwrap();
         assert!(out.filename.ends_with(".md"));
         let s = String::from_utf8(out.bytes).unwrap();
@@ -517,7 +537,10 @@ mod tests {
         let (_dir, conn) = open_test_db();
         let sid = seed(&conn, "x", None);
         let out = export_snapshot(&conn, sid, Format::Html).unwrap();
-        assert!(out.filename.starts_with("example.test-hello-world-a-story-"));
+        assert!(
+            out.filename
+                .starts_with("example.test-hello-world-a-story-")
+        );
         assert!(out.filename.ends_with(".html"));
         // Date + time joined by a dash (YYYY-MM-DD-HHMMSS)
         let middle = out
@@ -539,7 +562,10 @@ mod tests {
     #[test]
     fn slugify_handles_unicode_and_specials() {
         assert_eq!(slugify("Hello, World!"), "hello-world");
-        assert_eq!(slugify("   leading and trailing   "), "leading-and-trailing");
+        assert_eq!(
+            slugify("   leading and trailing   "),
+            "leading-and-trailing"
+        );
         assert_eq!(slugify("a/b\\c:d?e"), "a-b-c-d-e");
         // Non-ASCII drops out (no transliteration) but doesn't crash
         assert_eq!(slugify("Český titulek"), "esk-titulek");

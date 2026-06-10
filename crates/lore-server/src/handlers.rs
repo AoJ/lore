@@ -617,8 +617,8 @@ pub async fn get_snapshot_full_screenshot(
     State(s): AppStateExt,
     JsonReq(req): JsonReq<SnapshotIdReq>,
 ) -> ApiResult<SnapshotScreenshotDto> {
-    let bytes = db::get_snapshot_full_screenshot(&conn(&s)?, req.snapshot_id)
-        .map_err(ApiError::from)?;
+    let bytes =
+        db::get_snapshot_full_screenshot(&conn(&s)?, req.snapshot_id).map_err(ApiError::from)?;
     let data_b64 = bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(&b));
     Ok(Json(SnapshotScreenshotDto { data_b64 }))
 }

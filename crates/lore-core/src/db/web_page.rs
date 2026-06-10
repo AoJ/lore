@@ -273,16 +273,18 @@ pub fn insert_snapshot(
     let content_hash = format!("{:x}", hasher.finalize());
 
     let change_summary: Option<String> =
-        previous.as_ref().map(|(_, prev_title, prev_size, prev_hash)| {
-            compute_change_summary(
-                prev_title,
-                *prev_size,
-                prev_hash.as_deref(),
-                &current_title,
-                plain_text.len() as i64,
-                &content_hash,
-            )
-        });
+        previous
+            .as_ref()
+            .map(|(_, prev_title, prev_size, prev_hash)| {
+                compute_change_summary(
+                    prev_title,
+                    *prev_size,
+                    prev_hash.as_deref(),
+                    &current_title,
+                    plain_text.len() as i64,
+                    &content_hash,
+                )
+            });
 
     conn.execute(
         "INSERT INTO web_page_snapshot \

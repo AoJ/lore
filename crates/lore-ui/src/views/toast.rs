@@ -27,7 +27,11 @@ pub fn Toast() -> Element {
             // Read so the effect re-arms whenever id changes.
             let watched_id = toast_id;
             spawn(async move {
-                let delay = if has_undo { AUTO_DISMISS_WITH_UNDO } else { AUTO_DISMISS };
+                let delay = if has_undo {
+                    AUTO_DISMISS_WITH_UNDO
+                } else {
+                    AUTO_DISMISS
+                };
                 crate::platform::sleep(delay).await;
                 // Only dismiss if the toast we armed for is still showing —
                 // a newer toast in the meantime owns its own timer.

@@ -38,7 +38,6 @@ pub const BTN_DELETE_FOREVER: &str = "Delete forever";
 pub const BTN_UPLOAD: &str = "Upload";
 pub const BTN_SAVE_TO_DOWNLOADS: &str = "Download";
 
-
 // ---- Note editor ----
 pub const PLACEHOLDER_NOTE_TITLE: &str = "Untitled note";
 
@@ -100,7 +99,8 @@ pub const BADGE_NO_CHANGE: &str = "no change";
 pub const BTN_DELETE_VERSION: &str = "Delete this version";
 pub const TOAST_REACHIVE_QUEUED: &str = "Queued for re-archive.";
 pub const TOAST_VERSION_DELETED: &str = "Snapshot version deleted.";
-pub const TIP_TOTAL_SIZE: &str = "Total size across all snapshot versions (text + HTML + screenshots).";
+pub const TIP_TOTAL_SIZE: &str =
+    "Total size across all snapshot versions (text + HTML + screenshots).";
 pub const TIP_PAGE_ID: &str = "Internal page ID — handy for cross-referencing or bug reports.";
 pub const TIP_APP_VERSION: &str = "Build version + git short SHA. Include in bug reports.";
 pub const BTN_LOAD_SCREENSHOT: &str = "Load full screenshot";

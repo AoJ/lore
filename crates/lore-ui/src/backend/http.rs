@@ -574,7 +574,10 @@ impl Backend for HttpBackend {
         let dto: Dto = call(
             &self.base_url,
             "export_snapshot",
-            &R { snapshot_id, format },
+            &R {
+                snapshot_id,
+                format,
+            },
         )
         .await?;
         Ok((dto.filename, decode_b64(&dto.data_b64)?))

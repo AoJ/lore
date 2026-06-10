@@ -59,7 +59,11 @@ async fn worker_runs_full_archive_workflow() {
         .expect("get_page post-worker");
     assert_eq!(post["status"], "archived", "page should be archived");
     let total: i64 = post["total_size_bytes"].as_i64().unwrap();
-    assert!(total > 0, "snapshot should have non-zero size, got {}", total);
+    assert!(
+        total > 0,
+        "snapshot should have non-zero size, got {}",
+        total
+    );
 
     // List versions — exactly one snapshot from the worker run.
     let versions = app
@@ -78,11 +82,7 @@ async fn worker_runs_full_archive_workflow() {
 async fn request_reachive_sets_status_to_queued() {
     let app = TestApp::spawn().await.expect("spawn app");
     let page_id = app
-        .seed_page_with_snapshots(
-            "https://example.test/article",
-            "Hello",
-            &["initial body"],
-        )
+        .seed_page_with_snapshots("https://example.test/article", "Hello", &["initial body"])
         .expect("seed page");
 
     // Sanity: starts archived.
@@ -248,11 +248,7 @@ async fn delete_page_version_refuses_only_snapshot() {
 async fn delete_page_version_drops_one_of_many() {
     let app = TestApp::spawn().await.expect("spawn app");
     let page_id = app
-        .seed_page_with_snapshots(
-            "https://example.test/three",
-            "Three",
-            &["v1", "v2", "v3"],
-        )
+        .seed_page_with_snapshots("https://example.test/three", "Three", &["v1", "v2", "v3"])
         .expect("seed");
 
     let versions_before = app
@@ -262,19 +258,13 @@ async fn delete_page_version_drops_one_of_many() {
     let arr = versions_before.as_array().unwrap();
     assert_eq!(arr.len(), 3);
     // Find v2 by version number, not list index — robust against reordering.
-    let v2_id = arr
-        .iter()
-        .find(|v| v["version"] == 2)
-        .expect("v2 in list")["id"]
+    let v2_id = arr.iter().find(|v| v["version"] == 2).expect("v2 in list")["id"]
         .as_i64()
         .unwrap();
 
-    app.api_post(
-        "delete_page_version",
-        json!({ "snapshot_id": v2_id }),
-    )
-    .await
-    .expect("delete v2");
+    app.api_post("delete_page_version", json!({ "snapshot_id": v2_id }))
+        .await
+        .expect("delete v2");
 
     let versions_after = app
         .api_post("list_page_versions", json!({ "page_id": page_id }))
@@ -377,7 +367,11 @@ async fn version_selector_opens_picker_with_all_versions() {
                     .find_elements(".version-row")
                     .await
                     .unwrap_or_default();
-                if els.len() == 2 { Ok(Some(els.len())) } else { Ok(None) }
+                if els.len() == 2 {
+                    Ok(Some(els.len()))
+                } else {
+                    Ok(None)
+                }
             },
             Duration::from_secs(5),
         )
@@ -527,7 +521,9 @@ async fn total_size_aggregates_across_snapshots() {
         .await
         .expect("get_page");
 
-    let total = detail["total_size_bytes"].as_i64().expect("total_size_bytes field");
+    let total = detail["total_size_bytes"]
+        .as_i64()
+        .expect("total_size_bytes field");
     // Each snapshot: 1000 (text) + 13 (<html></html>) + 0 (screenshot) + 7 (title)
     // ≈ 1020 bytes. Three snapshots → ~3060. Be lenient: assert > 3000.
     assert!(
@@ -571,7 +567,9 @@ async fn clicking_reachive_button_flips_status_to_queued() {
     app.click(".list-item").await.expect("open detail");
 
     // Click the Re-archive button by text (button label).
-    app.wait_for_default(".page-actions").await.expect("actions");
+    app.wait_for_default(".page-actions")
+        .await
+        .expect("actions");
     app.click_text(".page-actions .btn", "Re-archive")
         .await
         .expect("Re-archive button");
@@ -726,7 +724,11 @@ async fn new_snapshot_appears_in_picker_without_changing_selection() {
                     .find_elements(".version-row")
                     .await
                     .unwrap_or_default();
-                if els.len() == 2 { Ok(Some(els.len())) } else { Ok(None) }
+                if els.len() == 2 {
+                    Ok(Some(els.len()))
+                } else {
+                    Ok(None)
+                }
             },
             Duration::from_secs(5),
         )
@@ -746,12 +748,11 @@ async fn snapshot_thumb_and_full_screenshot_are_independent_endpoints() {
     // here we just need two distinct blobs to assert on.
     let full_png: Vec<u8> = vec![
         0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, // signature
-        0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D', b'R',
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00,
-        0x90, 0x77, 0x53, 0xDE, // CRC
-        0x00, 0x00, 0x00, 0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8,
-        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14,
-        0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+        0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, // CRC
+        0x00, 0x00, 0x00, 0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14, 0x00, 0x00, 0x00, 0x00, b'I', b'E',
+        b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
     ];
     let thumb_png: Vec<u8> = vec![1, 2, 3, 4, 5];
 
@@ -759,12 +760,7 @@ async fn snapshot_thumb_and_full_screenshot_are_independent_endpoints() {
         .seed_page_with_snapshots("https://example.test/thumb", "T", &[])
         .expect("seed page");
     let snap_id = app
-        .add_snapshot_with_screenshots(
-            page_id,
-            "body",
-            Some(&full_png),
-            Some(&thumb_png),
-        )
+        .add_snapshot_with_screenshots(page_id, "body", Some(&full_png), Some(&thumb_png))
         .expect("seed snapshot with screenshots");
 
     // get_page returns the thumb (small), and has_full_screenshot flag.
@@ -839,16 +835,15 @@ async fn article_tab_renders_readability_iframe_and_raw_fallback() {
         .expect("rows render");
 
     // Open page A (alphabetic order: title "A" first).
-    app.click_text(".list-item-title", "A").await.expect("open A");
+    app.click_text(".list-item-title", "A")
+        .await
+        .expect("open A");
 
     // Tabs render, Article is active, iframe present.
     app.wait_for(".content-tabs", Duration::from_secs(5))
         .await
         .expect("tabs visible for snapshot with readability");
-    let active_tab = app
-        .text(".content-tab.active")
-        .await
-        .expect("active tab");
+    let active_tab = app.text(".content-tab.active").await.expect("active tab");
     assert!(
         active_tab.contains("Article"),
         "Article tab is active by default when readability exists, got: '{}'",
@@ -875,7 +870,9 @@ async fn article_tab_renders_readability_iframe_and_raw_fallback() {
     assert!(!iframe_now, "iframe must disappear after switching to Raw");
 
     // Open page B (no readability) → no tabs, only plain preview.
-    app.click_text(".list-item-title", "B").await.expect("open B");
+    app.click_text(".list-item-title", "B")
+        .await
+        .expect("open B");
     app.wait_for(".content-preview", Duration::from_secs(5))
         .await
         .expect("plain preview");
@@ -901,7 +898,11 @@ async fn article_tab_renders_readability_iframe_and_raw_fallback() {
 async fn article_iframe_renders_dev_db_real_readability() {
     let app = TestApp::spawn().await.expect("spawn app");
     let page_id = app
-        .seed_page_with_snapshots("https://example.test/cloudinit", "Cloudinit Datasources", &[])
+        .seed_page_with_snapshots(
+            "https://example.test/cloudinit",
+            "Cloudinit Datasources",
+            &[],
+        )
         .expect("seed");
     let html = include_str!("../fixtures/readability_cloudinit_62.html");
     app.add_snapshot_with_readability(page_id, "plain", html, "plain text")
@@ -1187,7 +1188,12 @@ async fn export_menu_renders_three_links_to_raw_endpoint() {
         .expect("eval items")
         .into_value()
         .unwrap_or_default();
-    assert_eq!(hrefs.len(), 3, "exactly three format options, got: {:?}", hrefs);
+    assert_eq!(
+        hrefs.len(),
+        3,
+        "exactly three format options, got: {:?}",
+        hrefs
+    );
     let expected_prefix = format!("/api/snapshots/{}/export?format=", snap_id);
     for h in &hrefs {
         assert!(
@@ -1247,11 +1253,10 @@ async fn export_snapshot_raw_endpoint_serves_bytes_with_attachment_header() {
 async fn legacy_snapshot_shows_placeholder_for_full_screenshot() {
     let app = TestApp::spawn().await.expect("spawn app");
     let full_png: Vec<u8> = vec![
-        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-        b'I', b'H', b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
-        0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
-        0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14, 0x00, 0x00, 0x00,
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D',
+        b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, b'I', b'D', b'A', b'T', 0x08, 0xD7, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5B, 0xCC, 0xC2, 0x14, 0x00, 0x00, 0x00,
         0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
     ];
 
@@ -1357,7 +1362,11 @@ async fn selecting_older_version_repaints_header_and_preview() {
 
     // Default = v2 in header.
     let header = app.text(".version-selector").await.expect("header label");
-    assert!(header.starts_with("v2"), "default to newest, got: {}", header);
+    assert!(
+        header.starts_with("v2"),
+        "default to newest, got: {}",
+        header
+    );
 
     // Open picker, click the v1 row (last in DESC order).
     app.click(".version-selector").await.expect("open picker");

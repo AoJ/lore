@@ -197,7 +197,9 @@ pub fn ContentPage(id: i64) -> Element {
         .as_ref()
         .map(|v| v.fetched_at_display.clone())
         .or_else(|| p.last_fetched_at_display.clone());
-    let header_version_label = active_version_view.as_ref().map(|v| format!("v{}", v.version));
+    let header_version_label = active_version_view
+        .as_ref()
+        .map(|v| format!("v{}", v.version));
     let header_size = p.total_size_display.clone();
     let multi_version = versions_read.len() > 1;
 

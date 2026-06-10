@@ -588,7 +588,12 @@ impl TestApp {
                 .to_string()
         });
         Command::new(&bin)
-            .args(["--db", &self.db_path.display().to_string(), "--limit", "100"])
+            .args([
+                "--db",
+                &self.db_path.display().to_string(),
+                "--limit",
+                "100",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()

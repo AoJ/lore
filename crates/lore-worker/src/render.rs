@@ -100,11 +100,8 @@ fn process_screenshot(raw_png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         let width = ((thumb_source.width() as u64 * THUMB_HEIGHT as u64)
             / thumb_source.height() as u64)
             .max(1) as u32;
-        let resized = thumb_source.resize_exact(
-            width,
-            THUMB_HEIGHT,
-            image::imageops::FilterType::Triangle,
-        );
+        let resized =
+            thumb_source.resize_exact(width, THUMB_HEIGHT, image::imageops::FilterType::Triangle);
         encode_png(&resized)
     } else {
         None

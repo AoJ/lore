@@ -68,23 +68,28 @@ pub struct PageDetailView {
 
 pub async fn get_page_view(id: i64) -> Result<PageDetailView> {
     let p = crate::backend::current().get_page(id).await?;
-    let (plain_text_preview, screenshot_thumb_base64, has_full_screenshot, readability_html, has_snapshot) =
-        match p.snapshot {
-            Some(s) => {
-                let b64 = s.screenshot_thumb.as_ref().map(|bytes| {
-                    use base64::Engine;
-                    base64::engine::general_purpose::STANDARD.encode(bytes)
-                });
-                (
-                    s.plain_text_preview,
-                    b64,
-                    s.has_full_screenshot,
-                    s.readability_html,
-                    true,
-                )
-            }
-            None => (None, None, false, None, false),
-        };
+    let (
+        plain_text_preview,
+        screenshot_thumb_base64,
+        has_full_screenshot,
+        readability_html,
+        has_snapshot,
+    ) = match p.snapshot {
+        Some(s) => {
+            let b64 = s.screenshot_thumb.as_ref().map(|bytes| {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            });
+            (
+                s.plain_text_preview,
+                b64,
+                s.has_full_screenshot,
+                s.readability_html,
+                true,
+            )
+        }
+        None => (None, None, false, None, false),
+    };
     let total_size_display = if p.total_size_bytes > 0 {
         Some(format_size_short(p.total_size_bytes))
     } else {
@@ -222,7 +227,6 @@ fn format_size_short(bytes: i64) -> String {
         format!("{} B", bytes)
     }
 }
-
 
 /// Extract the uppercase file extension, e.g. "PDF", "PNG". Returns "FILE" if none.
 pub fn file_extension(name: &str) -> String {
