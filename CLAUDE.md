@@ -170,6 +170,49 @@ make e2e                # integration tests: spawn lore-serve + drive WASM front
 
 Database defaults to `./db.sqlite`; override with `DB=` or `LORE_DB=`.
 
+### Nix dev environment (`dev-env/`)
+
+Pinned toolchain for NixOS/Linux (and macOS) lives in `dev-env/flake.nix`
+(+ `flake.lock`). Two equivalent entrypoints:
+
+```
+nix develop ./dev-env             # interactive dev shell
+nix build ./dev-env#wrapper       # → dev-env/result/bin/wrapper
+dev-env/result/bin/wrapper make check   # run any command inside the env
+```
+
+The shell provides: Rust stable + `wasm32-unknown-unknown` (rust-overlay),
+`dx` (dioxus-cli), `wasm-bindgen-cli` **pinned to the `wasm-bindgen` version
+in `Cargo.lock`** (`dx` requires an exact match and can't run its
+self-downloaded binaries on NixOS — bump the version + hashes in the flake
+when `cargo update` bumps the crate), binaryen, cargo-deny, cargo-mutants,
+node (milkdown bundle), CloakBrowser (a fingerprint-patched Chromium with
+CDP; from the `cloakbrowser` flake input, Linux-only, exported as
+`LORE_BROWSER` for worker/e2e), and the GTK3/WebKitGTK stack for the
+desktop build.
+Not in nix: `sentrux` (not packaged) and Kani (needs `cargo kani setup`).
+
+**Cross-compilation (headless crates only).** The Linux dev shell carries
+the `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` rust targets plus
+their cross C toolchains (`pkgsCross.gnu64` / `pkgsCross.mingwW64`), wired to
+cargo via `CARGO_TARGET_*_LINKER` + `CC_*`/`CXX_*` env. cc-rs deps (bundled
+SQLite, ring) cross cleanly; the worker uses `rustls`, so no OpenSSL.
+
+```
+cargo build --release --target x86_64-unknown-linux-gnu -p lore-cli -p lore-server -p lore-worker
+cargo build --release --target x86_64-pc-windows-gnu   -p lore-cli -p lore-server
+```
+
+Name the crates — don't pass `--workspace`: `lore-ui` (wry → WebKitGTK on
+Linux / WebView2 on Windows) and `lore-e2e` don't cross-build. Scope by
+design: **desktop `lore-ui` is macOS-only and built natively** (its `wry`
+GUI + `openssl-sys` via the devtools websocket make cross from aarch64
+impractical); Windows/x86-Linux users get the **WASM web UI** (`make web` +
+`lore-server`). `lore-worker` stays Linux-only (drives CloakBrowser), so it
+has no Windows target.
+
+Requires `experimental-features = nix-command flakes` in nix.conf.
+
 ### Dependency policy (`deny.toml`)
 
 - Project itself is MIT (`LICENSE` at repo root, mirrored as `license = "MIT"`

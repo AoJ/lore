@@ -11,3 +11,6 @@ crates/lore-server/static/
 db.sqlite
 db.sqlite-shm
 db.sqlite-wal
+
+# nix dev environment build output
+dev-env/result

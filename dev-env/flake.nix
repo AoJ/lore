@@ -1,0 +1,181 @@
+{
+  description = "lore dev environment — Rust + Dioxus + tooling, pinned via flake.lock";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    # nixpkgs' rustc can't add extra targets; rust-overlay gives us a
+    # toolchain with wasm32-unknown-unknown for the Dioxus web build.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # Stealth Chromium with source-level fingerprint patches, used by
+    # lore-worker / lore-e2e via CDP. Linux x86_64 + aarch64 only — its
+    # own pin, so we don't `follows` it.
+    cloakbrowser.url = "github:CloakHQ/CloakBrowser";
+  };
+
+  outputs = { self, nixpkgs, rust-overlay, cloakbrowser }:
+    let
+      systems = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" ];
+      forAllSystems = f:
+        nixpkgs.lib.genAttrs systems (system:
+          f (import nixpkgs {
+            inherit system;
+            overlays = [ rust-overlay.overlays.default ];
+          }) system);
+    in
+    {
+      devShells = forAllSystems (pkgs: system:
+        let
+          lib = pkgs.lib;
+
+          # CloakBrowser only ships Linux binaries; its flake has no
+          # darwin outputs, so guard the reference.
+          cloak =
+            if pkgs.stdenv.isLinux
+            then cloakbrowser.packages.${system}.cloakbrowserChromium
+            else null;
+          cloakExe = "${cloak}/bin/cloakbrowser-chrome";
+
+          rust = pkgs.rust-bin.stable.latest.default.override {
+            extensions = [ "rust-src" "rust-analyzer" ];
+            targets = [
+              "wasm32-unknown-unknown" # dx web bundle
+            ] ++ lib.optionals pkgs.stdenv.isLinux [
+              # Cross targets for the headless crates (cli/server/worker).
+              # lore-ui (GTK/WebView) is macOS-native and not crossed.
+              "x86_64-unknown-linux-gnu"
+              "x86_64-pc-windows-gnu"
+            ];
+          };
+
+          # Cross C toolchains for cc-rs deps (bundled SQLite, ring) +
+          # rustc's linker, keyed per target via the env vars in shellHook.
+          # Linux-host only; from aarch64-darwin you build the macOS app
+          # natively, not cross.
+          crossCc = lib.optionals pkgs.stdenv.isLinux [
+            pkgs.pkgsCross.gnu64.stdenv.cc      # → x86_64-linux
+            pkgs.pkgsCross.mingwW64.stdenv.cc   # → x86_64-windows (gnu ABI)
+          ];
+
+          # rust's windows-gnu std links `-l:libpthread.a` (static
+          # winpthreads), which lives outside the gcc wrapper's default
+          # search path — point the linker at it.
+          mingwPthreads = pkgs.pkgsCross.mingwW64.windows.pthreads;
+
+          # `dx` refuses a wasm-bindgen CLI whose version differs from the
+          # wasm-bindgen crate in Cargo.lock, and on NixOS it can't run the
+          # prebuilt binary it would otherwise download. Keep this version in
+          # sync with `wasm-bindgen` in /Cargo.lock.
+          wasm-bindgen-cli = pkgs.buildWasmBindgenCli rec {
+            src = pkgs.fetchCrate {
+              pname = "wasm-bindgen-cli";
+              version = "0.2.118";
+              hash = "sha256-ve783oYH0TGv8Z8lIPdGjItzeLDQLOT5uv/jbFOlZpI=";
+            };
+            cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+              inherit src;
+              inherit (src) pname version;
+              hash = "sha256-EYDfuBlH3zmTxACBL+sjicRna84CvoesKSQVcYiG9P0=";
+            };
+          };
+
+          # Dioxus desktop on Linux = wry/tao on GTK3 + WebKitGTK.
+          linuxGui = lib.optionals pkgs.stdenv.isLinux [
+            pkgs.gtk3
+            pkgs.webkitgtk_4_1
+            pkgs.libsoup_3
+            pkgs.glib
+            pkgs.cairo
+            pkgs.pango
+            pkgs.gdk-pixbuf
+            pkgs.atk
+            pkgs.xdotool
+            pkgs.glib-networking # TLS for WebKit
+            pkgs.gsettings-desktop-schemas
+          ];
+
+          # lore-worker / lore-e2e drive headless Chromium over CDP. On
+          # Linux we ship CloakBrowser; on darwin the code falls back to
+          # /Applications/Chromium.app.
+          browser = lib.optionals pkgs.stdenv.isLinux [ cloak ];
+        in
+        {
+          default = pkgs.mkShell {
+            nativeBuildInputs = [
+              pkgs.pkg-config
+            ] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.wrapGAppsHook3 ];
+
+            buildInputs = [ pkgs.openssl ] ++ linuxGui;
+
+            packages = [
+              rust
+              pkgs.dioxus-cli
+              wasm-bindgen-cli
+              pkgs.binaryen # wasm-opt for dx release builds
+              pkgs.cargo-deny
+              pkgs.cargo-mutants
+              pkgs.nodejs_22 # milkdown.js bundle (make js-build)
+              pkgs.gnumake
+              pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
+            ] ++ browser ++ crossCc;
+
+            shellHook = ''
+              export NIX_ENV=1
+            '' + lib.optionalString pkgs.stdenv.isLinux ''
+              # lore-worker (LORE_BROWSER) + lore-e2e: pinned CloakBrowser
+              # instead of a PATH lookup.
+              export LORE_BROWSER=${cloakExe}
+
+              # GTK apps outside a NixOS-managed session need schemas + TLS
+              # modules wired up by hand. GSETTINGS_SCHEMAS_PATH comes from
+              # wrapGAppsHook3.
+              export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+              export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
+
+              # WebKitGTK's DMA-BUF renderer shows a blank window in VMs
+              # without GPU passthrough.
+              export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+              # --- Cross-compilation (headless crates only) ---
+              # rustc linker + cc-rs (bundled SQLite, ring) per target.
+              # Usage:
+              #   cargo build --release --target x86_64-unknown-linux-gnu \
+              #     -p lore-cli -p lore-server -p lore-worker
+              #   cargo build --release --target x86_64-pc-windows-gnu \
+              #     -p lore-cli -p lore-server
+              # Don't pass --workspace: lore-ui/lore-e2e won't cross-build.
+              # worker stays Linux-only (drives CloakBrowser) — no Windows build.
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-unknown-linux-gnu-cc
+              export CC_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-cc
+              export CXX_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-c++
+              export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-cc
+              export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-cc
+              export CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-c++
+              export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L native=${mingwPthreads}/lib"
+            '';
+          };
+        });
+
+      # Compatibility shim for the `nix build .#wrapper` workflow:
+      # `dev-env/result/bin/wrapper [cmd...]` enters the dev shell above
+      # (interactively with no args, otherwise runs the command). The flake
+      # source + lock are baked in via ${self}, so it's fully pinned.
+      packages = forAllSystems (pkgs: system: rec {
+        wrapper = pkgs.writeShellApplication {
+          name = "wrapper";
+          text = ''
+            if [ "$#" -eq 0 ]; then
+              exec nix --extra-experimental-features "nix-command flakes" \
+                develop "path:${self}"
+            else
+              exec nix --extra-experimental-features "nix-command flakes" \
+                develop "path:${self}" --command "$@"
+            fi
+          '';
+        };
+        default = wrapper;
+      });
+    };
+}
