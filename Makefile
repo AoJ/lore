@@ -174,10 +174,20 @@ check: lint check-arch audit
 	cargo test --workspace --exclude lore-e2e
 
 
+# Code coverage via cargo-llvm-cov (requires nix shell with cargo-llvm-cov).
+# Baseline measurement; no threshold gate yet.
+coverage:
+	cargo llvm-cov --workspace --exclude lore-e2e --html
+	@echo "Report: target/llvm-cov/html/index.html"
+
+coverage-lcov:
+	cargo llvm-cov --workspace --exclude lore-e2e --lcov --output-path lcov.info
+
+
 clean:
 	cargo clean
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
-        check check-arch audit mutants verify clean js-install js-build \
-        js-watch js-clean db-version migrate web web-clean e2e \
-        cross cross-linux cross-windows update-wasm-bindgen update-deps
+        check check-arch audit mutants verify coverage coverage-lcov clean \
+        js-install js-build js-watch js-clean db-version migrate web web-clean \
+        e2e cross cross-linux cross-windows update-wasm-bindgen update-deps
