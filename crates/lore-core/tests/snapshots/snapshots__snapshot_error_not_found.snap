@@ -1,0 +1,9 @@
+---
+source: crates/lore-core/tests/snapshots.rs
+assertion_line: 18
+expression: err
+---
+{
+  "code": "not_found",
+  "message": "page id=999 not found"
+}

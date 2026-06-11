@@ -1,0 +1,9 @@
+---
+source: crates/lore-core/tests/snapshots.rs
+assertion_line: 12
+expression: err
+---
+{
+  "code": "route_not_found",
+  "message": "GET /api/nonexistent"
+}

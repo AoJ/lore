@@ -1,0 +1,9 @@
+---
+source: crates/lore-core/tests/snapshots.rs
+assertion_line: 24
+expression: err
+---
+{
+  "code": "invalid_input",
+  "message": "invalid query: missing required field 'space_id'"
+}

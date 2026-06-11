@@ -1,6 +1,6 @@
 /// Property-based tests for pure functions in lore-core.
 /// Run with: cargo test -p lore-core --test proptests
-use lore_core::*;
+use lore_core::{merge, rules, search, serde_b64, url_extract};
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct B64TestBytes {
-    #[serde(with = "serde_b64::bytes")]
+    #[serde(with = "serde_b64::vec")]
     data: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct B64TestOptBytes {
-    #[serde(with = "serde_b64::opt_bytes")]
+    #[serde(with = "serde_b64::opt_vec")]
     data: Option<Vec<u8>>,
 }
 
@@ -41,7 +41,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_merge_no_op_when_agree(text in ".*") {
-        let result = db::merge::three_way_merge(&text, &text, &text);
+        let result = merge::three_way_merge(&text, &text, &text);
         prop_assert_eq!(result.text, text);
         prop_assert!(!result.had_conflict);
     }
@@ -51,7 +51,7 @@ proptest! {
         base in ".*",
         ours in ".*",
     ) {
-        let result = db::merge::three_way_merge(&base, &ours, &base);
+        let result = merge::three_way_merge(&base, &ours, &base);
         prop_assert_eq!(result.text, ours);
         prop_assert!(!result.had_conflict);
     }
@@ -61,7 +61,7 @@ proptest! {
         base in ".*",
         theirs in ".*",
     ) {
-        let result = db::merge::three_way_merge(&base, &base, &theirs);
+        let result = merge::three_way_merge(&base, &base, &theirs);
         prop_assert_eq!(result.text, theirs);
         prop_assert!(!result.had_conflict);
     }
@@ -72,8 +72,7 @@ proptest! {
         ours in ".*",
         theirs in ".*",
     ) {
-        // Should never panic on any input
-        let _ = db::merge::three_way_merge(&base, &ours, &theirs);
+        let _ = merge::three_way_merge(&base, &ours, &theirs);
     }
 }
 
@@ -84,8 +83,11 @@ proptest! {
     fn prop_normalize_url_idempotent(url_str in r"https?://[a-z0-9.-]+\.[a-z]{2,}(/[a-z0-9._-]*)*") {
         if let Ok(url) = url::Url::parse(&url_str) {
             let normalized_once = rules::normalize_url(&url);
-            let normalized_twice = rules::normalize_url(&normalized_once);
-            prop_assert_eq!(normalized_once, normalized_twice);
+            // normalize_url returns String, so parse it back to Url for idempotence check
+            if let Ok(url_again) = url::Url::parse(&normalized_once) {
+                let normalized_twice = rules::normalize_url(&url_again);
+                prop_assert_eq!(normalized_once, normalized_twice);
+            }
         }
     }
 
@@ -98,20 +100,23 @@ proptest! {
 }
 
 // --- rules::classify tests ---
+// Note: classify needs rules, use empty vec for totality test (just checks never panics + non-empty)
 
 proptest! {
     #[test]
-    fn prop_classify_totality(url_str in r"https?://[a-z0-9.-]+\.[a-z]{2,}") {
+    fn prop_classify_never_empty(url_str in r"https?://[a-z0-9.-]+\.[a-z]{2,}") {
         if let Ok(url) = url::Url::parse(&url_str) {
-            let category = rules::classify(&url);
-            prop_assert!(!category.is_empty());
+            let rules_empty = vec![];
+            let category = rules::classify(&url, &rules_empty);
+            prop_assert!(!category.is_empty(), "classify should return non-empty category");
         }
     }
 
     #[test]
     fn prop_classify_never_panics(url_str in ".*") {
         if let Ok(url) = url::Url::parse(&url_str) {
-            let _ = rules::classify(&url);
+            let rules_empty = vec![];
+            let _ = rules::classify(&url, &rules_empty);
         }
     }
 }
@@ -144,7 +149,6 @@ proptest! {
 
     #[test]
     fn prop_prepare_query_appends_wildcard(word in "[a-z]{1,5}") {
-        // Single short alphanumeric word with no FTS operators should get * appended
         let result = search::prepare_query(&word);
         if !word.contains(|c: char| !c.is_alphanumeric()) {
             prop_assert!(result.contains('*'), "short word should have wildcard: {}", result);

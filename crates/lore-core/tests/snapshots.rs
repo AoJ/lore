@@ -8,28 +8,25 @@ use lore_core::error::{BackendError, ErrorCode};
 
 #[test]
 fn snapshot_error_route_not_found() {
-    let err = BackendError::new(ErrorCode::RouteNotFound, "GET /api/nonexistent".into());
+    let err = BackendError::route_not_found("GET /api/nonexistent");
     assert_json_snapshot!(err);
 }
 
 #[test]
 fn snapshot_error_not_found() {
-    let err = BackendError::new(ErrorCode::NotFound, "page id=999 not found".into());
+    let err = BackendError::not_found("page id=999 not found");
     assert_json_snapshot!(err);
 }
 
 #[test]
 fn snapshot_error_invalid_input() {
-    let err = BackendError::new(
-        ErrorCode::InvalidInput,
-        "invalid query: missing required field 'space_id'".into(),
-    );
+    let err = BackendError::invalid_input("invalid query: missing required field 'space_id'");
     assert_json_snapshot!(err);
 }
 
 #[test]
 fn snapshot_error_internal() {
-    let err = BackendError::new(ErrorCode::Internal, "database connection lost".into());
+    let err = BackendError::internal("database connection lost");
     assert_json_snapshot!(err);
 }
 
