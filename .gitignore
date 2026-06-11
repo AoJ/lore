@@ -20,3 +20,6 @@ dev-env/result
 # coverage output
 /target/llvm-cov
 lcov.info
+
+# proptest regressions
+*.proptest-regressions
