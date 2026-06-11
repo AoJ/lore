@@ -39,6 +39,7 @@ update-wasm-bindgen:
 
 update-deps:
 	cargo update
+	nix --extra-experimental-features "nix-command flakes" flake update --flake ./dev-env
 	$(MAKE) update-wasm-bindgen
 
 # JS editor bundle (Milkdown-based, output: crates/lore-ui/assets/milkdown.js)

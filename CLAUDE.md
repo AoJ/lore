@@ -223,6 +223,16 @@ has no Windows target.
 
 Requires `experimental-features = nix-command flakes` in nix.conf.
 
+**CI** (`.github/workflows/`): `ci.yml` runs `fmt` (auto-commit) on rustup
+plus `checks` (clippy/test/audit) and `web` inside the nix dev shell;
+`release.yml` (on `v*` tags) builds the web bundle via nix and the OS
+binaries natively (linux x86/arm + windows `.exe` + macOS desktop).
+`deps-update.yml` (weekly cron) runs `cargo update` + `nix flake update` +
+the wasm-bindgen resync and opens a PR that ci.yml tests, auto-merging when
+green. **The PR must be opened by a real PAT** (`DEPS_UPDATE_TOKEN` secret) —
+PRs from the default `GITHUB_TOKEN` don't trigger ci.yml — and auto-merge
+needs "Allow auto-merge" + a branch-protection required-checks rule on main.
+
 ### Dependency policy (`deny.toml`)
 
 - Project itself is MIT (`LICENSE` at repo root, mirrored as `license = "MIT"`

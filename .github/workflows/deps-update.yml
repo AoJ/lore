@@ -1,0 +1,76 @@
+name: Deps update
+
+# Scheduled dependency bump: cargo crates + nix flake inputs + the
+# wasm-bindgen-cli resync, opened as a PR. The PR is tested by ci.yml
+# (pull_request trigger); with auto-merge on, a green PR merges itself and a
+# red one stays open for inspection.
+#
+# IMPORTANT — for the PR to actually run ci.yml, it must be opened by a real
+# token, NOT the default GITHUB_TOKEN: GitHub deliberately does not trigger
+# workflows on events created by GITHUB_TOKEN (anti-recursion). Set a repo
+# secret DEPS_UPDATE_TOKEN to a fine-grained PAT with contents:write +
+# pull_requests:write. Without it the PR opens but its checks never run (so
+# auto-merge can't proceed). Also enable, in repo settings:
+#   - Settings → General → "Allow auto-merge"
+#   - a branch protection rule on main requiring the CI checks (so --auto waits)
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deps-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.DEPS_UPDATE_TOKEN || github.token }}
+      BRANCH: auto/deps-update
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPS_UPDATE_TOKEN || github.token }}
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: cargo update + flake update + wasm-bindgen resync
+        run: |
+          nix develop ./dev-env --command cargo update
+          nix flake update --flake ./dev-env
+          nix develop ./dev-env --command ./dev-env/update-wasm-bindgen.sh
+
+      - name: open / update PR if anything changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No dependency changes — nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add -A
+          git commit -m "chore(deps): cargo update + flake update + wasm-bindgen resync"
+          git push --force-with-lease origin "$BRANCH"
+
+          # Create the PR if one isn't already open for this branch.
+          if ! gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore(deps): scheduled dependency update" \
+              --body "Automated \`cargo update\` + \`nix flake update\` + wasm-bindgen-cli resync.\n\nMerges automatically if CI is green; left open with failing checks otherwise." \
+              --label dependencies || true
+          fi
+
+          # Best-effort auto-merge (no-op if the repo setting / branch
+          # protection isn't configured).
+          gh pr merge "$BRANCH" --auto --squash --delete-branch || \
+            echo "auto-merge not enabled — PR left open for manual merge."
