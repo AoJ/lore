@@ -28,9 +28,19 @@ exclude_globs = [
 #    dp + traceback below, which still yields an empty `Vec` (the traceback's
 #    `while i < m && j < n` exits immediately). Output is identical, so the
 #    mutant is behaviourally equivalent and cannot be killed by any test.
+#
+# 3. merge.rs:115:43 `dp[i][j + 1] → dp[i][j]` in the lcs_pairs traceback.
+#    Line 115 runs only on a mismatch, where the (unmutated) dp fill gives
+#    dp[i][j] == max(dp[i+1][j], dp[i][j+1]). Hence the direction test
+#    `dp[i+1][j] >= dp[i][j+1]` is identically equal to `dp[i+1][j] >= dp[i][j]`
+#    — provably equivalent. (Confirmed empirically: the exhaustive lcs_pairs
+#    oracle test exercises every short input and does not distinguish it.)
+#    Line:col-pinned because the same "+ → *" text also covers REAL,
+#    test-killed mutants elsewhere on lines 101/103/115:24.
 exclude_re = [
     "replace proofs::",
     "replace \\|\\| with && in lcs_pairs",
+    "merge\\.rs:115:43: replace \\+ with \\* in lcs_pairs",
 ]
 
 # Test only the package we're mutating (lore-core) — its unit tests +

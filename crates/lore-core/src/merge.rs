@@ -507,4 +507,124 @@ mod tests {
             }
         }
     }
+
+    // ---- apply_three_way: multi-hunk conflict regions --------------------
+    //
+    // When one side has several hunks inside a single overlapping region, the
+    // region collapses to the first hunk's lines from each side and `oi`/`ti`
+    // must be advanced past *every* hunk that starts before `region_end`. The
+    // earlier conflict tests only put one hunk per side in the region, so the
+    // `while oi < ours.len() && ours[oi].base_start < region_end` advance (and
+    // its `if oi == oi_before` boundary fallback) were never exercised. A
+    // broken advance leaves a stale hunk whose `base_start < base_pos`, which
+    // panics in `emit_base` (or silently drops content), or loops forever.
+
+    /// Ours makes two edits inside the span theirs rewrites as one block.
+    /// Both ours hunks start strictly before `region_end`, so the advance loop
+    /// must skip both (the +1 fallback alone leaves a stale hunk → panic).
+    #[test]
+    fn overlap_ours_two_hunks_collapse_to_first() {
+        let base = "a\nb\nc\nd\ne";
+        let ours = "a\nB\nc\nD\ne"; // edit b and d (two hunks)
+        let theirs = "a\nZ\ne"; // replace b..d with one block
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nB\n\nZ\ne");
+        assert!(r.had_conflict);
+    }
+
+    /// Mirror: theirs has the two in-region hunks.
+    #[test]
+    fn overlap_theirs_two_hunks_collapse_to_first() {
+        let base = "a\nb\nc\nd\ne";
+        let ours = "a\nZ\ne";
+        let theirs = "a\nB\nc\nD\ne";
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nZ\n\nB\ne");
+        assert!(r.had_conflict);
+    }
+
+    /// A second ours hunk sits exactly at `region_end` — it is *outside* the
+    /// conflict and must be preserved. A `< → <=` advance wrongly swallows it,
+    /// dropping the edit (no panic, just lost content).
+    #[test]
+    fn overlap_ours_hunk_at_region_boundary_is_preserved() {
+        let base = "a\nb\nc\nd\ne\nf";
+        let ours = "a\nB\nc\nd\nE\nf"; // edit b (in region) and e (at boundary)
+        let theirs = "a\nZ\ne\nf"; // replace b..d
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nB\n\nZ\nE\nf");
+        assert!(r.had_conflict);
+    }
+
+    /// Mirror at the boundary for the theirs advance loop.
+    #[test]
+    fn overlap_theirs_hunk_at_region_boundary_is_preserved() {
+        let base = "a\nb\nc\nd\ne\nf";
+        let ours = "a\nZ\ne\nf";
+        let theirs = "a\nB\nc\nd\nE\nf";
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nZ\n\nB\nE\nf");
+        assert!(r.had_conflict);
+    }
+
+    /// Both sides insert different lines at the *same* base point — a pure
+    /// same-point insertion conflict. The advance loops can't move (insertion
+    /// hunks have `base_start == base_end == region_end`, never `< region_end`),
+    /// so the `oi == oi_before` / `ti == ti_before` fallback is what prevents an
+    /// infinite loop. A broken fallback hangs (caught as a mutation timeout).
+    #[test]
+    fn overlap_same_point_insertions_conflict() {
+        let base = "a\nb";
+        let ours = "a\nX\nb"; // insert X between a and b
+        let theirs = "a\nY\nb"; // insert Y between a and b
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nX\n\nY\nb");
+        assert!(r.had_conflict);
+    }
+
+    /// Exhaustive net: over every base/ours/theirs triple of short documents,
+    /// `three_way_merge` must not panic, must terminate, and conflict detection
+    /// must be order-independent (swapping ours/theirs preserves `had_conflict`,
+    /// and a clean — non-conflicting — merge yields identical text either way).
+    /// Catches the panic / infinite-loop / asymmetry failure modes of the
+    /// hunk-advance logic across inputs the hand-written cases don't enumerate.
+    #[test]
+    fn three_way_merge_is_panic_free_and_conflict_symmetric() {
+        // All documents of 0..=4 lines over a 2-symbol line alphabet.
+        let mut docs: Vec<String> = vec![String::new()];
+        let mut frontier: Vec<Vec<&str>> = vec![Vec::new()];
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for s in &frontier {
+                for line in ["x", "y"] {
+                    let mut t = s.clone();
+                    t.push(line);
+                    next.push(t);
+                }
+            }
+            for s in &next {
+                docs.push(s.join("\n"));
+            }
+            frontier = next;
+        }
+
+        for base in &docs {
+            for ours in &docs {
+                for theirs in &docs {
+                    let fwd = three_way_merge(base, ours, theirs);
+                    let rev = three_way_merge(base, theirs, ours);
+                    assert_eq!(
+                        fwd.had_conflict, rev.had_conflict,
+                        "conflict asymmetry for base={base:?} ours={ours:?} theirs={theirs:?}"
+                    );
+                    if !fwd.had_conflict {
+                        assert_eq!(
+                            fwd.text, rev.text,
+                            "clean merge not order-independent for base={base:?} ours={ours:?} theirs={theirs:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
