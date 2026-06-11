@@ -815,3 +815,91 @@ pub fn check_urls_status(conn: &Connection, urls: &[String]) -> Result<HashMap<S
     }
     Ok(map)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_change_summary_zero_prev_text_zero_current() {
+        // Signature: (prev_title, prev_text_size, prev_hash, current_title, current_text_size, current_hash)
+        // prev_text_size == 0, current == 0 → size_delta_pct = 0
+        let summary = compute_change_summary(
+            &Some("title".to_string()),
+            0,
+            Some("hash1"),
+            &Some("title".to_string()),
+            0,
+            "hash1",
+        );
+        assert!(summary.contains("\"size_delta_pct\":0"), "Got: {}", summary);
+    }
+
+    #[test]
+    fn compute_change_summary_zero_prev_text_nonzero_current() {
+        // prev_text_size == 0, current > 0 → size_delta_pct = 100
+        let summary = compute_change_summary(
+            &Some("title".to_string()),
+            0,
+            Some("hash1"),
+            &Some("title".to_string()),
+            100,
+            "hash2",
+        );
+        assert!(summary.contains("\"size_delta_pct\":100"), "Got: {}", summary);
+    }
+
+    #[test]
+    fn compute_change_summary_title_changed_true() {
+        let summary = compute_change_summary(
+            &Some("old".to_string()),
+            100,
+            Some("hash"),
+            &Some("new".to_string()),
+            100,
+            "hash",
+        );
+        assert!(summary.contains("\"title_changed\":true"), "Got: {}", summary);
+    }
+
+    #[test]
+    fn compute_change_summary_title_unchanged() {
+        let summary = compute_change_summary(
+            &Some("same".to_string()),
+            100,
+            Some("hash"),
+            &Some("same".to_string()),
+            100,
+            "hash",
+        );
+        assert!(summary.contains("\"title_changed\":false"), "Got: {}", summary);
+    }
+
+    #[test]
+    fn compute_change_summary_content_hash_match() {
+        // prev_hash == current_hash → content_same = true
+        let summary = compute_change_summary(
+            &Some("title".to_string()),
+            100,
+            Some("same_hash"),
+            &Some("title".to_string()),
+            100,
+            "same_hash",
+        );
+        assert!(summary.contains("\"content_same\":true"), "Got: {}", summary);
+    }
+
+    #[test]
+    fn compute_change_summary_content_hash_mismatch() {
+        // prev_hash != current_hash → content_same = false
+        let summary = compute_change_summary(
+            &Some("title".to_string()),
+            100,
+            Some("old_hash"),
+            &Some("title".to_string()),
+            100,
+            "different_hash",
+        );
+        assert!(summary.contains("\"content_same\":false"), "Got: {}", summary);
+    }
+}
