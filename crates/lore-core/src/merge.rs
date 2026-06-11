@@ -446,4 +446,65 @@ mod tests {
         assert_eq!(r.text, "x\nmid\nINS\nx\nTAIL");
         assert!(!r.had_conflict);
     }
+
+    /// Exhaustive oracle check for `lcs_pairs`. Over every pair of short
+    /// sequences the returned matching must be (1) a strictly-increasing,
+    /// element-matching common subsequence and (2) of *maximum* length
+    /// (independent textbook-DP oracle). This pins the dp recurrence indices
+    /// (`dp[i + 1][j + 1]`) and the `>=` traceback tie-break — the subtle parts
+    /// the hand-written exact-output cases above don't reliably exercise, since
+    /// the traceback greedily matches equal elements regardless of a wrong dp.
+    #[test]
+    fn lcs_pairs_is_a_maximal_common_subsequence() {
+        // Independent LCS length (not shared with the impl under test).
+        fn lcs_len(a: &[u8], b: &[u8]) -> usize {
+            let (m, n) = (a.len(), b.len());
+            let mut dp = vec![vec![0usize; n + 1]; m + 1];
+            for i in (0..m).rev() {
+                for j in (0..n).rev() {
+                    dp[i][j] = if a[i] == b[j] {
+                        dp[i + 1][j + 1] + 1
+                    } else {
+                        dp[i + 1][j].max(dp[i][j + 1])
+                    };
+                }
+            }
+            dp[0][0]
+        }
+
+        // Every sequence over {0,1,2} of length 0..=5.
+        let mut seqs: Vec<Vec<u8>> = vec![Vec::new()];
+        let mut frontier: Vec<Vec<u8>> = vec![Vec::new()];
+        for _ in 0..5 {
+            let mut next = Vec::new();
+            for s in &frontier {
+                for sym in 0u8..3 {
+                    let mut t = s.clone();
+                    t.push(sym);
+                    next.push(t);
+                }
+            }
+            seqs.extend(next.iter().cloned());
+            frontier = next;
+        }
+
+        for a in &seqs {
+            for b in &seqs {
+                let pairs = lcs_pairs(a.as_slice(), b.as_slice());
+                let mut prev: Option<(usize, usize)> = None;
+                for &(bi, ci) in &pairs {
+                    assert_eq!(a[bi], b[ci], "pair ({bi},{ci}) mismatch for {a:?}/{b:?}");
+                    if let Some((pb, pc)) = prev {
+                        assert!(bi > pb && ci > pc, "non-increasing pairs for {a:?}/{b:?}");
+                    }
+                    prev = Some((bi, ci));
+                }
+                assert_eq!(
+                    pairs.len(),
+                    lcs_len(a, b),
+                    "lcs_pairs not maximal for {a:?} vs {b:?}"
+                );
+            }
+        }
+    }
 }
