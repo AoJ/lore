@@ -29,10 +29,7 @@ fn snapshot_error_invalid_input() {
 
 #[test]
 fn snapshot_error_internal() {
-    let err = BackendError::new(
-        ErrorCode::Internal,
-        "database connection lost".into(),
-    );
+    let err = BackendError::new(ErrorCode::Internal, "database connection lost".into());
     assert_json_snapshot!(err);
 }
 
