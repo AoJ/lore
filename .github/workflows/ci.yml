@@ -1,15 +1,27 @@
 name: CI
 
+# Linux checks run inside the pinned nix dev shell (dev-env/flake.nix) so CI
+# uses the exact toolchain + GTK/WebKit stack as local dev — no ad-hoc apt
+# installs. The OS-specific binaries (Windows .exe, macOS desktop) are built
+# natively on their own runners; see release.yml.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Auto-format on push to main and commit the result back. Lightweight, so
+  # it stays on rustup rather than booting nix.
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -33,41 +45,39 @@ jobs:
             git push
           fi
 
-  clippy:
-    name: Clippy
+  # Clippy + tests + dependency audit, all inside the nix dev shell. The shell
+  # carries GTK3/WebKit (for lore-ui) and cargo-deny, so no apt step is needed.
+  # check-arch (sentrux) is omitted — sentrux isn't packaged in nix; run
+  # `make check-arch` locally before a PR.
+  checks:
+    name: clippy + test + audit (nix)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install GTK3 + WebKit
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: clippy + test + audit
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libxdo-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+          nix develop ./dev-env --command bash -c '
+            set -euo pipefail
+            cargo clippy --workspace --exclude lore-e2e -- -D warnings
+            cargo test --workspace --exclude lore-e2e
+            cargo deny check
+          '
+
+  # WASM web bundle via dx + wasm-bindgen (both version-pinned in the flake) —
+  # the part of CI where the pinned toolchain matters most.
+  web:
+    name: web bundle (nix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: build web bundle
+        run: nix develop ./dev-env --command make web
+      - uses: actions/upload-artifact@v4
         with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --exclude lore-e2e -- -D warnings
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install GTK3 + WebKit
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libxdo-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --exclude lore-e2e
-
-  audit:
-    name: Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+          name: web-bundle
+          path: crates/lore-server/static/
+          if-no-files-found: error

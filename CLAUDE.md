@@ -176,10 +176,18 @@ Pinned toolchain for NixOS/Linux (and macOS) lives in `dev-env/flake.nix`
 (+ `flake.lock`). Two equivalent entrypoints:
 
 ```
-nix develop ./dev-env             # interactive dev shell
+nix develop ./dev-env             # interactive dev shell (default, lean)
 nix build ./dev-env#wrapper       # → dev-env/result/bin/wrapper
+                                  #   (rebuild to dev-env/result, not ./result:
+                                  #    nix build ./dev-env#wrapper --out-link dev-env/result)
 dev-env/result/bin/wrapper make check   # run any command inside the env
 ```
+
+Two shells: `default` (day-to-day dev + nix CI jobs) and `cross` (`nix
+develop ./dev-env#cross`, adds the cross gcc toolchains + per-target linker
+env). The cross toolchains build mingw/gnu gcc from source (no binary cache
+on this host), so they live in the `cross` shell only — entering `default`
+stays fast. `make cross*` wraps itself into the `cross` shell automatically.
 
 The shell provides: Rust stable + `wasm32-unknown-unknown` (rust-overlay),
 `dx` (dioxus-cli), `wasm-bindgen-cli` **pinned to the `wasm-bindgen` version

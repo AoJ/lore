@@ -100,62 +100,74 @@
           # Linux we ship CloakBrowser; on darwin the code falls back to
           # /Applications/Chromium.app.
           browser = lib.optionals pkgs.stdenv.isLinux [ cloak ];
-        in
-        {
-          default = pkgs.mkShell {
+
+          # Base shell: everything for day-to-day dev + the nix CI jobs
+          # (clippy/test/web). Deliberately excludes the cross C toolchains —
+          # those build mingw/gnu gcc from source (no binary cache for them on
+          # this host), so keeping them out makes `nix develop` fast to enter.
+          # Cross builds use the `cross` shell below.
+          basePackages = [
+            rust
+            pkgs.dioxus-cli
+            wasm-bindgen-cli
+            pkgs.binaryen # wasm-opt for dx release builds
+            pkgs.cargo-deny
+            pkgs.cargo-mutants
+            pkgs.nodejs_22 # milkdown.js bundle (make js-build)
+            pkgs.gnumake
+            pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
+          ] ++ browser;
+
+          baseShellHook = ''
+            export NIX_ENV=1
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            # lore-worker (LORE_BROWSER) + lore-e2e: pinned CloakBrowser
+            # instead of a PATH lookup.
+            export LORE_BROWSER=${cloakExe}
+
+            # GTK apps outside a NixOS-managed session need schemas + TLS
+            # modules wired up by hand. GSETTINGS_SCHEMAS_PATH comes from
+            # wrapGAppsHook3.
+            export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+            export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
+
+            # WebKitGTK's DMA-BUF renderer shows a blank window in VMs
+            # without GPU passthrough.
+            export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          '';
+
+          # Extra env for the `cross` shell: rustc linker + cc-rs (bundled
+          # SQLite, ring) per target. Headless crates only — lore-ui/lore-e2e
+          # won't cross-build, and lore-worker stays Linux-only.
+          crossShellHook = lib.optionalString pkgs.stdenv.isLinux ''
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-unknown-linux-gnu-cc
+            export CC_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-cc
+            export CXX_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-c++
+            export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-cc
+            export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-cc
+            export CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-c++
+            export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L native=${mingwPthreads}/lib"
+          '';
+
+          commonInputs = {
             nativeBuildInputs = [
               pkgs.pkg-config
             ] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.wrapGAppsHook3 ];
-
             buildInputs = [ pkgs.openssl ] ++ linuxGui;
-
-            packages = [
-              rust
-              pkgs.dioxus-cli
-              wasm-bindgen-cli
-              pkgs.binaryen # wasm-opt for dx release builds
-              pkgs.cargo-deny
-              pkgs.cargo-mutants
-              pkgs.nodejs_22 # milkdown.js bundle (make js-build)
-              pkgs.gnumake
-              pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
-            ] ++ browser ++ crossCc;
-
-            shellHook = ''
-              export NIX_ENV=1
-            '' + lib.optionalString pkgs.stdenv.isLinux ''
-              # lore-worker (LORE_BROWSER) + lore-e2e: pinned CloakBrowser
-              # instead of a PATH lookup.
-              export LORE_BROWSER=${cloakExe}
-
-              # GTK apps outside a NixOS-managed session need schemas + TLS
-              # modules wired up by hand. GSETTINGS_SCHEMAS_PATH comes from
-              # wrapGAppsHook3.
-              export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
-              export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
-
-              # WebKitGTK's DMA-BUF renderer shows a blank window in VMs
-              # without GPU passthrough.
-              export WEBKIT_DISABLE_DMABUF_RENDERER=1
-
-              # --- Cross-compilation (headless crates only) ---
-              # rustc linker + cc-rs (bundled SQLite, ring) per target.
-              # Usage:
-              #   cargo build --release --target x86_64-unknown-linux-gnu \
-              #     -p lore-cli -p lore-server -p lore-worker
-              #   cargo build --release --target x86_64-pc-windows-gnu \
-              #     -p lore-cli -p lore-server
-              # Don't pass --workspace: lore-ui/lore-e2e won't cross-build.
-              # worker stays Linux-only (drives CloakBrowser) — no Windows build.
-              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-unknown-linux-gnu-cc
-              export CC_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-cc
-              export CXX_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-c++
-              export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-cc
-              export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-cc
-              export CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-c++
-              export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L native=${mingwPthreads}/lib"
-            '';
           };
+        in
+        {
+          default = pkgs.mkShell (commonInputs // {
+            packages = basePackages;
+            shellHook = baseShellHook;
+          });
+
+          # `nix develop ./dev-env#cross` — adds the cross gcc toolchains and
+          # per-target linker env. Used by `make cross` / `make cross-*`.
+          cross = pkgs.mkShell (commonInputs // {
+            packages = basePackages ++ crossCc;
+            shellHook = baseShellHook + crossShellHook;
+          });
         });
 
       # Compatibility shim for the `nix build .#wrapper` workflow:

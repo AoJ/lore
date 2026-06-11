@@ -1,5 +1,11 @@
 name: Release
 
+# Tag-driven release. Split by what each part needs:
+#   - web bundle  → nix (dx + wasm-bindgen are version-pinned in the flake)
+#   - OS binaries → native matrix runners + rustup (Linux/Windows/macOS)
+# lore-ui (desktop) ships macOS-only; lore-worker is Linux-only (drives a
+# headless browser); the rest are portable headless binaries.
+
 on:
   push:
     tags:
@@ -12,8 +18,26 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: ${{ matrix.target }}
+  # WASM web frontend bundle, built with the pinned toolchain.
+  web:
+    name: web bundle (nix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: build web bundle
+        run: nix develop ./dev-env --command make web
+      - name: package
+        run: tar -czf lore-web-${{ github.ref_name }}.tar.gz -C crates/lore-server/static .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: lore-web-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true
+
+  # Portable headless binaries: cli, server, worker.
+  linux:
+    name: linux ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,49 +47,86 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04-arm   # Raspberry Pi / Oracle Ampere
             target: aarch64-unknown-linux-gnu
-          - os: macos-latest       # Apple Silicon
-            target: aarch64-apple-darwin
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install GTK3 + WebKit (Linux only)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libxdo-dev pkg-config
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-
-      - name: Build
+      - name: build
         run: |
-          cargo build --release \
-            --package lore-cli \
-            --package lore-server \
-            --package lore-worker \
-            --package lore-ui \
-            --target ${{ matrix.target }}
-
-      - name: Package
+          cargo build --release --target ${{ matrix.target }} \
+            -p lore-cli -p lore-server -p lore-worker
+      - name: package
         shell: bash
         run: |
-          TARGET_DIR="target/${{ matrix.target }}/release"
+          DIR="target/${{ matrix.target }}/release"
           ARCHIVE="lore-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
           mkdir staging
-          for bin in lore lore-serve lore-worker lore-desktop; do
-            [ -f "$TARGET_DIR/$bin" ] && cp "$TARGET_DIR/$bin" staging/
+          for bin in lore lore-serve lore-worker; do
+            cp "$DIR/$bin" staging/
           done
           tar -czf "$ARCHIVE" -C staging .
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE }}
+          generate_release_notes: true
 
+  # Windows headless binaries (cli + server). No worker (Linux-only).
+  windows:
+    name: windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+      - name: build
+        run: cargo build --release -p lore-cli -p lore-server
+      - name: package
+        shell: bash
+        run: |
+          ARCHIVE="lore-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip"
+          7z a "$ARCHIVE" ./target/release/lore.exe ./target/release/lore-serve.exe
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE }}
+          generate_release_notes: true
+
+  # macOS: desktop app (lore-ui) + headless binaries. Apple Silicon runner.
+  macos:
+    name: macOS aarch64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+      # wry links the system WebKit framework; milkdown.js is committed
+      # (include_str!), so no node step is needed.
+      - name: build
+        run: |
+          cargo build --release --target aarch64-apple-darwin \
+            -p lore-cli -p lore-server -p lore-worker -p lore-ui
+      - name: package
+        shell: bash
+        run: |
+          DIR="target/aarch64-apple-darwin/release"
+          ARCHIVE="lore-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz"
+          mkdir staging
+          for bin in lore lore-serve lore-worker lore-desktop; do
+            cp "$DIR/$bin" staging/
+          done
+          tar -czf "$ARCHIVE" -C staging .
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ARCHIVE }}

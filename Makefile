@@ -6,6 +6,28 @@ build:
 release:
 	cargo build --release --workspace
 
+# Cross builds for the headless crates (cli/server/worker). Each target wraps
+# itself in the `cross` nix dev shell (which carries the cross gcc toolchains
+# + per-target linker env), so `make cross*` works from anywhere — no need to
+# be in a shell first. lore-ui (GTK/WebView) is macOS-native and not crossed;
+# lore-worker stays Linux-only (drives CloakBrowser), so it has no Windows
+# target. The first run builds mingw/gnu cross gcc from source (slow, then
+# cached); plain `nix develop ./dev-env` stays lean and avoids that.
+CROSS_LINUX_TARGET := x86_64-unknown-linux-gnu
+CROSS_WIN_TARGET   := x86_64-pc-windows-gnu
+# NB: the '#' in the flake ref must be escaped — bare '#' starts a make comment.
+NIX_CROSS := nix --extra-experimental-features "nix-command flakes" develop ./dev-env\#cross --command
+
+cross-linux:
+	$(NIX_CROSS) cargo build --release --target $(CROSS_LINUX_TARGET) \
+		-p lore-cli -p lore-server -p lore-worker
+
+cross-windows:
+	$(NIX_CROSS) cargo build --release --target $(CROSS_WIN_TARGET) \
+		-p lore-cli -p lore-server
+
+cross: cross-linux cross-windows
+
 # JS editor bundle (Milkdown-based, output: crates/lore-ui/assets/milkdown.js)
 JS_DIR := crates/lore-ui/js
 JS_OUT := crates/lore-ui/assets/milkdown.js
@@ -143,4 +165,5 @@ clean:
 
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
         check check-arch audit mutants verify clean js-install js-build \
-        js-watch js-clean db-version migrate web web-clean e2e
+        js-watch js-clean db-version migrate web web-clean e2e \
+        cross cross-linux cross-windows
