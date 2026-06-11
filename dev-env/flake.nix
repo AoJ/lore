@@ -133,7 +133,6 @@
             pkgs.cargo-deny
             pkgs.cargo-mutants
             pkgs.cargo-llvm-cov # code coverage
-            pkgs.cargo-kani # formal verification harnesses
             pkgs.nodejs_22 # milkdown.js bundle (make js-build)
             pkgs.gnumake
             pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
