@@ -14,6 +14,25 @@ exclude_globs = [
     "**/migrations/*.sql",
 ]
 
+# Unkillable / equivalent mutants — excluded with justification so the run
+# stays at 0 missed and a real regression stands out.
+#
+# 1. `replace proofs::*` — the Kani proof harnesses live in `#[cfg(kani)] mod
+#    proofs` blocks (rules.rs, url_extract.rs, search.rs). They are never
+#    compiled under `cargo test`, so cargo-mutants can empty their bodies but
+#    no test can ever observe the change. They are verified by `make verify`
+#    (Kani), not by the test suite — mutating them is pure noise here.
+#
+# 2. `|| → &&` in `lcs_pairs` (merge.rs) — the `if m == 0 || n == 0` early
+#    return is a fast path. With `&&`, a one-empty input falls through to the
+#    dp + traceback below, which still yields an empty `Vec` (the traceback's
+#    `while i < m && j < n` exits immediately). Output is identical, so the
+#    mutant is behaviourally equivalent and cannot be killed by any test.
+exclude_re = [
+    "replace proofs::",
+    "replace \\|\\| with && in lcs_pairs",
+]
+
 # Test only the package we're mutating (lore-core) — its unit tests +
 # tests/*.rs integration suite cover the mutated code. Compiling the UI
 # (Dioxus) and worker (headless Chrome) for every mutant would add minutes

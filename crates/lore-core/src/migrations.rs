@@ -467,4 +467,74 @@ mod tests {
         assert_eq!(t, title);
         assert_eq!(b, body);
     }
+
+    // ---- m0009: purge internal attachment "pages" ----
+
+    #[test]
+    fn m0009_purges_internal_attachment_pages_only() {
+        let conn = open_at_full_schema();
+
+        // A bogus "page" for the in-note attachment protocol — must be purged,
+        // together with its snapshot.
+        let bogus = crate::db::insert_web_page(
+            &conn,
+            &crate::db::NewWebPage {
+                url: "https://attachment.lore.invalid/42",
+                url_normalized: "attachment.lore.invalid/42",
+                title: Some("bogus"),
+                domain: "attachment.lore.invalid",
+                category: "archive",
+                status: "archived",
+                source: None,
+                space_id: Some(1),
+            },
+        )
+        .unwrap();
+        crate::db::insert_snapshot(
+            &conn,
+            bogus,
+            "<h/>",
+            "junk",
+            None,
+            None,
+            crate::db::ReadabilityBundle::default(),
+        )
+        .unwrap();
+
+        // A real page that must survive the cleanup untouched.
+        let real = crate::db::insert_web_page(
+            &conn,
+            &crate::db::NewWebPage {
+                url: "https://example.com/article",
+                url_normalized: "example.com/article",
+                title: Some("real"),
+                domain: "example.com",
+                category: "archive",
+                status: "archived",
+                source: None,
+                space_id: Some(1),
+            },
+        )
+        .unwrap();
+
+        m0009_cleanup_internal_attachment_pages(&conn).unwrap();
+
+        let page_count = |id: i64| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM web_page WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(page_count(bogus), 0, "internal attachment page purged");
+        assert_eq!(page_count(real), 1, "real page survives");
+
+        let bogus_snaps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM web_page_snapshot WHERE web_page_id = ?1",
+                [bogus],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bogus_snaps, 0, "purged page's snapshots are gone too");
+    }
 }

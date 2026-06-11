@@ -846,7 +846,11 @@ mod tests {
             100,
             "hash2",
         );
-        assert!(summary.contains("\"size_delta_pct\":100"), "Got: {}", summary);
+        assert!(
+            summary.contains("\"size_delta_pct\":100"),
+            "Got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -859,7 +863,11 @@ mod tests {
             100,
             "hash",
         );
-        assert!(summary.contains("\"title_changed\":true"), "Got: {}", summary);
+        assert!(
+            summary.contains("\"title_changed\":true"),
+            "Got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -872,7 +880,11 @@ mod tests {
             100,
             "hash",
         );
-        assert!(summary.contains("\"title_changed\":false"), "Got: {}", summary);
+        assert!(
+            summary.contains("\"title_changed\":false"),
+            "Got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -886,7 +898,11 @@ mod tests {
             100,
             "same_hash",
         );
-        assert!(summary.contains("\"content_same\":true"), "Got: {}", summary);
+        assert!(
+            summary.contains("\"content_same\":true"),
+            "Got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -900,6 +916,62 @@ mod tests {
             100,
             "different_hash",
         );
-        assert!(summary.contains("\"content_same\":false"), "Got: {}", summary);
+        assert!(
+            summary.contains("\"content_same\":false"),
+            "Got: {}",
+            summary
+        );
+    }
+
+    #[test]
+    fn compute_change_summary_growth_percentage_exact() {
+        // (150 - 100) / 100 * 100 = +50. Pins the exact arithmetic on the
+        // non-zero-prev branch (subtraction, division, ×100, rounding).
+        let summary = compute_change_summary(
+            &Some("t".to_string()),
+            100,
+            Some("h1"),
+            &Some("t".to_string()),
+            150,
+            "h2",
+        );
+        assert!(
+            summary.contains("\"size_delta_pct\":50"),
+            "Got: {}",
+            summary
+        );
+    }
+
+    #[test]
+    fn compute_change_summary_shrink_percentage_exact() {
+        // (100 - 200) / 200 * 100 = -50.
+        let summary = compute_change_summary(
+            &Some("t".to_string()),
+            200,
+            Some("h1"),
+            &Some("t".to_string()),
+            100,
+            "h2",
+        );
+        assert!(
+            summary.contains("\"size_delta_pct\":-50"),
+            "Got: {}",
+            summary
+        );
+    }
+
+    #[test]
+    fn is_internal_url_detects_attachment_host() {
+        assert!(is_internal_url("https://attachment.lore.invalid/42"));
+        assert!(is_internal_url("http://attachment.lore.invalid/note/7"));
+    }
+
+    #[test]
+    fn is_internal_url_rejects_real_and_unparseable_urls() {
+        assert!(!is_internal_url("https://example.com/page"));
+        assert!(!is_internal_url(
+            "https://attachment.lore.invalid.evil.com/x"
+        ));
+        assert!(!is_internal_url("not a url"));
     }
 }

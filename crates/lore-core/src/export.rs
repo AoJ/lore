@@ -481,6 +481,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compact_stamp_strips_fractional_seconds_and_zulu() {
+        // take_while must stop at '.', so the `.123` fractional part and the
+        // trailing `Z` never reach the output.
+        assert_eq!(
+            compact_stamp("2026-05-21T14:30:52.123Z"),
+            "2026-05-21-143052"
+        );
+    }
+
+    #[test]
+    fn compact_stamp_strips_timezone_offset() {
+        // Stops at '+' (and would stop at '-' in the time component too).
+        assert_eq!(
+            compact_stamp("2026-05-21T14:30:52+02:00"),
+            "2026-05-21-143052"
+        );
+    }
+
+    #[test]
+    fn compact_stamp_plain_zulu_stamp() {
+        assert_eq!(compact_stamp("2026-05-21T14:30:52Z"), "2026-05-21-143052");
+    }
+
+    #[test]
+    fn slug_safe_replaces_other_punctuation_with_dash() {
+        // '_' is neither alphanumeric, '.', nor '-', so it must become '-'.
+        // The '.' and existing '-' are preserved; letters are lowercased.
+        assert_eq!(slug_safe("Foo_Bar.com"), "foo-bar.com");
+    }
+
+    #[test]
+    fn slug_safe_keeps_dots_and_dashes_lowercases() {
+        assert_eq!(slug_safe("Keep-Dash.And.Dots"), "keep-dash.and.dots");
+    }
 
     fn seed(conn: &Connection, body: &str, readability: Option<&str>) -> i64 {
         let page_id = crate::db::insert_web_page(

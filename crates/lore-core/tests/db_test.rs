@@ -1839,3 +1839,169 @@ fn list_note_ids_ordered_ordered_by_updated_at() {
     assert!(!ids.is_empty());
     assert_eq!(ids[0], note2, "Most recently updated note should be first");
 }
+
+// ---- Snapshot versioning + accessors (web_page.rs) ----
+
+fn seed_versioned_page(conn: &rusqlite::Connection, space_id: i64) -> i64 {
+    db::insert_web_page(
+        conn,
+        &db::NewWebPage {
+            url: "https://example.com/versioned",
+            url_normalized: "example.com/versioned",
+            title: Some("Versioned"),
+            domain: "example.com",
+            category: "archive",
+            status: "queued",
+            source: None,
+            space_id: Some(space_id),
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn snapshot_versions_increment_and_list_newest_first() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page = seed_versioned_page(&conn, space.id);
+
+    for body in ["first text", "second text longer", "third"] {
+        db::insert_snapshot(
+            &conn,
+            page,
+            "<h/>",
+            body,
+            None,
+            None,
+            db::ReadabilityBundle::default(),
+        )
+        .unwrap();
+    }
+
+    let versions = db::list_page_versions(&conn, page).unwrap();
+    assert_eq!(versions.len(), 3, "all three snapshots listed");
+    // ORDER BY version DESC, and versions increment 1,2,3 as inserted.
+    assert_eq!(versions[0].version, 3);
+    assert_eq!(versions[1].version, 2);
+    assert_eq!(versions[2].version, 1);
+}
+
+#[test]
+fn get_snapshot_full_screenshot_round_trips_bytes() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page = seed_versioned_page(&conn, space.id);
+
+    let png = vec![0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A];
+    let with = db::insert_snapshot(
+        &conn,
+        page,
+        "<h/>",
+        "has shot",
+        Some(&png),
+        None,
+        db::ReadabilityBundle::default(),
+    )
+    .unwrap();
+    let without = db::insert_snapshot(
+        &conn,
+        page,
+        "<h/>",
+        "no shot",
+        None,
+        None,
+        db::ReadabilityBundle::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        db::get_snapshot_full_screenshot(&conn, with).unwrap(),
+        Some(png),
+        "stored screenshot bytes must round-trip exactly"
+    );
+    assert_eq!(
+        db::get_snapshot_full_screenshot(&conn, without).unwrap(),
+        None,
+        "snapshot without a screenshot returns None"
+    );
+}
+
+#[test]
+fn delete_page_version_removes_target_keeps_rest() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page = seed_versioned_page(&conn, space.id);
+
+    let v1 = db::insert_snapshot(
+        &conn,
+        page,
+        "<h/>",
+        "one",
+        None,
+        None,
+        db::ReadabilityBundle::default(),
+    )
+    .unwrap();
+    db::insert_snapshot(
+        &conn,
+        page,
+        "<h/>",
+        "two",
+        None,
+        None,
+        db::ReadabilityBundle::default(),
+    )
+    .unwrap();
+
+    db::delete_page_version(&conn, v1).unwrap();
+
+    let remaining = db::list_page_versions(&conn, page).unwrap();
+    assert_eq!(remaining.len(), 1, "exactly one snapshot left after delete");
+    assert_eq!(remaining[0].version, 2, "the surviving snapshot is v2");
+}
+
+#[test]
+fn delete_page_version_refuses_sole_snapshot() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page = seed_versioned_page(&conn, space.id);
+
+    let only = db::insert_snapshot(
+        &conn,
+        page,
+        "<h/>",
+        "only",
+        None,
+        None,
+        db::ReadabilityBundle::default(),
+    )
+    .unwrap();
+
+    // Deleting the last remaining snapshot must be refused (total <= 1 guard).
+    assert!(
+        db::delete_page_version(&conn, only).is_err(),
+        "must refuse to delete the only snapshot"
+    );
+    assert_eq!(
+        db::list_page_versions(&conn, page).unwrap().len(),
+        1,
+        "the sole snapshot is still there"
+    );
+}
+
+#[test]
+fn request_reachive_resets_status_to_queued() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+    let page = seed_versioned_page(&conn, space.id);
+    db::update_status(&conn, page, "archived").unwrap();
+
+    db::request_reachive(&conn, page).unwrap();
+
+    let status: String = conn
+        .query_row("SELECT status FROM web_page WHERE id = ?1", [page], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "queued", "re-archive request re-queues the page");
+}

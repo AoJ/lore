@@ -316,4 +316,134 @@ mod tests {
         assert!(r.text.contains('c'));
         assert!(r.text.contains('d'));
     }
+
+    // ---- Exact-output tests for the diff / LCS / apply core ----------------
+    //
+    // The properties and `contains()` assertions above never pin the precise
+    // merged text, and the identity laws short-circuit on the `ours == base` /
+    // `theirs == base` early returns — so they never exercise `diff`,
+    // `lcs_pairs`, or `apply_three_way` at all. These cases use three genuinely
+    // distinct documents (so the algorithm runs) and assert the *exact* result,
+    // which is what makes a wrong LCS, a dropped trailing hunk, a broken
+    // hunk-advance, or a misplaced conflict separator observable.
+
+    /// One side deletes the tail of the document while the other edits the
+    /// head. Pins the trailing-gap branch of `diff` (a dropped trailing
+    /// deletion would leave `c`/`d` behind).
+    #[test]
+    fn trailing_deletion_on_one_side() {
+        let r = m("a\nb\nc\nd", "a\nb", "z\nb\nc\nd");
+        assert_eq!(r.text, "z\nb");
+        assert!(!r.had_conflict);
+    }
+
+    /// One side appends past the end of base while the other edits the head.
+    /// Drives `lcs_pairs` traceback right up to `i == base.len()` with the
+    /// changed side still having lines left (the `i < m` bound).
+    #[test]
+    fn trailing_insertion_on_one_side() {
+        let r = m("a\nb", "a\nb\nc", "z\nb");
+        assert_eq!(r.text, "z\nb\nc");
+        assert!(!r.had_conflict);
+    }
+
+    /// Two separate, non-adjacent edits from one side plus one edit from the
+    /// other, none overlapping. Forces the hunk index to advance across
+    /// multiple hunks (`oi += 1` / `ti += 1`).
+    #[test]
+    fn multiple_non_overlapping_hunks_from_one_side() {
+        let base = "a\nb\nc\nd\ne";
+        let ours = "X\nb\nY\nd\ne"; // edit line 0 and line 2 (two hunks)
+        let theirs = "a\nb\nc\nd\nZ"; // edit line 4 (one hunk)
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "X\nb\nY\nd\nZ");
+        assert!(!r.had_conflict);
+    }
+
+    /// Interleaved single-line edits from both sides at distinct positions —
+    /// the LCS must keep every unchanged line in place. A wrong dp recurrence
+    /// or traceback direction reorders or drops a line here.
+    #[test]
+    fn interleaved_edits_both_sides_clean() {
+        let base = "1\n2\n3\n4\n5";
+        let ours = "1\nX\n3\n4\n5"; // edit line 1
+        let theirs = "1\n2\n3\nY\n5"; // edit line 3
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "1\nX\n3\nY\n5");
+        assert!(!r.had_conflict);
+    }
+
+    /// Both sides rewrite the same line differently → conflict keeps both,
+    /// separated by a blank line (both replacement texts non-empty).
+    #[test]
+    fn conflict_keeps_both_with_blank_separator() {
+        let r = m("orig", "mine", "yours");
+        assert_eq!(r.text, "mine\n\nyours");
+        assert!(r.had_conflict);
+    }
+
+    /// One side deletes a line, the other edits the same line → conflict, but
+    /// the deletion side is empty so there must be NO blank separator before
+    /// the surviving edit. Pins the `!ours.is_empty() && !theirs.is_empty()`
+    /// guard (left operand).
+    #[test]
+    fn conflict_delete_vs_edit_no_spurious_blank() {
+        let base = "a\nMID\nb";
+        let ours = "a\nb"; // delete MID
+        let theirs = "a\nEDIT\nb"; // edit MID
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nEDIT\nb");
+        assert!(r.had_conflict);
+    }
+
+    /// Mirror of the above: ours edits, theirs deletes. Pins the right operand
+    /// of the same blank-separator guard.
+    #[test]
+    fn conflict_edit_vs_delete_no_spurious_blank() {
+        let base = "a\nMID\nb";
+        let ours = "a\nEDIT\nb"; // edit MID
+        let theirs = "a\nb"; // delete MID
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "a\nEDIT\nb");
+        assert!(r.had_conflict);
+    }
+
+    /// Both sides make the *same* edit to the same region — convergent, so the
+    /// region is emitted once with no conflict. Distinct from the early-return
+    /// `ours == theirs` fast path because the documents differ elsewhere too is
+    /// not needed here; the region-merge path still runs because neither side
+    /// equals base.
+    #[test]
+    fn convergent_same_region_edit_no_conflict() {
+        let r = m("a\nMID\nb", "a\nSAME\nb", "a\nSAME\nb");
+        assert_eq!(r.text, "a\nSAME\nb");
+        assert!(!r.had_conflict);
+    }
+
+    /// Adjacent edits where ours is strictly before theirs in base order —
+    /// exercises the "ours strictly before theirs, no overlap" branch and the
+    /// `oh.base_end <= th.base_start` comparison.
+    #[test]
+    fn ours_region_strictly_before_theirs() {
+        let base = "a\nb\nc\nd";
+        let ours = "A\nb\nc\nd"; // edit line 0
+        let theirs = "a\nb\nc\nD"; // edit line 3
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "A\nb\nc\nD");
+        assert!(!r.had_conflict);
+    }
+
+    /// Repeated lines in base so the LCS has more than one valid alignment;
+    /// the algorithm must still anchor the edit at the right occurrence. A
+    /// broken dp picks the wrong anchor and shifts the inserted line.
+    #[test]
+    fn repeated_lines_anchor_correctly() {
+        // base has two "x" lines; theirs inserts between them, ours edits tail.
+        let base = "x\nmid\nx\ntail";
+        let ours = "x\nmid\nx\nTAIL"; // edit last line
+        let theirs = "x\nmid\nINS\nx\ntail"; // insert before second x
+        let r = m(base, ours, theirs);
+        assert_eq!(r.text, "x\nmid\nINS\nx\nTAIL");
+        assert!(!r.had_conflict);
+    }
 }
