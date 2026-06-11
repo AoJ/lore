@@ -18,6 +18,32 @@
   outputs = { self, nixpkgs, rust-overlay, cloakbrowser }:
     let
       systems = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" ];
+
+      # --- wasm-bindgen-cli pin --------------------------------------------
+      # `dx` refuses a wasm-bindgen CLI whose version differs from the
+      # `wasm-bindgen` crate in /Cargo.lock, and on NixOS it can't run the
+      # prebuilt binary it would otherwise download — so we build the matching
+      # CLI from source. These three values are the ONLY thing that must track
+      # Cargo.lock; `dev-env/update-wasm-bindgen.sh` (→ `make update-deps`)
+      # rewrites them automatically, so don't hand-edit. The hashes are
+      # fixed-output, hence version-specific — they can't be elided.
+      wasmBindgenVersion = "0.2.118";
+      wasmBindgenSrcHash = "sha256-ve783oYH0TGv8Z8lIPdGjItzeLDQLOT5uv/jbFOlZpI=";
+      wasmBindgenCargoHash = "sha256-EYDfuBlH3zmTxACBL+sjicRna84CvoesKSQVcYiG9P0=";
+      mkWasmBindgenCli = pkgs: pkgs.buildWasmBindgenCli rec {
+        src = pkgs.fetchCrate {
+          pname = "wasm-bindgen-cli";
+          version = wasmBindgenVersion;
+          hash = wasmBindgenSrcHash;
+        };
+        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+          inherit src;
+          inherit (src) pname version;
+          hash = wasmBindgenCargoHash;
+        };
+      };
+      # ---------------------------------------------------------------------
+
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems (system:
           f (import nixpkgs {
@@ -64,22 +90,7 @@
           # search path — point the linker at it.
           mingwPthreads = pkgs.pkgsCross.mingwW64.windows.pthreads;
 
-          # `dx` refuses a wasm-bindgen CLI whose version differs from the
-          # wasm-bindgen crate in Cargo.lock, and on NixOS it can't run the
-          # prebuilt binary it would otherwise download. Keep this version in
-          # sync with `wasm-bindgen` in /Cargo.lock.
-          wasm-bindgen-cli = pkgs.buildWasmBindgenCli rec {
-            src = pkgs.fetchCrate {
-              pname = "wasm-bindgen-cli";
-              version = "0.2.118";
-              hash = "sha256-ve783oYH0TGv8Z8lIPdGjItzeLDQLOT5uv/jbFOlZpI=";
-            };
-            cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-              inherit src;
-              inherit (src) pname version;
-              hash = "sha256-EYDfuBlH3zmTxACBL+sjicRna84CvoesKSQVcYiG9P0=";
-            };
-          };
+          wasm-bindgen-cli = mkWasmBindgenCli pkgs;
 
           # Dioxus desktop on Linux = wry/tao on GTK3 + WebKitGTK.
           linuxGui = lib.optionals pkgs.stdenv.isLinux [
@@ -188,6 +199,10 @@
           '';
         };
         default = wrapper;
+
+        # Exposed so `update-wasm-bindgen.sh` can `nix build .#wasm-bindgen-cli`
+        # to discover the fixed-output hashes after a version bump.
+        wasm-bindgen-cli = mkWasmBindgenCli pkgs;
       });
     };
 }

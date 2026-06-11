@@ -28,6 +28,19 @@ cross-windows:
 
 cross: cross-linux cross-windows
 
+
+# Dependency updates. `cargo update` can bump the `wasm-bindgen` crate, which
+# must stay version-matched to the pinned wasm-bindgen-cli in dev-env/flake.nix
+# (dx refuses a mismatch). `update-wasm-bindgen` reads the new version from
+# Cargo.lock and rewrites the flake's version + both fixed-output hashes
+# automatically, so the two never drift by hand.
+update-wasm-bindgen:
+	./dev-env/update-wasm-bindgen.sh
+
+update-deps:
+	cargo update
+	$(MAKE) update-wasm-bindgen
+
 # JS editor bundle (Milkdown-based, output: crates/lore-ui/assets/milkdown.js)
 JS_DIR := crates/lore-ui/js
 JS_OUT := crates/lore-ui/assets/milkdown.js
@@ -166,4 +179,4 @@ clean:
 .PHONY: build release desktop desktop-release serve worker test lint fmt \
         check check-arch audit mutants verify clean js-install js-build \
         js-watch js-clean db-version migrate web web-clean e2e \
-        cross cross-linux cross-windows
+        cross cross-linux cross-windows update-wasm-bindgen update-deps

@@ -192,8 +192,10 @@ stays fast. `make cross*` wraps itself into the `cross` shell automatically.
 The shell provides: Rust stable + `wasm32-unknown-unknown` (rust-overlay),
 `dx` (dioxus-cli), `wasm-bindgen-cli` **pinned to the `wasm-bindgen` version
 in `Cargo.lock`** (`dx` requires an exact match and can't run its
-self-downloaded binaries on NixOS — bump the version + hashes in the flake
-when `cargo update` bumps the crate), binaryen, cargo-deny, cargo-mutants,
+self-downloaded binaries on NixOS — when `cargo update` bumps the crate, run
+`make update-deps` (or `make update-wasm-bindgen`) to resync the flake's
+version + both fixed-output hashes automatically; never hand-edit them),
+binaryen, cargo-deny, cargo-mutants,
 node (milkdown bundle), CloakBrowser (a fingerprint-patched Chromium with
 CDP; from the `cloakbrowser` flake input, Linux-only, exported as
 `LORE_BROWSER` for worker/e2e), and the GTK3/WebKitGTK stack for the
