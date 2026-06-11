@@ -7,9 +7,10 @@
 # What it does:
 #   1. read the wasm-bindgen version from Cargo.lock
 #   2. write it into flake.nix (wasmBindgenVersion)
-#   3. blank both hashes to the fake-hash sentinel
-#   4. build .#wasm-bindgen-cli repeatedly, scraping each "got: sha256-..."
-#      mismatch and writing the real hash back, until the build succeeds
+#   3. src hash via `nix-prefetch-url --unpack` (matches fetchCrate; no build)
+#   4. vendor hash by realizing the cargo-deps FOD alone and scraping the
+#      "got: sha256-..." mismatch (no prefetch URL exists for vendored deps,
+#      and building just the FOD avoids compiling the whole CLI)
 #
 # Builds via `path:` so it sees the working-tree flake.nix without `git add`.
 # Linux/macOS only (no wasm-bindgen-cli build target on other hosts).
@@ -34,35 +35,43 @@ echo "Cargo.lock wants wasm-bindgen $ver"
 cur=$(sed -nE 's/^\s*wasmBindgenVersion = "([^"]*)";/\1/p' "$FLAKE")
 echo "flake currently pins $cur"
 
-# 2 + 3. set version, reset both hashes to the sentinel.
-sed -i -E "s|^(\s*wasmBindgenVersion = \")[^\"]*(\";)|\1$ver\2|" "$FLAKE"
-sed -i -E "s|^(\s*wasmBindgenSrcHash = \")[^\"]*(\";)|\1$FAKE\2|" "$FLAKE"
-sed -i -E "s|^(\s*wasmBindgenCargoHash = \")[^\"]*(\";)|\1$FAKE\2|" "$FLAKE"
-
-patch_hash() { # $1 = binding name, $2 = sha256-... value
+patch_field() { # $1 = binding name, $2 = value
   sed -i -E "s|^(\s*$1 = \")[^\"]*(\";)|\1$2\2|" "$FLAKE"
 }
 
-# 4. build, scrape the mismatch, write it back. The src tarball fails first,
-#    then the cargo vendor — at most two fixes, plus a final success pass.
-for attempt in 1 2 3; do
-  out=$($NIX build "path:$PWD#wasm-bindgen-cli" --no-link 2>&1) && { echo "✓ build OK"; break; }
-  mismatch=$(grep "hash mismatch in fixed-output derivation" <<<"$out" | head -1 || true)
-  got=$(grep -oE 'got:[[:space:]]+sha256-[A-Za-z0-9+/=]+' <<<"$out" | head -1 | grep -oE 'sha256-[A-Za-z0-9+/=]+' || true)
-  if [ -z "$got" ]; then
-    echo "error: build failed without a hash mismatch:" >&2
+# 2. version.
+patch_field wasmBindgenVersion "$ver"
+
+# 3. src hash — prefetch the crates.io tarball (unpacked NAR hash == fetchCrate).
+url="https://crates.io/api/v1/crates/wasm-bindgen-cli/$ver/download"
+b32=$(nix-prefetch-url --type sha256 --unpack "$url" 2>/dev/null | tail -1)
+[ -n "$b32" ] || { echo "error: prefetch of $url failed" >&2; exit 1; }
+src_sri=$($NIX hash convert --hash-algo sha256 --to sri "$b32")
+echo "  crate src hash    -> $src_sri"
+patch_field wasmBindgenSrcHash "$src_sri"
+
+# 4. vendor hash — realize the cargo-deps FOD alone; read the mismatch.
+patch_field wasmBindgenCargoHash "$FAKE"
+out=$($NIX build "path:$PWD#wasm-bindgen-cargo-deps" --no-link 2>&1) || true
+got=$(grep -oE 'got:[[:space:]]+sha256-[A-Za-z0-9+/=]+' <<<"$out" | head -1 | grep -oE 'sha256-[A-Za-z0-9+/=]+' || true)
+if [ -z "$got" ]; then
+  # No mismatch means the fake somehow matched (impossible) or the build
+  # broke for another reason — surface it.
+  if $NIX build "path:$PWD#wasm-bindgen-cargo-deps" --no-link >/dev/null 2>&1; then
+    got=$(sed -nE 's/^\s*wasmBindgenCargoHash = "([^"]*)";/\1/p' "$FLAKE")
+  else
+    echo "error: cargo-deps build failed without a hash mismatch:" >&2
     echo "$out" | tail -20 >&2
     exit 1
   fi
-  if grep -qi 'vendor' <<<"$mismatch"; then
-    echo "  cargo vendor hash -> $got"
-    patch_hash wasmBindgenCargoHash "$got"
-  else
-    echo "  crate src hash    -> $got"
-    patch_hash wasmBindgenSrcHash "$got"
-  fi
-  [ "$attempt" = 3 ] && { echo "error: still failing after 3 attempts" >&2; exit 1; }
-done
+fi
+echo "  cargo vendor hash -> $got"
+patch_field wasmBindgenCargoHash "$got"
+
+# Verify the FOD now builds clean (cheap — no CLI compile).
+$NIX build "path:$PWD#wasm-bindgen-cargo-deps" --no-link >/dev/null 2>&1 \
+  && echo "✓ hashes verified" \
+  || { echo "error: vendor hash still wrong after patch" >&2; exit 1; }
 
 echo
 echo "flake.nix updated to wasm-bindgen $ver. Review & commit:"

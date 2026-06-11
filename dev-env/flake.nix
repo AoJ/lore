@@ -30,17 +30,25 @@
       wasmBindgenVersion = "0.2.118";
       wasmBindgenSrcHash = "sha256-ve783oYH0TGv8Z8lIPdGjItzeLDQLOT5uv/jbFOlZpI=";
       wasmBindgenCargoHash = "sha256-EYDfuBlH3zmTxACBL+sjicRna84CvoesKSQVcYiG9P0=";
-      mkWasmBindgenCli = pkgs: pkgs.buildWasmBindgenCli rec {
-        src = pkgs.fetchCrate {
-          pname = "wasm-bindgen-cli";
-          version = wasmBindgenVersion;
-          hash = wasmBindgenSrcHash;
-        };
-        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          inherit src;
-          inherit (src) pname version;
-          hash = wasmBindgenCargoHash;
-        };
+      # Factored so the update script can build the two fixed-output pieces
+      # in isolation (no full CLI compile): the src tarball and the vendored
+      # cargo deps. The src hash is also obtainable via `nix-prefetch-url
+      # --unpack`; the vendor hash is a derived FOD with no prefetch URL, so it
+      # must be realized to learn its hash.
+      mkWasmBindgenSrc = pkgs: pkgs.fetchCrate {
+        pname = "wasm-bindgen-cli";
+        version = wasmBindgenVersion;
+        hash = wasmBindgenSrcHash;
+      };
+      mkWasmBindgenCargoDeps = pkgs: pkgs.rustPlatform.fetchCargoVendor {
+        src = mkWasmBindgenSrc pkgs;
+        pname = "wasm-bindgen-cli";
+        version = wasmBindgenVersion;
+        hash = wasmBindgenCargoHash;
+      };
+      mkWasmBindgenCli = pkgs: pkgs.buildWasmBindgenCli {
+        src = mkWasmBindgenSrc pkgs;
+        cargoDeps = mkWasmBindgenCargoDeps pkgs;
       };
       # ---------------------------------------------------------------------
 
@@ -200,9 +208,10 @@
         };
         default = wrapper;
 
-        # Exposed so `update-wasm-bindgen.sh` can `nix build .#wasm-bindgen-cli`
-        # to discover the fixed-output hashes after a version bump.
+        # Exposed for `update-wasm-bindgen.sh`: it builds the cargo-deps FOD
+        # alone to learn the vendor hash (no full CLI compile needed).
         wasm-bindgen-cli = mkWasmBindgenCli pkgs;
+        wasm-bindgen-cargo-deps = mkWasmBindgenCargoDeps pkgs;
       });
     };
 }
