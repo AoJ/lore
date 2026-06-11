@@ -253,19 +253,25 @@ mutation of the source that the test suite failed to catch. Last full run
 (2026-06-11, this host, single core): **499 mutants, 71 initially missed**.
 Those broke down as 56 real coverage gaps — since fixed — and 15 false
 positives in the `#[cfg(kani)] mod proofs` harnesses (never compiled under
-`cargo test`, so unkillable here; now excluded via `exclude_re`, along with one
-behaviourally-equivalent `||→&&` fast-path guard in `merge::lcs_pairs`). The 56
-real gaps were concentrated in pure / under-asserted code the existing suite
-skirted: `merge.rs`'s diff/LCS/3-way core (the identity-law proptests
-short-circuit on the `ours==base` / `theirs==base` early returns, and the old
-unit tests asserted `.contains()` rather than exact text), several
-`db/web_page.rs` accessors that were only checked for "doesn't error"
+`cargo test`, so unkillable here; now excluded via `exclude_re`, along with two
+behaviourally-equivalent mutants in `merge::lcs_pairs` — the `||→&&` fast-path
+guard and the `dp[i][j+1]→dp[i][j]` traceback read, both with proofs in
+`mutants.toml`). The 56 real gaps were concentrated in pure / under-asserted
+code the existing suite skirted: `merge.rs`'s diff/LCS/3-way core (the
+identity-law proptests short-circuit on the `ours==base` / `theirs==base` early
+returns, and the old unit tests asserted `.contains()` rather than exact text),
+several `db/web_page.rs` accessors that were only checked for "doesn't error"
 (`list_page_versions`, `get_snapshot_full_screenshot`, `delete_page_version`,
 `request_reachive`, version increment, `compute_change_summary` arithmetic),
 `export.rs` (`compact_stamp` / `slug_safe` edge chars), and `migrations.rs`
-(`m0009` cleanup effect). All now covered by exact-output / effect-asserting
-tests. Reruns are slow (≈3.5 h on this single-core host) and not in
-`make check` — invoke when adding new pure logic in `lore-core`.
+(`m0009` cleanup effect). All now covered — `merge.rs`'s LCS dp recurrence by an
+exhaustive maximal-common-subsequence oracle and its 3-way apply by multi-hunk
+exact-output cases; the rest by exact-value / effect-asserting tests. A scoped
+re-run over the four touched files (2026-06-11) is **0 missed** — 227 caught,
+8 timeouts (the `*=` infinite-loop mutants, detected by hang), 11 unviable.
+Reruns are slow (≈2.5–3.5 h on this single-core host; the infinite-loop mutants
+are killed by timeout, which dominates) and not in `make check` — invoke when
+adding new pure logic in `lore-core`.
 
 `version.rs` (env-injected version string + git SHA) is gated with
 `#[cfg_attr(test, mutants::skip)]` because the values come from `env!` and any

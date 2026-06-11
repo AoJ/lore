@@ -47,9 +47,18 @@ never compiles, so no test can ever kill them — excluded via `exclude_re`
 (together with one behaviourally-equivalent `||→&&` fast-path guard in
 `lcs_pairs`). Verified by `make verify` (Kani), not the test suite.
 
-Result: `cargo test -p lore-core` → **113 lib + 83 integration** green. A scoped
-`cargo mutants -f <the 4 files>` re-run confirms the new tests kill the
-previously-missed mutants.
+Two merge survivors needed more than exact-output cases — the LCS dp recurrence
+(caught by an exhaustive maximal-common-subsequence oracle) and the
+`apply_three_way` multi-hunk overlap advance (5 targeted cases + an exhaustive
+panic-free / conflict-symmetric net). Two mutants are **provably equivalent**
+(`lcs_pairs` `||→&&` guard and the `dp[i][j+1]→dp[i][j]` traceback read) and are
+excluded with proofs in `mutants.toml`.
+
+Result: `cargo test -p lore-core` → **120 lib + 83 integration** green. A scoped
+`cargo mutants -f <the 4 files>` re-run is **0 missed** (227 caught, 8 timeouts
+= the `*=` infinite-loop mutants detected by hang, 11 unviable). Every tricky
+survivor was additionally confirmed killed by hand (apply mutation → run test →
+fails).
 
 ### Phase 4b — Kani (`make verify`) ⚠️ deployment-gated
 
