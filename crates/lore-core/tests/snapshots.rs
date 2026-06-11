@@ -2,7 +2,7 @@
 /// Run with: cargo test -p lore-core --test snapshots -- --nocapture
 /// Review and accept with: cargo insta review
 use insta::{assert_json_snapshot, assert_snapshot};
-use lore_core::error::{BackendError, ErrorCode};
+use lore_core::error::BackendError;
 
 // --- error.rs envelope snapshots ---
 

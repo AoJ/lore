@@ -118,7 +118,7 @@ pub fn cleanup_orphaned_attachments(
 }
 
 #[cfg(feature = "sqlite")]
-fn map_attachment_row(row: &rusqlite::Row) -> rusqlite::Result<AttachmentRow> {
+fn map_attachment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentRow> {
     Ok(AttachmentRow {
         id: row.get(0)?,
         note_id: row.get(1)?,

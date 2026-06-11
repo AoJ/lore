@@ -147,7 +147,7 @@ pub struct NewWebPage<'a> {
 }
 
 #[cfg(feature = "sqlite")]
-pub fn insert_web_page(conn: &Connection, page: &NewWebPage) -> Result<i64> {
+pub fn insert_web_page(conn: &Connection, page: &NewWebPage<'_>) -> Result<i64> {
     conn.execute(
         "INSERT OR IGNORE INTO web_page (url, url_normalized, title, domain, category, status, source, space_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
