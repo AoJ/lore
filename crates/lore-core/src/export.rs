@@ -435,6 +435,83 @@ mod tests {
     use super::*;
     use crate::db::{NewWebPage, ReadabilityBundle};
 
+    #[test]
+    fn html_escape_all_special_chars() {
+        assert_eq!(html_escape("&"), "&amp;");
+        assert_eq!(html_escape("<"), "&lt;");
+        assert_eq!(html_escape(">"), "&gt;");
+        assert_eq!(html_escape("\""), "&quot;");
+        assert_eq!(html_escape("'"), "&#39;");
+    }
+
+    #[test]
+    fn html_escape_mixed() {
+        assert_eq!(
+            html_escape("<script>alert('XSS')</script>"),
+            "&lt;script&gt;alert(&#39;XSS&#39;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn html_escape_safe_chars_unchanged() {
+        assert_eq!(html_escape("hello world 123"), "hello world 123");
+        assert_eq!(html_escape("a-z A-Z 0-9"), "a-z A-Z 0-9");
+    }
+
+    #[test]
+    fn yaml_string_escapes_backslash() {
+        assert_eq!(yaml_string("path\\to\\file"), "\"path\\\\to\\\\file\"");
+    }
+
+    #[test]
+    fn yaml_string_escapes_quote() {
+        assert_eq!(yaml_string("say \"hello\""), "\"say \\\"hello\\\"\"");
+    }
+
+    #[test]
+    fn yaml_string_escapes_newline() {
+        assert_eq!(yaml_string("line1\nline2"), "\"line1\\nline2\"");
+    }
+
+    #[test]
+    fn yaml_string_mixed() {
+        assert_eq!(
+            yaml_string("path\\\"line\nend"),
+            "\"path\\\\\\\"line\\nend\""
+        );
+    }
+
+    #[test]
+    fn compute_change_summary_zero_prev_text() {
+        // prev_text_size == 0, current == 0 → size_delta_pct = 0
+        let summary = compute_change_summary("title", "title", 0, "body", 0, "hash1");
+        assert!(summary.contains("\"size_delta_pct\":0"));
+
+        // prev_text_size == 0, current > 0 → size_delta_pct = 100
+        let summary = compute_change_summary("title", "title", 0, "body", 100, "hash2");
+        assert!(summary.contains("\"size_delta_pct\":100"));
+    }
+
+    #[test]
+    fn compute_change_summary_title_changed() {
+        let summary = compute_change_summary("old", "new", 100, "text", 100, "hash");
+        assert!(summary.contains("\"title_changed\":true"));
+
+        let summary = compute_change_summary("same", "same", 100, "text", 100, "hash");
+        assert!(summary.contains("\"title_changed\":false"));
+    }
+
+    #[test]
+    fn compute_change_summary_content_same() {
+        // prev_hash == current_hash
+        let summary = compute_change_summary("title", "title", 100, "text", 100, "same_hash");
+        assert!(summary.contains("\"content_same\":true"));
+
+        // prev_hash != current_hash
+        let summary = compute_change_summary("title", "title", 100, "text", 100, "different_hash");
+        assert!(summary.contains("\"content_same\":false"));
+    }
+
     fn seed(conn: &Connection, body: &str, readability: Option<&str>) -> i64 {
         let page_id = crate::db::insert_web_page(
             conn,

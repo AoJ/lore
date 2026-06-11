@@ -1739,3 +1739,103 @@ fn search_notes_finds_inserted_note_by_body_term() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, id);
 }
+
+#[test]
+fn list_page_ids_ordered_returns_correct_ids() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    let id1 = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://example.com/1",
+            url_normalized: "https://example.com/1",
+            title: Some("First"),
+            domain: "example.com",
+            category: "archive",
+            status: "archived",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let id2 = db::insert_web_page(
+        &conn,
+        &db::NewWebPage {
+            url: "https://example.com/2",
+            url_normalized: "https://example.com/2",
+            title: Some("Second"),
+            domain: "example.com",
+            category: "archive",
+            status: "archived",
+            source: None,
+            space_id: Some(space.id),
+        },
+    )
+    .unwrap();
+
+    let ids = db::list_page_ids_ordered(&conn, space.id, 10).unwrap();
+    assert!(ids.len() >= 2);
+    assert!(ids.contains(&id1));
+    assert!(ids.contains(&id2));
+}
+
+#[test]
+fn list_page_ids_ordered_respects_limit() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    for i in 0..5 {
+        db::insert_web_page(
+            &conn,
+            &db::NewWebPage {
+                url: &format!("https://example.com/{}", i),
+                url_normalized: &format!("https://example.com/{}", i),
+                title: Some(&format!("Page {}", i)),
+                domain: "example.com",
+                category: "archive",
+                status: "archived",
+                source: None,
+                space_id: Some(space.id),
+            },
+        )
+        .unwrap();
+    }
+
+    let ids = db::list_page_ids_ordered(&conn, space.id, 2).unwrap();
+    assert!(ids.len() <= 2);
+}
+
+#[test]
+fn list_note_ids_ordered_returns_valid_ids() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    let note_id1 = db::insert_note(&conn, "First Note", "content 1", None, space.id).unwrap();
+    let note_id2 = db::insert_note(&conn, "Second Note", "content 2", None, space.id).unwrap();
+
+    // list_note_ids_ordered takes (conn, folder_id: Option, space_id)
+    let ids = db::list_note_ids_ordered(&conn, None, space.id).unwrap();
+    assert!(ids.len() >= 2);
+    assert!(ids.contains(&note_id1));
+    assert!(ids.contains(&note_id2));
+    // Should be non-empty and all positive
+    for id in &ids {
+        assert!(*id > 0);
+    }
+}
+
+#[test]
+fn list_note_ids_ordered_ordered_by_updated_at() {
+    let (_dir, conn) = open_test_db();
+    let space = db::get_active_space(&conn).unwrap();
+
+    let _note1 = db::insert_note(&conn, "Old Note", "content 1", None, space.id).unwrap();
+    let note2 = db::insert_note(&conn, "New Note", "content 2", None, space.id).unwrap();
+
+    // note2 was inserted after note1, so should appear first (ORDER BY updated_at DESC)
+    let ids = db::list_note_ids_ordered(&conn, None, space.id).unwrap();
+    assert!(!ids.is_empty());
+    assert_eq!(ids[0], note2, "Most recently updated note should be first");
+}

@@ -115,3 +115,23 @@ impl From<rusqlite::Error> for BackendError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_shows_message() {
+        let err = BackendError::internal("something failed");
+        assert_eq!(format!("{}", err), "something failed");
+    }
+
+    #[test]
+    fn display_works_for_all_codes() {
+        let msg = "test error";
+        assert_eq!(format!("{}", BackendError::route_not_found(msg)), msg);
+        assert_eq!(format!("{}", BackendError::not_found(msg)), msg);
+        assert_eq!(format!("{}", BackendError::invalid_input(msg)), msg);
+        assert_eq!(format!("{}", BackendError::internal(msg)), msg);
+    }
+}
