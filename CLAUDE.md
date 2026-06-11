@@ -249,10 +249,22 @@ needs "Allow auto-merge" + a branch-protection required-checks rule on main.
 ### Mutation testing (`.cargo/mutants.toml`)
 
 `make mutants` runs `cargo mutants` against `lore-core` and reports any
-mutation of the source that the test suite failed to catch. Last run: **0
-missed** out of 234 viable mutants (37 unviable / equivalent), so every
-boolean/comparison/counter/return-value mutation in `lore-core` is observable
-from at least one test. Reruns are slow (≈30 min on M-series) and not in
+mutation of the source that the test suite failed to catch. Last full run
+(2026-06-11, this host, single core): **499 mutants, 71 initially missed**.
+Those broke down as 56 real coverage gaps — since fixed — and 15 false
+positives in the `#[cfg(kani)] mod proofs` harnesses (never compiled under
+`cargo test`, so unkillable here; now excluded via `exclude_re`, along with one
+behaviourally-equivalent `||→&&` fast-path guard in `merge::lcs_pairs`). The 56
+real gaps were concentrated in pure / under-asserted code the existing suite
+skirted: `merge.rs`'s diff/LCS/3-way core (the identity-law proptests
+short-circuit on the `ours==base` / `theirs==base` early returns, and the old
+unit tests asserted `.contains()` rather than exact text), several
+`db/web_page.rs` accessors that were only checked for "doesn't error"
+(`list_page_versions`, `get_snapshot_full_screenshot`, `delete_page_version`,
+`request_reachive`, version increment, `compute_change_summary` arithmetic),
+`export.rs` (`compact_stamp` / `slug_safe` edge chars), and `migrations.rs`
+(`m0009` cleanup effect). All now covered by exact-output / effect-asserting
+tests. Reruns are slow (≈3.5 h on this single-core host) and not in
 `make check` — invoke when adding new pure logic in `lore-core`.
 
 `version.rs` (env-injected version string + git SHA) is gated with
@@ -313,6 +325,17 @@ CBMC's bitvector budget even with a 4-byte constant input. Last run:
 **15 / 15 successful**, total verification time ≈ 25 s. Required tools:
 `cargo install --locked kani-verifier && cargo kani setup`. The `cfg(kani)`
 lint is silenced via `check-cfg` in `lore-core/Cargo.toml`.
+
+**NixOS caveat:** `cargo kani setup` does not work out of the box on this
+NixOS host. It drives `rustup` to install a pinned nightly
+(`rustup toolchain install nightly-…` → "No such file or directory" — no
+rustup; the toolchain comes from the nix rust-overlay), and the release bundle
+it downloads is FHS-linked (won't run without an FHS wrapper / `steam-run`).
+Kani is **not** packaged in the pinned nixpkgs either (a `pkgs.cargo-kani`
+attempt breaks `nix develop` — it doesn't exist), so `make verify` is currently
+deployment-gated on this machine. The proof harnesses are unchanged, so the
+last-known **15 / 15** still stands; re-run once Kani is wired into the
+deployment (rustup-in-FHS, or a packaged kani derivation).
 
 ## Organizational model
 
