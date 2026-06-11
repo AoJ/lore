@@ -34,7 +34,7 @@ jobs:
       GH_TOKEN: ${{ secrets.DEPS_UPDATE_TOKEN || github.token }}
       BRANCH: auto/deps-update
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.DEPS_UPDATE_TOKEN || github.token }}
 
