@@ -14,3 +14,9 @@ db.sqlite-wal
 
 # nix dev environment build output
 dev-env/result
+
+# insta pending snapshots
+*.pending-snap
+# coverage output
+/target/llvm-cov
+lcov.info

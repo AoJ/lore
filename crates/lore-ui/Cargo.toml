@@ -29,6 +29,9 @@ web = [
     "dep:wasm-bindgen-futures",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 # Dioxus default features include the platform (`desktop`) which we want
 # to pick per cargo feature instead. We keep `lib` (macro/html/signals/

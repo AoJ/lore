@@ -11,6 +11,9 @@ publish = false
 # headless Chromium. Per the architecture rules the only allowed import is
 # `lore-core`; everything else is reached over HTTP or via the DOM.
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"

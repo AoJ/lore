@@ -8,6 +8,9 @@ license.workspace = true
 name = "lore"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }

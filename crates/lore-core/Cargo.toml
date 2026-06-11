@@ -34,12 +34,12 @@ sqlite = ["dep:rusqlite", "dep:sha2", "dep:regex", "dep:htmd", "dep:serde_json"]
 tempfile = "3"
 # `#[mutants::skip]` attribute marker for cargo-mutants. Zero runtime impact.
 mutants = "0.0.4"
+proptest = "1"
+insta = { version = "1", features = ["json"] }
 
 # Kani formal verification harnesses live behind `#[cfg(kani)]`. They are
 # invisible to `cargo build` / `cargo test` and only compile under
 # `cargo kani`, so no extra dependency is needed here.
 
-[lints.rust]
-# Quiet the "unexpected cfg" lint for `#[cfg(kani)]` proof gates. Set by
-# `cargo kani`; not set in regular builds.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true
