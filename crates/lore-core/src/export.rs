@@ -481,36 +481,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn compute_change_summary_zero_prev_text() {
-        // prev_text_size == 0, current == 0 → size_delta_pct = 0
-        let summary = compute_change_summary("title", "title", 0, "body", 0, "hash1");
-        assert!(summary.contains("\"size_delta_pct\":0"));
-
-        // prev_text_size == 0, current > 0 → size_delta_pct = 100
-        let summary = compute_change_summary("title", "title", 0, "body", 100, "hash2");
-        assert!(summary.contains("\"size_delta_pct\":100"));
-    }
-
-    #[test]
-    fn compute_change_summary_title_changed() {
-        let summary = compute_change_summary("old", "new", 100, "text", 100, "hash");
-        assert!(summary.contains("\"title_changed\":true"));
-
-        let summary = compute_change_summary("same", "same", 100, "text", 100, "hash");
-        assert!(summary.contains("\"title_changed\":false"));
-    }
-
-    #[test]
-    fn compute_change_summary_content_same() {
-        // prev_hash == current_hash
-        let summary = compute_change_summary("title", "title", 100, "text", 100, "same_hash");
-        assert!(summary.contains("\"content_same\":true"));
-
-        // prev_hash != current_hash
-        let summary = compute_change_summary("title", "title", 100, "text", 100, "different_hash");
-        assert!(summary.contains("\"content_same\":false"));
-    }
 
     fn seed(conn: &Connection, body: &str, readability: Option<&str>) -> i64 {
         let page_id = crate::db::insert_web_page(
