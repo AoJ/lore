@@ -100,9 +100,16 @@ web-clean:
 #
 # Tests live in crates/lore-e2e/tests/. Not part of `make check` because
 # they need a built web bundle + Chromium, which `make check` doesn't.
+#
+# `TestApp::spawn` recovers from chromiumoxide's flaky `new_page` hang (a missed
+# `"load"` lifecycle event — see `open_browser_page`), so the suite is robust on
+# a loaded single-core box. `--no-fail-fast` still runs every file if one test
+# trips, and the short settle keeps the first launches off the build's tail.
 e2e: web
 	cargo build -p lore-server
-	cargo test -p lore-e2e --tests -- --nocapture --test-threads 1
+	cargo test -p lore-e2e --tests --no-run
+	@sync; sleep 10
+	cargo test -p lore-e2e --tests --no-fail-fast -- --nocapture --test-threads 1
 
 worker:
 	LORE_DB=$(DB) cargo run -p lore-worker -- --db $(DB)

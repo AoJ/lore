@@ -6,9 +6,11 @@
 //! - a headless Chromium via `chromiumoxide`
 //! - a page navigated to the server root, with the WASM bundle booted
 //!
-//! Cleanup on `Drop`: SIGTERM the server, the `TempDir` removes the DB,
-//! the browser handle drops its handler task. Tests can run in parallel
-//! because each gets its own port + DB.
+//! Cleanup on `Drop`: kill the server, the `TempDir` removes the DB, and the
+//! browser's Chromium tree is SIGKILLed by its unique profile dir (chromiumoxide
+//! only relies on tokio `kill_on_drop`, which reaps too lazily for a busy
+//! single-core host). Tests can run in parallel because each gets its own
+//! port + DB.
 //!
 //! The harness assumes:
 //! - `lore-serve` has been built (e.g. via `make e2e` which depends on
@@ -49,6 +51,9 @@ pub struct TestApp {
     /// Kept alive so its task keeps draining CDP events.
     _browser: Browser,
     _browser_handler: tokio::task::JoinHandle<()>,
+    /// This browser's unique `--user-data-dir`; used by `Drop` to SIGKILL the
+    /// Chromium tree synchronously (see [`kill_chrome_for_profile`]).
+    browser_profile_dir: PathBuf,
     server: Child,
     _db_dir: TempDir,
 }
@@ -65,7 +70,7 @@ impl TestApp {
         let bin = std::env::var("LORE_SERVER_BIN")
             .unwrap_or_else(|_| default_server_bin().display().to_string());
 
-        let server = Command::new(&bin)
+        let mut server = Command::new(&bin)
             .env("LORE_DB", &db_path)
             .env("LORE_PORT", port.to_string())
             // The server boots a tokio runtime that writes a banner to
@@ -78,19 +83,18 @@ impl TestApp {
         let base_url = format!("http://127.0.0.1:{}", port);
         wait_for_http_ready(&base_url, Duration::from_secs(10)).await?;
 
-        let (browser, handler) = launch_browser().await?;
-        let handler_task = tokio::spawn(async move {
-            let mut h = handler;
-            while let Some(_) = h.next().await {}
-        });
-
-        let page = browser
-            .new_page(format!("{}/", base_url))
-            .await
-            .context("open new page")?;
-        page.wait_for_navigation()
-            .await
-            .context("wait for initial navigation")?;
+        let (browser, handler_task, page, browser_profile_dir) =
+            match open_browser_page(&base_url).await {
+                Ok(v) => v,
+                Err(e) => {
+                    // `server` hasn't moved into a `TestApp` yet, so its `Drop`
+                    // won't run — a bare `std::process::Child` doesn't kill on
+                    // drop, so kill it here or the lore-serve process leaks.
+                    let _ = server.kill();
+                    let _ = server.wait();
+                    return Err(e);
+                }
+            };
 
         let app = TestApp {
             base_url,
@@ -99,6 +103,7 @@ impl TestApp {
             page,
             _browser: browser,
             _browser_handler: handler_task,
+            browser_profile_dir,
             server,
             _db_dir: db_dir,
         };
@@ -211,6 +216,10 @@ impl TestApp {
     /// (trimmed) equals `text`. Useful for sidebar nav items where the
     /// CSS class is shared across siblings — no need to count
     /// `nth-child` indices.
+    ///
+    /// Polls up to the default selector timeout: the target often appears a
+    /// render after whatever click opened its panel (e.g. the Export button
+    /// landing after the page detail mounts), so a single query races it.
     pub async fn click_text(&self, selector: &str, text: &str) -> Result<()> {
         let js = format!(
             r#"
@@ -224,21 +233,28 @@ impl TestApp {
             sel = serde_json::to_string(selector)?,
             text = serde_json::to_string(text)?,
         );
-        let found: bool = self
-            .page
-            .evaluate(js.as_str())
-            .await
-            .context("evaluate click_text")?
-            .into_value()
-            .context("parse click_text result")?;
-        if !found {
-            return Err(anyhow!(
-                "no `{}` element with textContent `{}`",
-                selector,
-                text
-            ));
+        let start = Instant::now();
+        loop {
+            let found: bool = self
+                .page
+                .evaluate(js.as_str())
+                .await
+                .context("evaluate click_text")?
+                .into_value()
+                .context("parse click_text result")?;
+            if found {
+                return Ok(());
+            }
+            if start.elapsed() > SELECTOR_TIMEOUT {
+                return Err(anyhow!(
+                    "no `{}` element with textContent `{}` within {:?}",
+                    selector,
+                    text,
+                    SELECTOR_TIMEOUT
+                ));
+            }
+            tokio::time::sleep(SELECTOR_POLL_INTERVAL).await;
         }
-        Ok(())
     }
 
     /// Wait until `selector` appears in the DOM. Polls every 50 ms up to
@@ -353,6 +369,10 @@ impl Drop for TestApp {
         // own Drop wipes the DB file.
         let _ = self.server.kill();
         let _ = self.server.wait();
+        // Synchronously kill this test's Chromium tree. `Browser::drop` only
+        // sets tokio `kill_on_drop`, which reaps lazily — on a single core the
+        // dying browser starves the next test's into hangs/timeouts.
+        kill_chrome_for_profile(&self.browser_profile_dir);
     }
 }
 
@@ -399,7 +419,92 @@ async fn wait_for_http_ready(base_url: &str, timeout: Duration) -> Result<()> {
     }
 }
 
-async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler)> {
+/// Launch a browser and open the app page.
+///
+/// The flaky hang we kept hitting is a `chromiumoxide` race, not host luck:
+/// `browser.new_page(url)` resolves only once the target's main frame reports a
+/// `"load"` lifecycle event (`handler/target.rs` → `Frame::is_loaded`). But the
+/// lifecycle stream is enabled as part of the target's *init command chain*, so
+/// if the page finishes loading before that chain is processed, the `"load"`
+/// event is never observed and `new_page` waits forever. Whether load wins the
+/// race is pure timing — a warm WASM bundle in the page cache, or a busy single
+/// core delaying the init commands, both make it lose — which is exactly the
+/// "passes cold, hangs after a build / on repeat" pattern we measured.
+///
+/// The page itself *is* created and *does* load; only the signal is missed. So
+/// instead of betting on retries, we bound `new_page` and, on timeout, recover
+/// the already-loaded page out of `browser.pages()` (which doesn't gate on
+/// `is_loaded`). A couple of fresh-browser retries remain as a backstop for the
+/// rarer case where the whole launch is wedged. Returns the profile dir so the
+/// caller tears the browser down the same way.
+async fn open_browser_page(
+    base_url: &str,
+) -> Result<(Browser, tokio::task::JoinHandle<()>, chromiumoxide::Page, PathBuf)> {
+    const ATTEMPTS: usize = 3;
+    const NEW_PAGE_TIMEOUT: Duration = Duration::from_secs(10);
+    const RECOVER_TIMEOUT: Duration = Duration::from_secs(5);
+
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=ATTEMPTS {
+        let (browser, handler, profile_dir) = launch_browser().await?;
+        let handler_task = tokio::spawn(async move {
+            let mut h = handler;
+            while h.next().await.is_some() {}
+        });
+
+        let url = format!("{}/", base_url);
+        let page = match tokio::time::timeout(NEW_PAGE_TIMEOUT, browser.new_page(url)).await {
+            Ok(Ok(page)) => Some(page),
+            // Timed out waiting for the missed `"load"` event — pull the page
+            // that was nonetheless created+loaded back out of the browser.
+            Err(_) => tokio::time::timeout(RECOVER_TIMEOUT, recover_loaded_page(&browser, base_url))
+                .await
+                .ok()
+                .flatten(),
+            Ok(Err(e)) => {
+                last_err = Some(anyhow::Error::new(e).context("open new page"));
+                None
+            }
+        };
+
+        if let Some(page) = page {
+            // `wait_for_navigation` waits for the *next* lifecycle navigation;
+            // the initial load may already be done, so bound it — the real
+            // readiness gate is the `.app-layout` poll in the caller.
+            let _ = tokio::time::timeout(WASM_BOOT_TIMEOUT, page.wait_for_navigation()).await;
+            return Ok((browser, handler_task, page, profile_dir));
+        }
+
+        if last_err.is_none() {
+            last_err = Some(anyhow!("new_page hung and page recovery failed (attempt {attempt})"));
+        }
+        // Tear this browser down (the CDP channel may be wedged, so kill by
+        // profile dir) before retrying with a fresh one.
+        handler_task.abort();
+        drop(browser);
+        kill_chrome_for_profile(&profile_dir);
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("browser setup failed")))
+}
+
+/// Recover the app page after `new_page` timed out on the missed-`"load"` race.
+/// `browser.pages()` returns pages straight from their targets without gating on
+/// the `is_loaded` flag, so the page that `new_page` is still (pointlessly)
+/// waiting on shows up here. Match it by URL so we don't grab the launch's
+/// initial `about:blank` target.
+async fn recover_loaded_page(browser: &Browser, base_url: &str) -> Option<chromiumoxide::Page> {
+    let pages = browser.pages().await.ok()?;
+    for page in pages {
+        if let Ok(Some(url)) = page.url().await {
+            if url.starts_with(base_url) {
+                return Some(page);
+            }
+        }
+    }
+    None
+}
+
+async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler, PathBuf)> {
     let browser_path = std::env::var("LORE_BROWSER").ok();
     // Per-instance profile dir. chromiumoxide's default points every
     // launched browser at `$TMPDIR/chromiumoxide-runner`, so two tests
@@ -435,7 +540,24 @@ async fn launch_browser() -> Result<(Browser, chromiumoxide::handler::Handler)> 
         config = config.chrome_executable("/Applications/Chromium.app/Contents/MacOS/Chromium");
     }
     let config = config.build().map_err(|e| anyhow!("{}", e))?;
-    Browser::launch(config).await.context("launch chromium")
+    let (browser, handler) = Browser::launch(config).await.context("launch chromium")?;
+    Ok((browser, handler, profile_dir))
+}
+
+/// SIGKILL every Chromium process whose command line references this profile
+/// dir (each browser gets a unique `--user-data-dir`, so this targets exactly
+/// one test's browser tree). chromiumoxide's `Browser::drop` only relies on
+/// tokio `kill_on_drop`, which reaps "in the background" with no timing
+/// guarantee — on a single-core host the previous test's Chromium is often
+/// still alive when the next test launches, starving it into `new_page`
+/// hangs and WASM-mount timeouts. This makes teardown synchronous + immediate.
+fn kill_chrome_for_profile(profile_dir: &std::path::Path) {
+    let _ = std::process::Command::new("pkill")
+        .arg("-9")
+        .arg("-f")
+        .arg(profile_dir.as_os_str())
+        .status();
+    let _ = std::fs::remove_dir_all(profile_dir);
 }
 
 // ---- DB seeding helpers ----

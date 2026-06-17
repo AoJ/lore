@@ -19,12 +19,15 @@ async fn clicking_plus_creates_a_note_and_list_refreshes() {
         .await
         .expect("note appears in list");
 
-    // And the sidebar's empty-state should be gone.
-    let result = app.page.find_element(".empty-state").await;
-    assert!(
-        result.is_err(),
-        "empty-state should be gone after note creation"
-    );
+    // And the sidebar's empty-state should be gone. The list-item and the
+    // empty-state removal land on separate renders, so poll rather than
+    // asserting on the first frame after the row appears.
+    app.wait_until(
+        || async { Ok(app.page.find_element(".empty-state").await.err().map(|_| ())) },
+        Duration::from_secs(3),
+    )
+    .await
+    .expect("empty-state should be gone after note creation");
 }
 
 #[tokio::test]
