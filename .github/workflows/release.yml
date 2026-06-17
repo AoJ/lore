@@ -1,10 +1,11 @@
 name: Release
 
-# Tag-driven release. Split by what each part needs:
-#   - web bundle  → nix (dx + wasm-bindgen are version-pinned in the flake)
-#   - OS binaries → native matrix runners + rustup (Linux/Windows/macOS)
-# lore-ui (desktop) ships macOS-only; lore-worker is Linux-only (drives a
-# headless browser); the rest are portable headless binaries.
+# Tag-driven release. The WASM web bundle is built once (nix: dx + wasm-bindgen
+# are version-pinned in the flake) and handed to the OS jobs, which bake it into
+# `lore-serve` via the `embed-web` feature — so each server binary is a single
+# self-contained file (no separate web bundle to deploy and keep in sync).
+# lore-ui (desktop) ships macOS-only; lore-worker builds on Linux/macOS (drives
+# a headless browser); the rest are portable headless binaries.
 
 on:
   push:
@@ -18,7 +19,9 @@ permissions:
   contents: write
 
 jobs:
-  # WASM web frontend bundle, built with the pinned toolchain.
+  # WASM web frontend bundle, built with the pinned toolchain. Not a release
+  # asset on its own — it's an artifact the OS jobs download and embed into
+  # lore-serve.
   web:
     name: web bundle (nix)
     runs-on: ubuntu-latest
@@ -28,16 +31,17 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: build web bundle
         run: nix develop ./dev-env --command make web
-      - name: package
-        run: tar -czf lore-web-${{ github.ref_name }}.tar.gz -C crates/lore-server/static .
-      - uses: softprops/action-gh-release@v2
+      - name: upload bundle for embedding
+        uses: actions/upload-artifact@v4
         with:
-          files: lore-web-${{ github.ref_name }}.tar.gz
-          generate_release_notes: true
+          name: web-bundle
+          path: crates/lore-server/static/
+          retention-days: 1
 
-  # Portable headless binaries: cli, server, worker.
+  # Portable headless binaries: cli, server (web embedded), worker.
   linux:
     name: linux ${{ matrix.target }}
+    needs: web
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,6 +53,11 @@ jobs:
             target: aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v5
+      - name: fetch web bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: web-bundle
+          path: crates/lore-server/static/
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -57,8 +66,8 @@ jobs:
           key: release-${{ matrix.target }}
       - name: build
         run: |
-          cargo build --release --target ${{ matrix.target }} \
-            -p lore-cli -p lore-server -p lore-worker
+          cargo build --release --target ${{ matrix.target }} -p lore-cli -p lore-worker
+          cargo build --release --target ${{ matrix.target }} -p lore-server --features embed-web
       - name: package
         shell: bash
         run: |
@@ -75,18 +84,27 @@ jobs:
           files: ${{ env.ARCHIVE }}
           generate_release_notes: true
 
-  # Windows headless binaries (cli + server). No worker (Linux-only).
+  # Windows headless binaries (cli + server, web embedded). No worker (drives a
+  # headless browser; not built for Windows).
   windows:
     name: windows x86_64
+    needs: web
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+      - name: fetch web bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: web-bundle
+          path: crates/lore-server/static/
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-windows
       - name: build
-        run: cargo build --release -p lore-cli -p lore-server
+        run: |
+          cargo build --release -p lore-cli
+          cargo build --release -p lore-server --features embed-web
       - name: package
         shell: bash
         run: |
@@ -98,12 +116,19 @@ jobs:
           files: ${{ env.ARCHIVE }}
           generate_release_notes: true
 
-  # macOS: desktop app (lore-ui) + headless binaries. Apple Silicon runner.
+  # macOS: desktop app (lore-ui) + headless binaries (server web embedded).
+  # Apple Silicon runner.
   macos:
     name: macOS aarch64
+    needs: web
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - name: fetch web bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: web-bundle
+          path: crates/lore-server/static/
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
@@ -115,7 +140,9 @@ jobs:
       - name: build
         run: |
           cargo build --release --target aarch64-apple-darwin \
-            -p lore-cli -p lore-server -p lore-worker -p lore-ui
+            -p lore-cli -p lore-worker -p lore-ui
+          cargo build --release --target aarch64-apple-darwin \
+            -p lore-server --features embed-web
       - name: package
         shell: bash
         run: |
