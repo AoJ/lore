@@ -68,6 +68,13 @@ desktop-release:
 serve:
 	LORE_DB=$(DB) cargo run -p lore-server
 
+# Self-contained release server: bakes the `make web` bundle into the binary
+# (`embed-web` feature) so there's a single file to deploy — no `static/` dir
+# to ship alongside and keep in sync. Depends on `web` for a fresh bundle.
+server-bundle: web
+	cargo build --release -p lore-server --features embed-web
+	@echo "Self-contained server → target/release/lore-serve (web bundle embedded)"
+
 
 # Web frontend bundle. Builds `lore-ui` for `wasm32-unknown-unknown` via
 # the Dioxus CLI (`dx`) and stages the output where `lore-server`'s
@@ -194,7 +201,8 @@ coverage-lcov:
 clean:
 	cargo clean
 
-.PHONY: build release desktop desktop-release serve worker test lint fmt \
-        check check-arch audit mutants verify coverage coverage-lcov clean \
-        js-install js-build js-watch js-clean db-version migrate web web-clean \
-        e2e cross cross-linux cross-windows update-wasm-bindgen update-deps
+.PHONY: build release desktop desktop-release serve server-bundle worker test \
+        lint fmt check check-arch audit mutants verify coverage coverage-lcov \
+        clean js-install js-build js-watch js-clean db-version migrate web \
+        web-clean e2e cross cross-linux cross-windows update-wasm-bindgen \
+        update-deps

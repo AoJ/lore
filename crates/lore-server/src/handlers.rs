@@ -108,6 +108,9 @@ pub async fn route_not_found() -> ApiError {
 /// their filenames (from `dx build`), so only the HTML entry point needs
 /// this — without it the browser may load a stale `index.html` that
 /// references old bundle hashes after a redeploy.
+// `embed-web` serves the bundle from memory instead (see `main::web_embed`),
+// so this disk path goes unused in that build.
+#[cfg_attr(feature = "embed-web", allow(dead_code))]
 pub async fn serve_index(State(state): AppStateExt) -> Response {
     let path = state.static_dir.join("index.html");
     match tokio::fs::read(path).await {

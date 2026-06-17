@@ -23,3 +23,12 @@ tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 url = "2"
 base64 = "0.22"
+# `embed-web` only: bake crates/lore-server/static/ (the `make web` output)
+# into the binary so a release server is a single self-contained file.
+rust-embed = { version = "8", optional = true }
+mime_guess = { version = "2", optional = true }
+
+[features]
+# Off by default so `cargo build --workspace` / `make check` compile without a
+# prior `make web` (the static/ dir need not exist). Release builds turn it on.
+embed-web = ["dep:rust-embed", "dep:mime_guess"]

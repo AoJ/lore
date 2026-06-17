@@ -12,11 +12,58 @@ use std::sync::Arc;
 use axum::Router;
 use axum::routing::{get, post};
 use tower_http::cors::CorsLayer;
+#[cfg(not(feature = "embed-web"))]
 use tower_http::services::ServeDir;
 
 mod handlers;
 
 use handlers::AppState;
+
+/// Serve the `make web` bundle straight out of the binary. Enabled by the
+/// `embed-web` feature so a release server ships as a single self-contained
+/// file (no `static/` dir to deploy alongside and keep in sync). The default
+/// build serves the same files from disk via `ServeDir` instead.
+#[cfg(feature = "embed-web")]
+mod web_embed {
+    use axum::body::Body;
+    use axum::http::{StatusCode, Uri, header};
+    use axum::response::Response;
+
+    #[derive(rust_embed::RustEmbed)]
+    #[folder = "static/"]
+    struct WebAssets;
+
+    /// `index.html` with `Cache-Control: no-store` (mirrors `handlers::serve_index`).
+    pub async fn index() -> Response {
+        serve("index.html", true)
+    }
+
+    /// Any other bundle path (`/assets/…wasm`, `/assets/…js`). Hashed names →
+    /// cacheable, so no `no-store`.
+    pub async fn asset(uri: Uri) -> Response {
+        let path = uri.path().trim_start_matches('/');
+        serve(if path.is_empty() { "index.html" } else { path }, false)
+    }
+
+    fn serve(path: &str, no_store: bool) -> Response {
+        match WebAssets::get(path) {
+            Some(file) => {
+                let mime = mime_guess::from_path(path).first_or_octet_stream();
+                let mut builder = Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, mime.as_ref());
+                if no_store {
+                    builder = builder.header(header::CACHE_CONTROL, "no-store");
+                }
+                builder.body(Body::from(file.data.into_owned())).unwrap()
+            }
+            None => Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("not found"))
+                .unwrap(),
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -165,16 +212,26 @@ async fn main() -> anyhow::Result<()> {
         .route("/attachments/{id}/raw", get(handlers::attachment_raw))
         .fallback(handlers::route_not_found);
 
-    let app = Router::new()
-        .nest("/api", api)
-        // index.html served with no-store so stale bundle hashes never stick.
-        // The JS/WASM assets already have content hashes in their filenames
-        // (dx build), so ServeDir's default headers are fine for them.
+    let app = Router::new().nest("/api", api);
+
+    // Static web bundle. index.html is served with no-store so stale bundle
+    // hashes never stick; JS/WASM assets carry content hashes in their
+    // filenames (dx build), so default caching is fine. Either baked into the
+    // binary (`embed-web`) or served from disk — both only catch non-`/api/*`
+    // paths since the `nest` above owns everything under `/api`.
+    #[cfg(feature = "embed-web")]
+    let app = app
+        .route("/", get(web_embed::index))
+        .route("/index.html", get(web_embed::index))
+        .fallback(web_embed::asset);
+
+    #[cfg(not(feature = "embed-web"))]
+    let app = app
         .route("/", get(handlers::serve_index))
         .route("/index.html", get(handlers::serve_index))
-        // Static files (W3: WASM bundle); only catches non-`/api/*` paths
-        // because the `nest` above owns everything under `/api`.
-        .fallback_service(ServeDir::new(&static_dir).append_index_html_on_directories(true))
+        .fallback_service(ServeDir::new(&static_dir).append_index_html_on_directories(true));
+
+    let app = app
         // Permissive CORS — server is expected to bind to localhost only in
         // dev. Production deployment behind a reverse proxy must restrict
         // origin lists (deferred together with auth).
