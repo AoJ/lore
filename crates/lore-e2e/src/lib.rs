@@ -439,7 +439,12 @@ async fn wait_for_http_ready(base_url: &str, timeout: Duration) -> Result<()> {
 /// caller tears the browser down the same way.
 async fn open_browser_page(
     base_url: &str,
-) -> Result<(Browser, tokio::task::JoinHandle<()>, chromiumoxide::Page, PathBuf)> {
+) -> Result<(
+    Browser,
+    tokio::task::JoinHandle<()>,
+    chromiumoxide::Page,
+    PathBuf,
+)> {
     const ATTEMPTS: usize = 3;
     const NEW_PAGE_TIMEOUT: Duration = Duration::from_secs(10);
     const RECOVER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -457,10 +462,12 @@ async fn open_browser_page(
             Ok(Ok(page)) => Some(page),
             // Timed out waiting for the missed `"load"` event — pull the page
             // that was nonetheless created+loaded back out of the browser.
-            Err(_) => tokio::time::timeout(RECOVER_TIMEOUT, recover_loaded_page(&browser, base_url))
-                .await
-                .ok()
-                .flatten(),
+            Err(_) => {
+                tokio::time::timeout(RECOVER_TIMEOUT, recover_loaded_page(&browser, base_url))
+                    .await
+                    .ok()
+                    .flatten()
+            }
             Ok(Err(e)) => {
                 last_err = Some(anyhow::Error::new(e).context("open new page"));
                 None
@@ -476,7 +483,9 @@ async fn open_browser_page(
         }
 
         if last_err.is_none() {
-            last_err = Some(anyhow!("new_page hung and page recovery failed (attempt {attempt})"));
+            last_err = Some(anyhow!(
+                "new_page hung and page recovery failed (attempt {attempt})"
+            ));
         }
         // Tear this browser down (the CDP channel may be wedged, so kill by
         // profile dir) before retrying with a fresh one.

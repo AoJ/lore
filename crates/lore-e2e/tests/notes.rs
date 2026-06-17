@@ -23,7 +23,14 @@ async fn clicking_plus_creates_a_note_and_list_refreshes() {
     // empty-state removal land on separate renders, so poll rather than
     // asserting on the first frame after the row appears.
     app.wait_until(
-        || async { Ok(app.page.find_element(".empty-state").await.err().map(|_| ())) },
+        || async {
+            Ok(app
+                .page
+                .find_element(".empty-state")
+                .await
+                .err()
+                .map(|_| ()))
+        },
         Duration::from_secs(3),
     )
     .await
