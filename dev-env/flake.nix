@@ -132,12 +132,15 @@
             pkgs.binaryen # wasm-opt for dx release builds
             pkgs.cargo-deny
             pkgs.cargo-mutants
-            # code coverage. nixos-25.11 marks 0.6.20 `broken` (an upstream
-            # flag, not a real build failure here), which otherwise aborts the
-            # whole `nix develop` eval — clear the flag so the shell still
-            # works. Revisit when nixpkgs unbreaks it.
+            # code coverage. nixos-25.11 marks 0.6.20 `broken`, which aborts
+            # the whole `nix develop` eval. The flag is there because its test
+            # suite fails to run inside the build sandbox (notably on
+            # aarch64-darwin: 11 integration tests fail) — the binary itself is
+            # fine. So clear the flag AND skip the checkPhase so it builds on
+            # every platform. Revisit when nixpkgs unbreaks it.
             (pkgs.cargo-llvm-cov.overrideAttrs (old: {
               meta = (old.meta or { }) // { broken = false; };
+              doCheck = false;
             }))
             pkgs.nodejs_22 # milkdown.js bundle (make js-build)
             pkgs.gnumake
