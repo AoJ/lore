@@ -132,7 +132,13 @@
             pkgs.binaryen # wasm-opt for dx release builds
             pkgs.cargo-deny
             pkgs.cargo-mutants
-            pkgs.cargo-llvm-cov # code coverage
+            # code coverage. nixos-25.11 marks 0.6.20 `broken` (an upstream
+            # flag, not a real build failure here), which otherwise aborts the
+            # whole `nix develop` eval — clear the flag so the shell still
+            # works. Revisit when nixpkgs unbreaks it.
+            (pkgs.cargo-llvm-cov.overrideAttrs (old: {
+              meta = (old.meta or { }) // { broken = false; };
+            }))
             pkgs.nodejs_22 # milkdown.js bundle (make js-build)
             pkgs.gnumake
             pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
