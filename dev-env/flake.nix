@@ -197,6 +197,22 @@
             packages = basePackages ++ crossCc;
             shellHook = baseShellHook + crossShellHook;
           });
+
+          # `nix develop ./dev-env#web` — minimal shell for just `make web`
+          # (the WASM bundle). Deliberately excludes the heavy desktop/e2e
+          # closure the default shell pulls — CloakBrowser, the WebKitGTK/GTK3
+          # stack, cargo-deny/mutants/llvm-cov — none of which a wasm bundle
+          # build touches. Used by the release `web` CI job so it fits a
+          # GitHub runner's disk (the full shell overran it).
+          web = pkgs.mkShell {
+            packages = [
+              rust
+              pkgs.dioxus-cli
+              wasm-bindgen-cli
+              pkgs.binaryen # wasm-opt for dx release builds
+              pkgs.gnumake
+            ];
+          };
         });
 
       # Compatibility shim for the `nix build .#wrapper` workflow:

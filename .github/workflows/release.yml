@@ -30,7 +30,9 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: build web bundle
-        run: nix develop ./dev-env --command make web
+        # `#web`: minimal shell (no CloakBrowser / WebKitGTK / cargo-* tools) so
+        # the closure fits the runner's disk.
+        run: nix develop ./dev-env#web --command make web
       - name: upload bundle for embedding
         uses: actions/upload-artifact@v4
         with:
