@@ -316,10 +316,11 @@ jobs:
           SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
           SHA_APP="$(sha "Lore-$TAG-aarch64-apple-darwin.zip")"
 
-          # cask downloads via the GitHub API asset endpoint (only way to auth a
-          # private-repo asset from a cask) — needs the numeric asset id.
-          CASK_ASSET_ID="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets \
+          # cask downloads via the GitHub REST asset endpoint (only way to auth a
+          # private-repo asset from a cask) — needs the NUMERIC asset id. Use the
+          # REST API (gh api), NOT `gh release view --json assets` which returns
+          # the GraphQL node id (RA_…), which that endpoint rejects.
+          CASK_ASSET_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
             --jq ".assets[] | select(.name==\"Lore-$TAG-aarch64-apple-darwin.zip\") | .id")"
           if [ -z "$CASK_ASSET_ID" ]; then
             echo "::error::could not resolve cask asset id"
