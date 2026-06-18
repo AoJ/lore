@@ -147,11 +147,8 @@ jobs:
             -p lore-server --features embed-web
       # Assemble Lore.app by hand from the built binary (dx bundle needs the
       # nix-pinned dx; this runner is on rustup). iconutil generates the .icns
-      # from the committed 512px PNG; ad-hoc codesign so it launches on Apple
-      # Silicon. Shipped INSIDE the macOS tarball and installed by the Homebrew
-      # *formula* (not a cask): formula downloads aren't quarantined, so the
-      # ad-hoc-signed app launches without the Gatekeeper "could not verify"
-      # block, and it sidesteps Homebrew's 2026-09 cask-Gatekeeper enforcement.
+      # from the committed 512px PNG. Signing/notarization happens in the next
+      # step.
       - name: build Lore.app
         shell: bash
         env:
@@ -194,33 +191,98 @@ jobs:
           </dict>
           </plist>
           PLIST
-
-          codesign --force --deep --sign - "$APP"
-      - name: package tarball (CLI + Lore.app)
+      # Developer ID sign (hardened runtime + secure timestamp, both required for
+      # notarization), notarize via notarytool (App Store Connect API key), and
+      # staple the ticket so the app validates offline. Done in an ephemeral
+      # keychain that's deleted on exit.
+      - name: sign + notarize + staple Lore.app
         shell: bash
+        env:
+          APPLE_KEY_P12: ${{ secrets.APPLE_KEY_P12 }}
+          APPLE_KEY_P12_PWD: ${{ secrets.APPLE_KEY_P12_PWD }}
+          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          APP="Lore.app"
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KCPW="$(uuidgen)"
+          # Always wipe the keychain (→ removes the imported key+cert and drops
+          # it from the search list) AND the decoded secret files, even on
+          # failure. (The GitHub runner is ephemeral too, but defense in depth.)
+          cleanup() {
+            security delete-keychain "$KEYCHAIN" 2>/dev/null || true
+            rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+          }
+          trap cleanup EXIT
+
+          # ephemeral keychain with the Developer ID identity
+          security create-keychain -p "$KCPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPW" "$KEYCHAIN"
+          printf '%s' "$APPLE_KEY_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_KEY_P12_PWD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KEYCHAIN"
+          # make the keychain visible to codesign (prepend to the user search list)
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed 's/"//g')
+
+          # pick the signing identity belonging to our team (no hardcoded hash)
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | grep "$APPLE_TEAM_ID" | grep -oE '[0-9A-F]{40}' | head -1)"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::no Developer ID identity for team $APPLE_TEAM_ID in the keychain"
+            exit 1
+          fi
+
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+
+          # notarize (API key) and staple
+          printf '%s' "$APPLE_NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          # secret files + keychain are wiped by the EXIT trap (cleanup)
+      - name: package
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           DIR="target/aarch64-apple-darwin/release"
-          ARCHIVE="lore-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz"
+          # headless CLI tarball (no app — the GUI ships as the cask)
+          ARCHIVE="lore-${TAG}-aarch64-apple-darwin.tar.gz"
           mkdir staging
           for bin in lore lore-serve lore-worker lore-desktop; do
             cp "$DIR/$bin" staging/
           done
-          cp -R Lore.app staging/Lore.app
-          # -H: store Lore.app as real files, not following symlinks out of it.
           tar -czf "$ARCHIVE" -C staging .
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          # notarized + stapled app for the cask
+          APP_ARCHIVE="Lore-${TAG}-aarch64-apple-darwin.zip"
+          ditto -c -k --keepParent Lore.app "$APP_ARCHIVE"
+          echo "APP_ARCHIVE=$APP_ARCHIVE" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ARCHIVE }}
+          files: |
+            ${{ env.ARCHIVE }}
+            ${{ env.APP_ARCHIVE }}
           generate_release_notes: true
 
   # Bump the Homebrew tap (AoJ/homebrew-lore): download the just-published
-  # tarballs, hash them, render the formula from the tools/homebrew template,
-  # and push to the tap. Runs after every build job so all assets exist.
-  # GITHUB_TOKEN reads this repo's release; DEPS_UPDATE_TOKEN (write on both
-  # repos) pushes to the tap — the default token can't push cross-repo.
-  # Formula only — the desktop app ships inside the macOS tarball and is
-  # installed by the formula (no cask; see tools/homebrew/lore.formula.rb).
+  # assets, hash them, render the formula (headless CLI) + cask (notarized
+  # Lore.app), and push to the tap. Runs after every build job so all assets
+  # exist. GITHUB_TOKEN reads this repo's release; DEPS_UPDATE_TOKEN (write on
+  # both repos) pushes to the tap — the default token can't push cross-repo.
   homebrew:
     name: bump homebrew tap
     needs: [linux, windows, macos]
@@ -234,10 +296,12 @@ jobs:
         run: |
           mkdir -p dist
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
-            --pattern "lore-$TAG-*.tar.gz"
+            --pattern "lore-$TAG-*.tar.gz" \
+            --pattern "Lore-$TAG-*.zip"
           ls -l dist
-      - name: render formula
+      - name: render formula + cask
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#v}"
@@ -245,13 +309,30 @@ jobs:
           SHA_MACOS_ARM="$(sha "lore-$TAG-aarch64-apple-darwin.tar.gz")"
           SHA_LINUX_X86="$(sha "lore-$TAG-x86_64-unknown-linux-gnu.tar.gz")"
           SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
+          SHA_APP="$(sha "Lore-$TAG-aarch64-apple-darwin.zip")"
 
-          mkdir -p out/Formula
-          sed -e "s/@@VERSION@@/$VERSION/g" \
-              -e "s/@@SHA_MACOS_ARM@@/$SHA_MACOS_ARM/g" \
-              -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
-              -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
-              tools/homebrew/lore.formula.rb > out/Formula/lore.rb
+          # cask downloads via the GitHub API asset endpoint (only way to auth a
+          # private-repo asset from a cask) — needs the numeric asset id.
+          CASK_ASSET_ID="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq ".assets[] | select(.name==\"Lore-$TAG-aarch64-apple-darwin.zip\") | .id")"
+          if [ -z "$CASK_ASSET_ID" ]; then
+            echo "::error::could not resolve cask asset id"
+            exit 1
+          fi
+
+          mkdir -p out/Formula out/Casks
+          render() {
+            sed -e "s/@@VERSION@@/$VERSION/g" \
+                -e "s/@@SHA_MACOS_ARM@@/$SHA_MACOS_ARM/g" \
+                -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
+                -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
+                -e "s/@@SHA_APP@@/$SHA_APP/g" \
+                -e "s/@@CASK_ASSET_ID@@/$CASK_ASSET_ID/g" \
+                "$1"
+          }
+          render tools/homebrew/lore.formula.rb > out/Formula/lore.rb
+          render tools/homebrew/lore.cask.rb    > out/Casks/lore.rb
       - name: push to tap
         env:
           TAP_TOKEN: ${{ secrets.DEPS_UPDATE_TOKEN }}
@@ -260,9 +341,9 @@ jobs:
           VERSION="${TAG#v}"
           git clone --depth 1 \
             "https://x-access-token:${TAP_TOKEN}@github.com/AoJ/homebrew-lore.git" tap
-          mkdir -p tap/Formula
+          mkdir -p tap/Formula tap/Casks
           cp out/Formula/lore.rb tap/Formula/lore.rb
-          rm -f tap/Casks/lore.rb   # cask retired in favour of the formula
+          cp out/Casks/lore.rb   tap/Casks/lore.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

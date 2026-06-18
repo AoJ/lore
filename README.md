@@ -7,21 +7,18 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 ## Install (Homebrew, private tap)
 
 Prebuilt releases are distributed through a private Homebrew tap
-(`AoJ/homebrew-lore`). One `lore` **formula** ships everything: the CLI binaries
-(`lore`, `lore-serve`, `lore-worker`) and, on macOS, the desktop app `Lore.app`.
-
-> Why a formula and not a cask for the GUI: Homebrew is removing support for
-> non-notarized casks (Gatekeeper-failing casks are disabled from 2026-09-01),
-> and it dropped the `--no-quarantine` flag in 5.1. Formula downloads aren't
-> quarantined, so the ad-hoc-signed `Lore.app` launches without the macOS
-> "could not verify" block. (Once the app is notarized this can move back to a
-> proper cask.)
+(`AoJ/homebrew-lore`):
+- **formula** `lore` — headless CLI (`lore`, `lore-serve`, `lore-worker`).
+- **cask** `lore` — the desktop app `Lore.app` (Developer ID signed + notarized,
+  so it launches with no Gatekeeper prompt; installs to /Applications).
 
 One-time setup — the repo is private, so set a token with read access to
-`AoJ/lore` in Homebrew's standard variable:
+`AoJ/lore` in Homebrew's standard variable, and trust the tap (its cask carries
+a small custom download strategy):
 
 ```bash
 brew tap AoJ/lore
+brew trust aoj/lore
 export HOMEBREW_GITHUB_API_TOKEN=github_pat_...   # read access to AoJ/lore
 ```
 
@@ -31,16 +28,9 @@ lore-capable token when installing/upgrading lore.)
 Then:
 
 ```bash
-brew install lore   # CLI + (on macOS) Lore.app
-brew upgrade        # new releases (run `brew update` first to refresh the tap)
-```
-
-On macOS, symlink the app into `/Applications` once so it's launchable and
-pinnable to the Dock (the symlink survives `brew upgrade`):
-
-```bash
-ln -sfn "$(brew --prefix lore)/Lore.app" /Applications/Lore.app
-open -a Lore
+brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
+brew install lore          # CLI: lore, lore-serve, lore-worker
+brew upgrade               # new releases (run `brew update` first)
 ```
 
 The database defaults to `~/Library/Application Support/lore/lore.db` (macOS).
@@ -48,9 +38,12 @@ Override with `LORE_DB` for the CLI / terminal-launched binaries. Note: an app
 launched from the Dock/Finder does not inherit your shell environment, so
 `LORE_DB` from a shell rc does not apply there — it uses the default location.
 
-The tap formula is regenerated automatically on each tagged release (see
-`tools/homebrew/lore.formula.rb` and the `homebrew` job in
-`.github/workflows/release.yml`).
+The tap formula + cask are regenerated automatically on each tagged release (see
+`tools/homebrew/` templates and the `homebrew` job in
+`.github/workflows/release.yml`). The macOS release job signs the app with a
+Developer ID certificate and notarizes it via `notarytool` (secrets:
+`APPLE_KEY_P12`, `APPLE_KEY_P12_PWD`, `APPLE_NOTARY_KEY_P8`, `APPLE_NOTARY_KEY_ID`,
+`APPLE_NOTARY_ISSUER_ID`, `APPLE_TEAM_ID`).
 
 ## Build
 

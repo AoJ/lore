@@ -3714,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "lore-cli"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -3726,7 +3726,7 @@ dependencies = [
 
 [[package]]
 name = "lore-core"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "base64",
@@ -3745,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "lore-e2e"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "base64",
@@ -3760,7 +3760,7 @@ dependencies = [
 
 [[package]]
 name = "lore-server"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -3779,7 +3779,7 @@ dependencies = [
 
 [[package]]
 name = "lore-ui"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3804,7 +3804,7 @@ dependencies = [
 
 [[package]]
 name = "lore-worker"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "chromiumoxide",
