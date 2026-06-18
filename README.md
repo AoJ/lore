@@ -4,26 +4,26 @@ Personal knowledge management tool. Archive web pages, full-text search across s
 
 Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page rendering (with HTTP fallback).
 
-## Install (Homebrew, private tap)
+## Install (Homebrew)
 
-Prebuilt releases are distributed through a private Homebrew tap
-(`AoJ/homebrew-lore`):
+lore is distributed through the Homebrew tap `AoJ/homebrew-lore` (the tap repo is
+public, so no auth is needed to tap it):
+- **cask** `lore` — the desktop app `Lore.app` (Developer ID signed + notarized;
+  installs to /Applications, pinnable to the Dock).
 - **formula** `lore` — headless CLI (`lore`, `lore-serve`, `lore-worker`).
-- **cask** `lore` — the desktop app `Lore.app` (Developer ID signed + notarized,
-  so it launches with no Gatekeeper prompt; installs to /Applications).
 
-One-time setup — the repo is private, so set a token with read access to
-`AoJ/lore` in Homebrew's standard variable, and trust the tap (its cask carries
-a small custom download strategy):
+One-time setup:
 
 ```bash
 brew tap AoJ/lore
-brew trust aoj/lore
-export HOMEBREW_GITHUB_API_TOKEN=github_pat_...   # read access to AoJ/lore
+brew trust aoj/lore                                # the cask carries a small custom download strategy
+export HOMEBREW_GITHUB_API_TOKEN=github_pat_...    # read access to AoJ/lore
 ```
 
-(If you also use `HOMEBREW_GITHUB_API_TOKEN` for another account, swap in the
-lore-capable token when installing/upgrading lore.)
+The token is required because the **release binaries live in the private
+`AoJ/lore` repo** (only the tap itself is public). If you also use
+`HOMEBREW_GITHUB_API_TOKEN` for another account, swap in the lore-capable token
+when installing/upgrading lore.
 
 Then:
 
@@ -33,17 +33,29 @@ brew install lore          # CLI: lore, lore-serve, lore-worker
 brew upgrade               # new releases (run `brew update` first)
 ```
 
+On the **first** launch macOS shows a one-time "downloaded from the internet …
+Apple checked it for malicious software and none was detected" confirmation —
+that's expected for a notarized app; click Open and it won't ask again.
+
 The database defaults to `~/Library/Application Support/lore/lore.db` (macOS).
 Override with `LORE_DB` for the CLI / terminal-launched binaries. Note: an app
 launched from the Dock/Finder does not inherit your shell environment, so
 `LORE_DB` from a shell rc does not apply there — it uses the default location.
 
-The tap formula + cask are regenerated automatically on each tagged release (see
-`tools/homebrew/` templates and the `homebrew` job in
-`.github/workflows/release.yml`). The macOS release job signs the app with a
-Developer ID certificate and notarizes it via `notarytool` (secrets:
-`APPLE_KEY_P12`, `APPLE_KEY_P12_PWD`, `APPLE_NOTARY_KEY_P8`, `APPLE_NOTARY_KEY_ID`,
-`APPLE_NOTARY_ISSUER_ID`, `APPLE_TEAM_ID`).
+### Code signing & notarization
+
+`Lore.app` is signed with an Apple **Developer ID Application** certificate
+(hardened runtime + secure timestamp) and **notarized** + stapled, so Gatekeeper
+lets it run without the "could not verify" block. This happens in CI: the macOS
+release job imports the signing identity into an ephemeral keychain, runs
+`codesign`, submits to Apple via `notarytool`, and `stapler`-staples the ticket.
+
+It needs these repo secrets: `APPLE_KEY_P12` (base64 of the Developer ID `.p12`,
+cert + key + intermediate), `APPLE_KEY_P12_PWD`, `APPLE_NOTARY_KEY_P8` (base64 of
+the App Store Connect API key), `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`,
+`APPLE_TEAM_ID`. The tap formula + cask are regenerated automatically on each
+tagged release (see `tools/homebrew/` templates and the `homebrew` job in
+`.github/workflows/release.yml`).
 
 ## Build
 
