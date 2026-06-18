@@ -245,11 +245,16 @@ jobs:
           # notarize (API key) and staple
           printf '%s' "$APPLE_NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
           ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          # --timeout bounds the wait: notarization is usually minutes, but the
+          # FIRST submission from a new Developer ID account can take much longer
+          # while Apple vets it. Without this, a stuck submission hangs the job
+          # to the 6h runner limit. On timeout the step fails (submission id is
+          # printed) — just re-run; the account is "warm" after the first one.
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
             --key "$RUNNER_TEMP/notary.p8" \
             --key-id "$APPLE_NOTARY_KEY_ID" \
             --issuer "$APPLE_NOTARY_ISSUER_ID" \
-            --wait
+            --wait --timeout 30m
           xcrun stapler staple "$APP"
           xcrun stapler validate "$APP"
           # secret files + keychain are wiped by the EXIT trap (cleanup)
