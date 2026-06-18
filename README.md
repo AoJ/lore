@@ -7,45 +7,49 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 ## Install (Homebrew, private tap)
 
 Prebuilt releases are distributed through a private Homebrew tap
-(`AoJ/homebrew-lore`). Because the repo is private, two things are needed once:
+(`AoJ/homebrew-lore`). One `lore` **formula** ships everything: the CLI binaries
+(`lore`, `lore-serve`, `lore-worker`) and, on macOS, the desktop app `Lore.app`.
 
-1. **SSH access** to the tap (uses your ssh-agent key, no token):
+> Why a formula and not a cask for the GUI: Homebrew is removing support for
+> non-notarized casks (Gatekeeper-failing casks are disabled from 2026-09-01),
+> and it dropped the `--no-quarantine` flag in 5.1. Formula downloads aren't
+> quarantined, so the ad-hoc-signed `Lore.app` launches without the macOS
+> "could not verify" block. (Once the app is notarized this can move back to a
+> proper cask.)
 
-   ```bash
-   brew tap AoJ/lore git@github.com:AoJ/homebrew-lore.git
-   ```
+One-time setup — the repo is private, so set a token with read access to
+`AoJ/lore` in Homebrew's standard variable:
 
-2. **A read token** for downloading the release binaries. The binary tarballs are
-   fetched over HTTPS (not git), so ssh-agent can't help there. Use a
-   lore-specific variable — kept separate from any global
-   `HOMEBREW_GITHUB_API_TOKEN` you may already have for another account:
+```bash
+brew tap AoJ/lore
+export HOMEBREW_GITHUB_API_TOKEN=github_pat_...   # read access to AoJ/lore
+```
 
-   ```bash
-   export HOMEBREW_LORE_GITHUB_TOKEN=ghp_...   # PAT with read access to AoJ/lore
-   ```
-
-   Put it in your shell rc. Across zsh/bash you can source one shared file; for
-   fish set it once as a universal var (`set -Ux HOMEBREW_LORE_GITHUB_TOKEN …`).
+(If you also use `HOMEBREW_GITHUB_API_TOKEN` for another account, swap in the
+lore-capable token when installing/upgrading lore.)
 
 Then:
 
 ```bash
-brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
-brew install lore          # CLI: lore, lore-serve, lore-worker
-brew upgrade               # pulls new tagged releases
+brew install lore   # CLI + (on macOS) Lore.app
+brew upgrade        # new releases (run `brew update` first to refresh the tap)
 ```
 
-Homebrew downloads via `curl`, which does **not** set `com.apple.quarantine`, so
-the desktop app launches without the macOS "unverified developer" Gatekeeper
-dialog (unlike a tarball unzipped from a browser download).
+On macOS, symlink the app into `/Applications` once so it's launchable and
+pinnable to the Dock (the symlink survives `brew upgrade`):
+
+```bash
+ln -sfn "$(brew --prefix lore)/Lore.app" /Applications/Lore.app
+open -a Lore
+```
 
 The database defaults to `~/Library/Application Support/lore/lore.db` (macOS).
 Override with `LORE_DB` for the CLI / terminal-launched binaries. Note: an app
 launched from the Dock/Finder does not inherit your shell environment, so
 `LORE_DB` from a shell rc does not apply there — it uses the default location.
 
-The tap formula + cask are regenerated automatically on each tagged release
-(see `tools/homebrew/` templates and the `homebrew` job in
+The tap formula is regenerated automatically on each tagged release (see
+`tools/homebrew/lore.formula.rb` and the `homebrew` job in
 `.github/workflows/release.yml`).
 
 ## Build

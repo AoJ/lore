@@ -6,31 +6,21 @@
 # in the tap — edit the template instead.
 require "download_strategy"
 
-# Download private release assets using a lore-specific token
-# (HOMEBREW_LORE_GITHUB_TOKEN) rather than the global HOMEBREW_GITHUB_API_TOKEN.
-# This lets a token for a different GitHub account stay in the global var without
-# colliding with the token that can read AoJ/lore.
-unless defined?(GitHubPrivateLoreDownloadStrategy)
-  class GitHubPrivateLoreDownloadStrategy < GitHubPrivateRepositoryReleaseDownloadStrategy
-    def set_github_token
-      @github_token = ENV.fetch("HOMEBREW_LORE_GITHUB_TOKEN", nil)
-      if @github_token.nil? || @github_token.empty?
-        raise CurlDownloadStrategyError, "HOMEBREW_LORE_GITHUB_TOKEN is required to install lore"
-      end
-    end
-  end
-end
-
 class Lore < Formula
-  desc "Personal knowledge management tool (headless: lore, lore-serve, lore-worker)"
+  desc "Personal knowledge management tool (CLI + macOS desktop app)"
   homepage "https://github.com/AoJ/lore"
   version "@@VERSION@@"
   license "MIT"
 
+  # Private release assets — Homebrew's built-in strategy authenticates with
+  # HOMEBREW_GITHUB_API_TOKEN (must have read access to AoJ/lore). The macOS
+  # tarball also carries Lore.app; installing the GUI via the formula (not a
+  # cask) keeps it un-quarantined, so the ad-hoc-signed app launches without the
+  # Gatekeeper "could not verify" block.
   on_macos do
     on_arm do
       url "https://github.com/AoJ/lore/releases/download/v#{version}/lore-v#{version}-aarch64-apple-darwin.tar.gz",
-          using: GitHubPrivateLoreDownloadStrategy
+          using: GitHubPrivateRepositoryReleaseDownloadStrategy
       sha256 "@@SHA_MACOS_ARM@@"
     end
   end
@@ -38,26 +28,26 @@ class Lore < Formula
   on_linux do
     on_intel do
       url "https://github.com/AoJ/lore/releases/download/v#{version}/lore-v#{version}-x86_64-unknown-linux-gnu.tar.gz",
-          using: GitHubPrivateLoreDownloadStrategy
+          using: GitHubPrivateRepositoryReleaseDownloadStrategy
       sha256 "@@SHA_LINUX_X86@@"
     end
     on_arm do
       url "https://github.com/AoJ/lore/releases/download/v#{version}/lore-v#{version}-aarch64-unknown-linux-gnu.tar.gz",
-          using: GitHubPrivateLoreDownloadStrategy
+          using: GitHubPrivateRepositoryReleaseDownloadStrategy
       sha256 "@@SHA_LINUX_ARM@@"
     end
   end
 
   def install
     bin.install "lore", "lore-serve", "lore-worker"
+    prefix.install "Lore.app" if OS.mac?
   end
 
   def caveats
-    <<~EOS
-      A token with read access to the private AoJ/lore repo is required for
-      install and upgrade. Put it in your shell rc (separate from any global
-      HOMEBREW_GITHUB_API_TOKEN):
-        export HOMEBREW_LORE_GITHUB_TOKEN=ghp_...
+    s = <<~EOS
+      Set HOMEBREW_GITHUB_API_TOKEN to a token with read access to AoJ/lore
+      before install/upgrade:
+        export HOMEBREW_GITHUB_API_TOKEN=github_pat_...
 
       The database defaults to:
         ~/Library/Application Support/lore/lore.db   (macOS)
@@ -65,6 +55,18 @@ class Lore < Formula
       Override the location with LORE_DB:
         export LORE_DB="$HOME/lore.db"
     EOS
+    if OS.mac?
+      s += <<~EOS
+
+        Lore.app (desktop GUI) is installed at:
+          #{opt_prefix}/Lore.app
+        To run it and pin it to the Dock, symlink it into /Applications:
+          ln -sfn "#{opt_prefix}/Lore.app" /Applications/Lore.app
+        Launched from the Dock/Finder the app does not inherit your shell
+        environment, so LORE_DB from a shell rc won't apply there (default used).
+      EOS
+    end
+    s
   end
 
   test do
