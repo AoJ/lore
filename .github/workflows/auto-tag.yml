@@ -32,6 +32,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0           # need all tags to test existence
+          # Don't persist the GITHUB_TOKEN credential helper: it installs an
+          # http.extraheader for github.com that overrides the inline PAT in our
+          # push URL, so the tag would be pushed as GITHUB_TOKEN and would NOT
+          # trigger release.yml (recursive-workflow guard). With this off, the
+          # inline PAT is the only credential → the tag push triggers release.
+          persist-credentials: false
       - name: create tag if version is new
         env:
           PAT: ${{ secrets.DEPS_UPDATE_TOKEN }}
