@@ -145,23 +145,14 @@ jobs:
             -p lore-cli -p lore-worker -p lore-ui
           cargo build --release --target aarch64-apple-darwin \
             -p lore-server --features embed-web
-      - name: package headless tarball
-        shell: bash
-        run: |
-          DIR="target/aarch64-apple-darwin/release"
-          ARCHIVE="lore-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz"
-          mkdir staging
-          for bin in lore lore-serve lore-worker lore-desktop; do
-            cp "$DIR/$bin" staging/
-          done
-          tar -czf "$ARCHIVE" -C staging .
-          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
       # Assemble Lore.app by hand from the built binary (dx bundle needs the
       # nix-pinned dx; this runner is on rustup). iconutil generates the .icns
       # from the committed 512px PNG; ad-hoc codesign so it launches on Apple
-      # Silicon. Homebrew installs this via the cask (curl download = no
-      # com.apple.quarantine, so no Gatekeeper "unverified developer" dialog).
-      - name: package Lore.app
+      # Silicon. Shipped INSIDE the macOS tarball and installed by the Homebrew
+      # *formula* (not a cask): formula downloads aren't quarantined, so the
+      # ad-hoc-signed app launches without the Gatekeeper "could not verify"
+      # block, and it sidesteps Homebrew's 2026-09 cask-Gatekeeper enforcement.
+      - name: build Lore.app
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
@@ -205,22 +196,31 @@ jobs:
           PLIST
 
           codesign --force --deep --sign - "$APP"
-
-          APP_ARCHIVE="Lore-${TAG}-aarch64-apple-darwin.zip"
-          ditto -c -k --keepParent "$APP" "$APP_ARCHIVE"
-          echo "APP_ARCHIVE=$APP_ARCHIVE" >> "$GITHUB_ENV"
+      - name: package tarball (CLI + Lore.app)
+        shell: bash
+        run: |
+          DIR="target/aarch64-apple-darwin/release"
+          ARCHIVE="lore-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz"
+          mkdir staging
+          for bin in lore lore-serve lore-worker lore-desktop; do
+            cp "$DIR/$bin" staging/
+          done
+          cp -R Lore.app staging/Lore.app
+          # -H: store Lore.app as real files, not following symlinks out of it.
+          tar -czf "$ARCHIVE" -C staging .
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ env.ARCHIVE }}
-            ${{ env.APP_ARCHIVE }}
+          files: ${{ env.ARCHIVE }}
           generate_release_notes: true
 
   # Bump the Homebrew tap (AoJ/homebrew-lore): download the just-published
-  # assets, hash them, render the formula + cask from tools/homebrew templates,
+  # tarballs, hash them, render the formula from the tools/homebrew template,
   # and push to the tap. Runs after every build job so all assets exist.
   # GITHUB_TOKEN reads this repo's release; DEPS_UPDATE_TOKEN (write on both
   # repos) pushes to the tap — the default token can't push cross-repo.
+  # Formula only — the desktop app ships inside the macOS tarball and is
+  # installed by the formula (no cask; see tools/homebrew/lore.formula.rb).
   homebrew:
     name: bump homebrew tap
     needs: [linux, windows, macos]
@@ -234,10 +234,9 @@ jobs:
         run: |
           mkdir -p dist
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
-            --pattern "lore-$TAG-*.tar.gz" \
-            --pattern "Lore-$TAG-*.zip"
+            --pattern "lore-$TAG-*.tar.gz"
           ls -l dist
-      - name: render formula + cask
+      - name: render formula
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -246,19 +245,13 @@ jobs:
           SHA_MACOS_ARM="$(sha "lore-$TAG-aarch64-apple-darwin.tar.gz")"
           SHA_LINUX_X86="$(sha "lore-$TAG-x86_64-unknown-linux-gnu.tar.gz")"
           SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
-          SHA_APP="$(sha "Lore-$TAG-aarch64-apple-darwin.zip")"
 
-          mkdir -p out/Formula out/Casks
-          render() {
-            sed -e "s/@@VERSION@@/$VERSION/g" \
-                -e "s/@@SHA_MACOS_ARM@@/$SHA_MACOS_ARM/g" \
-                -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
-                -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
-                -e "s/@@SHA_APP@@/$SHA_APP/g" \
-                "$1"
-          }
-          render tools/homebrew/lore.formula.rb > out/Formula/lore.rb
-          render tools/homebrew/lore.cask.rb    > out/Casks/lore.rb
+          mkdir -p out/Formula
+          sed -e "s/@@VERSION@@/$VERSION/g" \
+              -e "s/@@SHA_MACOS_ARM@@/$SHA_MACOS_ARM/g" \
+              -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
+              -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
+              tools/homebrew/lore.formula.rb > out/Formula/lore.rb
       - name: push to tap
         env:
           TAP_TOKEN: ${{ secrets.DEPS_UPDATE_TOKEN }}
@@ -267,9 +260,9 @@ jobs:
           VERSION="${TAG#v}"
           git clone --depth 1 \
             "https://x-access-token:${TAP_TOKEN}@github.com/AoJ/homebrew-lore.git" tap
-          mkdir -p tap/Formula tap/Casks
+          mkdir -p tap/Formula
           cp out/Formula/lore.rb tap/Formula/lore.rb
-          cp out/Casks/lore.rb   tap/Casks/lore.rb
+          rm -f tap/Casks/lore.rb   # cask retired in favour of the formula
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
