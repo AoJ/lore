@@ -242,7 +242,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#v}"
-          sha() { shasum -a 256 "dist/$1" | awk '{print $1}'; }
+          sha() { sha256sum "dist/$1" | awk '{print $1}'; }
           SHA_MACOS_ARM="$(sha "lore-$TAG-aarch64-apple-darwin.tar.gz")"
           SHA_LINUX_X86="$(sha "lore-$TAG-x86_64-unknown-linux-gnu.tar.gz")"
           SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
