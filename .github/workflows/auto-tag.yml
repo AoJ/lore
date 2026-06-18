@@ -1,0 +1,52 @@
+name: Auto-tag
+
+# When a version bump lands on main, create the matching `v<version>` tag, which
+# triggers release.yml. Idempotent: if the tag for the current
+# [workspace.package] version already exists, nothing happens — so ordinary
+# (non-bump) merges and the fmt auto-commit are no-ops here.
+#
+# The tag is pushed with DEPS_UPDATE_TOKEN (a PAT), NOT the default GITHUB_TOKEN:
+# a tag pushed by GITHUB_TOKEN does not trigger other workflows (GitHub's
+# recursive-workflow guard), so release.yml would never fire. The same reason
+# DEPS_UPDATE_TOKEN is used for the deps-update PRs.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag on version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0           # need all tags to test existence
+          token: ${{ secrets.DEPS_UPDATE_TOKEN }}  # so the tag push triggers release.yml
+      - name: create tag if version is new
+        run: |
+          VERSION=$(awk -F'"' '
+            /^\[workspace\.package\]/ { f = 1 }
+            f && /^version[[:space:]]*=/ { print $2; exit }
+          ' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read [workspace.package] version from Cargo.toml"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists — no release to cut."
+            exit 0
+          fi
+          echo "Tagging $TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "release $VERSION"
+          git push origin "$TAG"
