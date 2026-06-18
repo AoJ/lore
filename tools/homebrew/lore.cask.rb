@@ -66,6 +66,12 @@ cask "lore" do
     before install/upgrade:
       export HOMEBREW_GITHUB_API_TOKEN=github_pat_...
 
+    Lore.app is ad-hoc signed but NOT notarized, so a plain install gets the
+    macOS "Apple could not verify" Gatekeeper block. Install without quarantine:
+      brew install --cask --no-quarantine lore
+    Or make it the default for all casks (in your shell rc):
+      export HOMEBREW_CASK_OPTS=--no-quarantine
+
     The database defaults to ~/Library/Application Support/lore/lore.db.
     Note: when launched from the Dock/Finder the app does not inherit your
     shell environment, so LORE_DB set in a shell rc will not apply there —

@@ -36,14 +36,24 @@ Prebuilt releases are distributed through a private Homebrew tap
 Then:
 
 ```bash
-brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
-brew install lore          # CLI: lore, lore-serve, lore-worker
-brew upgrade               # pulls new tagged releases (run `brew update` first)
+brew install --cask --no-quarantine lore   # Lore.app → /Applications (pinnable)
+brew install lore                          # CLI: lore, lore-serve, lore-worker
+brew upgrade                               # new releases (run `brew update` first)
 ```
 
-Homebrew downloads via `curl`, which does **not** set `com.apple.quarantine`, so
-the desktop app launches without the macOS "unverified developer" Gatekeeper
-dialog (unlike a tarball unzipped from a browser download).
+`Lore.app` is ad-hoc signed but **not notarized** (no paid Apple Developer
+account), so a normal cask install — which sets `com.apple.quarantine` — trips
+the macOS "Apple could not verify" Gatekeeper block. Installing with
+`--no-quarantine` skips that attribute, and the ad-hoc signature is enough for
+the app to launch. To make it the default for every cask `install`/`upgrade`:
+
+```bash
+export HOMEBREW_CASK_OPTS=--no-quarantine   # in your shell rc
+```
+
+(This disables Gatekeeper quarantine for all casks — a deliberate trade-off,
+fine on a personal machine.) The CLI binaries from the formula are not
+quarantined, so they need no such flag.
 
 The database defaults to `~/Library/Application Support/lore/lore.db` (macOS).
 Override with `LORE_DB` for the CLI / terminal-launched binaries. Note: an app
