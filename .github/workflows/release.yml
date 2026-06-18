@@ -239,6 +239,7 @@ jobs:
           ls -l dist
       - name: render formula + cask
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#v}"
@@ -248,6 +249,17 @@ jobs:
           SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
           SHA_APP="$(sha "Lore-$TAG-aarch64-apple-darwin.zip")"
 
+          # The cask downloads via the GitHub API asset endpoint (the only way to
+          # auth a private-repo asset from a cask), which needs the numeric asset
+          # id — resolve it for this release.
+          CASK_ASSET_ID="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq ".assets[] | select(.name==\"Lore-$TAG-aarch64-apple-darwin.zip\") | .id")"
+          if [ -z "$CASK_ASSET_ID" ]; then
+            echo "::error::could not resolve cask asset id for Lore-$TAG-aarch64-apple-darwin.zip"
+            exit 1
+          fi
+
           mkdir -p out/Formula out/Casks
           render() {
             sed -e "s/@@VERSION@@/$VERSION/g" \
@@ -255,6 +267,7 @@ jobs:
                 -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
                 -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
                 -e "s/@@SHA_APP@@/$SHA_APP/g" \
+                -e "s/@@CASK_ASSET_ID@@/$CASK_ASSET_ID/g" \
                 "$1"
           }
           render tools/homebrew/lore.formula.rb > out/Formula/lore.rb

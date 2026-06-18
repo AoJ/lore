@@ -6,15 +6,42 @@
 # in the tap — edit the template instead.
 require "download_strategy"
 
-# See the formula for why this exists: download private release assets with the
-# lore-specific HOMEBREW_LORE_GITHUB_TOKEN instead of the global token.
+# Why a custom strategy (unlike the formula, which uses the built-in one):
+#   1. GitHubPrivateRepositoryReleaseDownloadStrategy is NOT defined in cask
+#      context — referencing it there raises "uninitialized constant".
+#   2. Newer Homebrew scrubs token-like env vars during cask `instance_eval`, so
+#      the token can't be read at load time (in `url`/headers) — only at fetch.
+# So: a minimal CurlDownloadStrategy that, at download time, reads
+# HOMEBREW_GITHUB_API_TOKEN and fetches the asset via the GitHub API asset
+# endpoint (numeric id templated in at release time). The token goes in the URL
+# userinfo, NOT an Authorization header — Homebrew/curl forwards that header to
+# the S3 redirect target and breaks the download (Homebrew/brew#15244).
 unless defined?(GitHubPrivateLoreDownloadStrategy)
-  class GitHubPrivateLoreDownloadStrategy < GitHubPrivateRepositoryReleaseDownloadStrategy
-    def set_github_token
-      @github_token = ENV.fetch("HOMEBREW_LORE_GITHUB_TOKEN", nil)
-      if @github_token.nil? || @github_token.empty?
-        raise CurlDownloadStrategyError, "HOMEBREW_LORE_GITHUB_TOKEN is required to install lore"
+  class GitHubPrivateLoreDownloadStrategy < CurlDownloadStrategy
+    def download_url
+      token = ENV["HOMEBREW_GITHUB_API_TOKEN"]
+      if token.nil? || token.empty?
+        raise CurlDownloadStrategyError,
+              "HOMEBREW_GITHUB_API_TOKEN with read access to AoJ/lore is required"
       end
+      @url.sub(%r{\Ahttps://}, "https://#{token}@")
+    end
+
+    # Resolve via the authenticated URL (the bare API asset URL 404s without the
+    # token), and force a .zip basename so Homebrew knows to unpack it (the API
+    # asset path ends in a numeric id, not a filename).
+    def resolve_url_basename_time_file_size(_url, timeout: nil)
+      super(download_url, timeout: timeout)
+    end
+
+    def resolved_basename
+      "lore.zip"
+    end
+
+    private
+
+    def _fetch(url:, resolved_url:, timeout:)
+      curl_download download_url, "--header", "Accept: application/octet-stream", to: temporary_path
     end
   end
 end
@@ -23,7 +50,7 @@ cask "lore" do
   version "@@VERSION@@"
   sha256 "@@SHA_APP@@"
 
-  url "https://github.com/AoJ/lore/releases/download/v#{version}/Lore-v#{version}-aarch64-apple-darwin.zip",
+  url "https://api.github.com/repos/AoJ/lore/releases/assets/@@CASK_ASSET_ID@@",
       using: GitHubPrivateLoreDownloadStrategy
   name "Lore"
   desc "Personal knowledge management desktop app"
@@ -35,10 +62,9 @@ cask "lore" do
   app "Lore.app"
 
   caveats <<~EOS
-    A token with read access to the private AoJ/lore repo is required for
-    install and upgrade. Put it in your shell rc (separate from any global
-    HOMEBREW_GITHUB_API_TOKEN):
-      export HOMEBREW_LORE_GITHUB_TOKEN=ghp_...
+    Set HOMEBREW_GITHUB_API_TOKEN to a token with read access to AoJ/lore
+    before install/upgrade:
+      export HOMEBREW_GITHUB_API_TOKEN=github_pat_...
 
     The database defaults to ~/Library/Application Support/lore/lore.db.
     Note: when launched from the Dock/Finder the app does not inherit your

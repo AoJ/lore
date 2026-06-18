@@ -7,32 +7,38 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 ## Install (Homebrew, private tap)
 
 Prebuilt releases are distributed through a private Homebrew tap
-(`AoJ/homebrew-lore`). Because the repo is private, two things are needed once:
+(`AoJ/homebrew-lore`). Because the repo is private, a few one-time steps:
 
-1. **SSH access** to the tap (uses your ssh-agent key, no token):
-
-   ```bash
-   brew tap AoJ/lore git@github.com:AoJ/homebrew-lore.git
-   ```
-
-2. **A read token** for downloading the release binaries. The binary tarballs are
-   fetched over HTTPS (not git), so ssh-agent can't help there. Use a
-   lore-specific variable — kept separate from any global
-   `HOMEBREW_GITHUB_API_TOKEN` you may already have for another account:
+1. **Tap** (the short form works — Homebrew maps `AoJ/lore` → `homebrew-lore`):
 
    ```bash
-   export HOMEBREW_LORE_GITHUB_TOKEN=ghp_...   # PAT with read access to AoJ/lore
+   brew tap AoJ/lore
    ```
 
-   Put it in your shell rc. Across zsh/bash you can source one shared file; for
-   fish set it once as a universal var (`set -Ux HOMEBREW_LORE_GITHUB_TOKEN …`).
+2. **Trust the tap.** It ships a cask with a small custom download strategy, and
+   Homebrew refuses casks from untrusted third-party taps until you opt in:
+
+   ```bash
+   brew trust aoj/lore
+   ```
+
+3. **A read token** for downloading the release binaries (fetched over HTTPS, so
+   ssh-agent doesn't apply). Set Homebrew's standard token variable to a PAT with
+   read access to `AoJ/lore`:
+
+   ```bash
+   export HOMEBREW_GITHUB_API_TOKEN=github_pat_...
+   ```
+
+   If you also use `HOMEBREW_GITHUB_API_TOKEN` for a different account, swap the
+   value to the lore-capable token when installing/upgrading lore.
 
 Then:
 
 ```bash
 brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
 brew install lore          # CLI: lore, lore-serve, lore-worker
-brew upgrade               # pulls new tagged releases
+brew upgrade               # pulls new tagged releases (run `brew update` first)
 ```
 
 Homebrew downloads via `curl`, which does **not** set `com.apple.quarantine`, so
