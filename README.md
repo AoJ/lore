@@ -4,6 +4,50 @@ Personal knowledge management tool. Archive web pages, full-text search across s
 
 Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page rendering (with HTTP fallback).
 
+## Install (Homebrew, private tap)
+
+Prebuilt releases are distributed through a private Homebrew tap
+(`AoJ/homebrew-lore`). Because the repo is private, two things are needed once:
+
+1. **SSH access** to the tap (uses your ssh-agent key, no token):
+
+   ```bash
+   brew tap AoJ/lore git@github.com:AoJ/homebrew-lore.git
+   ```
+
+2. **A read token** for downloading the release binaries. The binary tarballs are
+   fetched over HTTPS (not git), so ssh-agent can't help there. Use a
+   lore-specific variable — kept separate from any global
+   `HOMEBREW_GITHUB_API_TOKEN` you may already have for another account:
+
+   ```bash
+   export HOMEBREW_LORE_GITHUB_TOKEN=ghp_...   # PAT with read access to AoJ/lore
+   ```
+
+   Put it in your shell rc. Across zsh/bash you can source one shared file; for
+   fish set it once as a universal var (`set -Ux HOMEBREW_LORE_GITHUB_TOKEN …`).
+
+Then:
+
+```bash
+brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
+brew install lore          # CLI: lore, lore-serve, lore-worker
+brew upgrade               # pulls new tagged releases
+```
+
+Homebrew downloads via `curl`, which does **not** set `com.apple.quarantine`, so
+the desktop app launches without the macOS "unverified developer" Gatekeeper
+dialog (unlike a tarball unzipped from a browser download).
+
+The database defaults to `~/Library/Application Support/lore/lore.db` (macOS).
+Override with `LORE_DB` for the CLI / terminal-launched binaries. Note: an app
+launched from the Dock/Finder does not inherit your shell environment, so
+`LORE_DB` from a shell rc does not apply there — it uses the default location.
+
+The tap formula + cask are regenerated automatically on each tagged release
+(see `tools/homebrew/` templates and the `homebrew` job in
+`.github/workflows/release.yml`).
+
 ## Build
 
 ```

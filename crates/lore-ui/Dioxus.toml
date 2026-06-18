@@ -7,3 +7,12 @@ name = "lore"
 
 [web.app]
 title = "lore"
+
+# macOS .app bundle metadata. The release workflow assembles `Lore.app` by hand
+# from the built `lore-desktop` binary (dx bundle needs the nix-pinned dx, but
+# the macOS release runner is on rustup) — these values feed the generated
+# Info.plist + .icns. Keep the identifier stable; macOS keys app state to it.
+[bundle]
+name = "Lore"
+identifier = "cz.n13.aoj.lore"
+icon = ["assets/icon.png"]

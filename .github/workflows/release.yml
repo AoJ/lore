@@ -145,7 +145,7 @@ jobs:
             -p lore-cli -p lore-worker -p lore-ui
           cargo build --release --target aarch64-apple-darwin \
             -p lore-server --features embed-web
-      - name: package
+      - name: package headless tarball
         shell: bash
         run: |
           DIR="target/aarch64-apple-darwin/release"
@@ -156,7 +156,127 @@ jobs:
           done
           tar -czf "$ARCHIVE" -C staging .
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+      # Assemble Lore.app by hand from the built binary (dx bundle needs the
+      # nix-pinned dx; this runner is on rustup). iconutil generates the .icns
+      # from the committed 512px PNG; ad-hoc codesign so it launches on Apple
+      # Silicon. Homebrew installs this via the cask (curl download = no
+      # com.apple.quarantine, so no Gatekeeper "unverified developer" dialog).
+      - name: package Lore.app
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          DIR="target/aarch64-apple-darwin/release"
+          VERSION="${TAG#v}"
+          APP="Lore.app"
+          rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "$DIR/lore-desktop" "$APP/Contents/MacOS/lore-desktop"
+          chmod +x "$APP/Contents/MacOS/lore-desktop"
+
+          # .icns from the 512px source (512->1024 upscale for the @2x slot is
+          # acceptable for now; swap in a 1024px master later for crisp Retina).
+          ICONSET="lore.iconset"; rm -rf "$ICONSET"; mkdir "$ICONSET"
+          for sz in 16 32 128 256 512; do
+            sips -z $sz $sz crates/lore-ui/assets/icon.png \
+              --out "$ICONSET/icon_${sz}x${sz}.png" >/dev/null
+            dbl=$((sz * 2))
+            sips -z $dbl $dbl crates/lore-ui/assets/icon.png \
+              --out "$ICONSET/icon_${sz}x${sz}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/lore.icns"
+
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Lore</string>
+            <key>CFBundleDisplayName</key><string>Lore</string>
+            <key>CFBundleIdentifier</key><string>cz.n13.aoj.lore</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleExecutable</key><string>lore-desktop</string>
+            <key>CFBundleIconFile</key><string>lore.icns</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --deep --sign - "$APP"
+
+          APP_ARCHIVE="Lore-${TAG}-aarch64-apple-darwin.zip"
+          ditto -c -k --keepParent "$APP" "$APP_ARCHIVE"
+          echo "APP_ARCHIVE=$APP_ARCHIVE" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ARCHIVE }}
+          files: |
+            ${{ env.ARCHIVE }}
+            ${{ env.APP_ARCHIVE }}
           generate_release_notes: true
+
+  # Bump the Homebrew tap (AoJ/homebrew-lore): download the just-published
+  # assets, hash them, render the formula + cask from tools/homebrew templates,
+  # and push to the tap. Runs after every build job so all assets exist.
+  # GITHUB_TOKEN reads this repo's release; DEPS_UPDATE_TOKEN (write on both
+  # repos) pushes to the tap — the default token can't push cross-repo.
+  homebrew:
+    name: bump homebrew tap
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern "lore-$TAG-*.tar.gz" \
+            --pattern "Lore-$TAG-*.zip"
+          ls -l dist
+      - name: render formula + cask
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          sha() { shasum -a 256 "dist/$1" | awk '{print $1}'; }
+          SHA_MACOS_ARM="$(sha "lore-$TAG-aarch64-apple-darwin.tar.gz")"
+          SHA_LINUX_X86="$(sha "lore-$TAG-x86_64-unknown-linux-gnu.tar.gz")"
+          SHA_LINUX_ARM="$(sha "lore-$TAG-aarch64-unknown-linux-gnu.tar.gz")"
+          SHA_APP="$(sha "Lore-$TAG-aarch64-apple-darwin.zip")"
+
+          mkdir -p out/Formula out/Casks
+          render() {
+            sed -e "s/@@VERSION@@/$VERSION/g" \
+                -e "s/@@SHA_MACOS_ARM@@/$SHA_MACOS_ARM/g" \
+                -e "s/@@SHA_LINUX_X86@@/$SHA_LINUX_X86/g" \
+                -e "s/@@SHA_LINUX_ARM@@/$SHA_LINUX_ARM/g" \
+                -e "s/@@SHA_APP@@/$SHA_APP/g" \
+                "$1"
+          }
+          render tools/homebrew/lore.formula.rb > out/Formula/lore.rb
+          render tools/homebrew/lore.cask.rb    > out/Casks/lore.rb
+      - name: push to tap
+        env:
+          TAP_TOKEN: ${{ secrets.DEPS_UPDATE_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/AoJ/homebrew-lore.git" tap
+          mkdir -p tap/Formula tap/Casks
+          cp out/Formula/lore.rb tap/Formula/lore.rb
+          cp out/Casks/lore.rb   tap/Casks/lore.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "tap already up to date"
+          else
+            git commit -m "lore $VERSION"
+            git push
+          fi

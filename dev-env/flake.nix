@@ -145,6 +145,7 @@
             pkgs.nodejs_22 # milkdown.js bundle (make js-build)
             pkgs.gnumake
             pkgs.sqlite # sqlite3 CLI for poking at db.sqlite (rusqlite is bundled)
+            pkgs.gh # GitHub CLI: releases, repo + tap pushes, secrets
           ] ++ browser;
 
           baseShellHook = ''
