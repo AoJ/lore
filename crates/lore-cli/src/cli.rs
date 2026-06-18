@@ -41,6 +41,21 @@ pub enum Command {
         #[arg(long)]
         batch: Option<PathBuf>,
     },
+    /// Import a folder of markdown files as notes (idempotent — re-import syncs
+    /// changed files, skips unchanged, errors on notes edited in lore)
+    Import {
+        /// Directory of `.md` files to import (subfolders become note folders)
+        dir: PathBuf,
+        /// Space to import into, by name (required)
+        #[arg(long)]
+        space: String,
+        /// Top-level folder name (default: the import directory's name)
+        #[arg(long)]
+        folder: Option<String>,
+        /// Preview what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Full-text search across archived pages
     Search {
         /// Search query (FTS5 syntax)

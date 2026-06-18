@@ -44,6 +44,58 @@ fn main() -> Result<()> {
 
             eprintln!("Added {} URLs", count);
         }
+        Command::Import {
+            dir,
+            space,
+            folder,
+            dry_run,
+        } => {
+            let mut conn = db::open(&db_path)?;
+            let spaces = db::list_all_spaces(&conn)?;
+            let space_row = spaces
+                .iter()
+                .find(|s| s.name.eq_ignore_ascii_case(&space))
+                .ok_or_else(|| {
+                    let names: Vec<&str> = spaces.iter().map(|s| s.name.as_str()).collect();
+                    anyhow::anyhow!(
+                        "space '{}' not found. Available: {}",
+                        space,
+                        names.join(", ")
+                    )
+                })?;
+            let root_folder = folder.unwrap_or_else(|| {
+                dir.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "import".to_string())
+            });
+            let report = lore_core::import_md::import_markdown_dir(
+                &mut conn,
+                &dir,
+                space_row.id,
+                &root_folder,
+                dry_run,
+            )?;
+            let prefix = if dry_run { "[dry-run] " } else { "" };
+            eprintln!(
+                "{}space '{}' / folder '{}': {} new, {} updated, {} unchanged",
+                prefix,
+                space_row.name,
+                root_folder,
+                report.inserted,
+                report.updated,
+                report.skipped
+            );
+            // Real imports abort (Err) on conflict; dry runs report them here.
+            if !report.conflicts.is_empty() {
+                eprintln!(
+                    "{} conflict(s) (edited in lore, source differs):",
+                    report.conflicts.len()
+                );
+                for c in &report.conflicts {
+                    eprintln!("  {}", c);
+                }
+            }
+        }
         Command::Search { query, limit } => {
             let conn = db::open(&db_path)?;
             // CLI searches across all spaces by default — pick the active one

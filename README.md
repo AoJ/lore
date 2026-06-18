@@ -125,6 +125,22 @@ Add one or more URLs to the database. Each URL is classified against rules in th
 
 - `--batch <file>` -- read URLs from file. One URL per line. Optionally `URL<TAB>TITLE`.
 
+### `lore import <dir> --space <name>`
+
+Import a folder of markdown files as notes. **Idempotent**: identity is the
+source path relative to `<dir>`, so re-importing the same folder syncs changed
+files and skips unchanged ones instead of duplicating. Subfolders become note
+folders (nested under a top-level folder named after `<dir>`). Note titles come
+from the first `# heading`, falling back to the file name.
+
+Conflict handling: if a note was edited inside lore *and* its source file also
+changed, the import aborts atomically (nothing written) and lists the conflicts
+— resolve in lore or re-export, then re-run.
+
+- `--space <name>` -- target space (required).
+- `--folder <name>` -- top-level folder name (default: the directory's name).
+- `--dry-run` -- report what would change without writing.
+
 ### `lore archive [url]`
 
 Fetch and archive pages. Without arguments, processes queued pages from the database.

@@ -105,6 +105,14 @@ pub fn ContentNote(id: i64) -> Element {
                     span { "Created: {note.created_at}" }
                     span { class: "sep", "·" }
                     span { "Modified: {note.updated_at}" }
+                    if let Some(ref import_src) = note.import_source {
+                        span { class: "sep", "·" }
+                        span {
+                            class: "note-import-source",
+                            title: "Imported from a markdown file — re-importing the folder keeps it in sync",
+                            "↧ {import_src}"
+                        }
+                    }
                     if let Some(ref folder_path_str) = current_folder_name {
                         span { class: "sep", "·" }
                         span { class: "note-folder-link",
