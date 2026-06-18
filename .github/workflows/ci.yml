@@ -54,6 +54,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: free disk space
+        # The full dev-shell plus a debug build of the Dioxus/chromiumoxide/
+        # WebKit stack exhausts the runner's free space ("No space left on
+        # device" during link / cargo-deny fetch). Reclaim ~18 GB of
+        # preinstalled bloat this job never uses (nix provides its own toolchain,
+        # so the hostedtoolcache/dotnet/android/ghc trees are dead weight here).
+        run: |
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL \
+            /opt/ghc \
+            /usr/share/dotnet \
+            /usr/local/share/boost \
+            /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          df -h /
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: clippy + test + audit

@@ -225,8 +225,12 @@ Requires `experimental-features = nix-command flakes` in nix.conf.
 
 **CI** (`.github/workflows/`): `ci.yml` runs `fmt` (auto-commit) on rustup
 plus `checks` (clippy/test/audit) and `web` inside the nix dev shell;
-`release.yml` (on `v*` tags) builds the web bundle via nix and the OS
-binaries natively (linux x86/arm + windows `.exe` + macOS desktop).
+`auto-tag.yml` (on push to main) reads the `[workspace.package]` version and,
+if no `v<version>` tag exists yet, creates+pushes it (via `DEPS_UPDATE_TOKEN`
+so the tag triggers release.yml) — so a release is cut simply by bumping the
+version in a merged PR. `release.yml` (on `v*` tags) builds the web bundle via
+nix and the OS binaries natively (linux x86/arm + windows `.exe` + macOS
+desktop + macOS `Lore.app`), then bumps the `AoJ/homebrew-lore` tap.
 `deps-update.yml` (weekly cron) runs `cargo update` + `nix flake update` +
 the wasm-bindgen resync and opens a PR that ci.yml tests, auto-merging when
 green. **The PR must be opened by a real PAT** (`DEPS_UPDATE_TOKEN` secret) —
