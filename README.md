@@ -125,6 +125,40 @@ Add one or more URLs to the database. Each URL is classified against rules in th
 
 - `--batch <file>` -- read URLs from file. One URL per line. Optionally `URL<TAB>TITLE`.
 
+### `lore import <dir> --space <name>`
+
+Import a folder of markdown files as notes. **Idempotent**: identity is
+`<top-folder>/<path relative to dir>`, so re-importing the same folder syncs
+changed files and skips unchanged ones instead of duplicating. Subfolders become
+note folders (nested under a top-level folder named after `<dir>`). Note titles
+come from the first `# heading`, falling back to the file name. Local links and
+images (`![](rel)`, `[](rel)`) pointing at existing files are ingested as note
+attachments and the link is rewritten (external/`http` links are left alone).
+
+Conflict handling: if a note was edited inside lore *and* its source file also
+changed, the import aborts atomically (nothing written) and lists the conflicts
+— resolve in lore or re-export, then re-run.
+
+- `--space <name>` -- target space (required).
+- `--folder <name>` -- top-level folder name (default: the directory's name).
+- `--prune` -- trash imported notes under this folder whose source file is gone.
+- `--dry-run` -- report what would change without writing.
+
+### `lore export <dir> --space <name>`
+
+Export a space's notes as a folder of markdown files — the inverse of import,
+for putting notes on GitHub or converting to Word via a template. The note-folder
+tree becomes subdirectories; each note is `<slug(title)>.md` with YAML frontmatter
+(title / created / updated). Attachments referenced in a note are written next to
+it in a `<slug>.assets/` folder and the links rewritten to that relative path.
+
+Export overwrites files but does not delete stale ones (it's an output
+operation, not a sync).
+
+- `--space <name>` -- source space (required).
+- `--folder <name>` -- limit to a folder subtree (default: the whole space).
+- `--dry-run` -- report what would be written without writing.
+
 ### `lore archive [url]`
 
 Fetch and archive pages. Without arguments, processes queued pages from the database.

@@ -23,6 +23,8 @@ pub use activity::PageRef;
 pub use attachment::{AttachmentRow, InsertAttachmentOutcome};
 pub use file::{FileRow, InsertFileOutcome};
 pub use folder::FolderRow;
+#[cfg(feature = "sqlite")]
+pub use note::ImportedNote;
 pub use note::{NoteData, NoteRow};
 pub use space::{SpaceRow, SpaceStats};
 pub use trash::{TrashItem, TrashKind};
@@ -53,12 +55,15 @@ pub use file::{
     restore_file, trash_file,
 };
 #[cfg(feature = "sqlite")]
-pub use folder::{delete_folder, folder_note_counts, insert_folder, list_folders, rename_folder};
+pub use folder::{
+    delete_folder, folder_note_counts, get_or_create_folder, insert_folder, list_folders,
+    rename_folder,
+};
 #[cfg(feature = "sqlite")]
 pub use note::{
-    delete_note_permanent, find_notes_referencing_url, get_note, insert_note,
-    list_note_ids_ordered, list_notes, move_note_to_folder, restore_note, restore_note_safe,
-    trash_note, update_note,
+    delete_note_permanent, find_imported_note, find_notes_referencing_url, get_note,
+    insert_imported_note, insert_note, list_note_ids_ordered, list_notes, move_note_to_folder,
+    restore_note, restore_note_safe, trash_note, update_imported_note, update_note,
 };
 #[cfg(feature = "sqlite")]
 pub use space::{

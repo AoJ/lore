@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlite")]
 use anyhow::Result;
 #[cfg(feature = "sqlite")]
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 #[cfg(feature = "sqlite")]
 use std::collections::HashMap;
 
@@ -48,6 +48,30 @@ pub fn insert_folder(
         rusqlite::params![name, parent_id, space_id],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Return the id of the folder named `name` under `parent_id` in `space_id`,
+/// creating it if absent. Used by the markdown importer to mirror a source
+/// directory tree onto the note-folder tree. `parent_id` NULL = top level.
+#[cfg(feature = "sqlite")]
+pub fn get_or_create_folder(
+    conn: &Connection,
+    name: &str,
+    parent_id: Option<i64>,
+    space_id: i64,
+) -> Result<i64> {
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM note_folder \
+             WHERE space_id = ?1 AND name = ?2 AND parent_id IS ?3",
+            rusqlite::params![space_id, name, parent_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match existing {
+        Some(id) => Ok(id),
+        None => insert_folder(conn, name, parent_id, space_id),
+    }
 }
 
 #[cfg(feature = "sqlite")]

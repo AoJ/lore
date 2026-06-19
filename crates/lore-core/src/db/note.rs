@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlite")]
 use anyhow::Result;
 #[cfg(feature = "sqlite")]
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NoteRow {
@@ -23,6 +23,24 @@ pub struct NoteData {
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
+    /// Source-file path (relative to the import root) if this note came from a
+    /// markdown-folder import; `None` for hand-created notes. Surfaced in the UI.
+    #[serde(default)]
+    pub import_source: Option<String>,
+}
+
+/// Lookup result for a previously-imported note — the bits the importer needs
+/// for three-way conflict detection (`import_md`).
+#[cfg(feature = "sqlite")]
+pub struct ImportedNote {
+    pub id: i64,
+    pub body: String,
+    /// Hash of the RAW source file at the last import — "did the file change?".
+    pub import_hash: Option<String>,
+    /// Hash of the stored (attachment-rewritten) body at the last import — "did
+    /// I edit it in lore?". `None` for notes imported before attachment support
+    /// (their body == raw, so `import_hash` is the fallback base).
+    pub import_rendered_hash: Option<String>,
 }
 
 #[cfg(feature = "sqlite")]
@@ -61,6 +79,97 @@ pub fn update_note(conn: &Connection, note_id: i64, title: &str, body: &str) -> 
     conn.execute(
         "UPDATE note SET title = ?1, body = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3",
         rusqlite::params![title, body, note_id],
+    )?;
+    Ok(())
+}
+
+/// Find a previously-imported note by its source path within a space. Ignores
+/// `deleted_at`: the partial unique index `(space_id, import_source)` reserves
+/// the slot even for trashed notes, so the importer must see them (otherwise a
+/// re-import would hit a UNIQUE violation on insert).
+#[cfg(feature = "sqlite")]
+pub fn find_imported_note(
+    conn: &Connection,
+    space_id: i64,
+    import_source: &str,
+) -> Result<Option<ImportedNote>> {
+    let row = conn
+        .query_row(
+            "SELECT id, body, import_hash, import_rendered_hash FROM note \
+             WHERE space_id = ?1 AND import_source = ?2",
+            rusqlite::params![space_id, import_source],
+            |r| {
+                Ok(ImportedNote {
+                    id: r.get(0)?,
+                    body: r.get(1)?,
+                    import_hash: r.get(2)?,
+                    import_rendered_hash: r.get(3)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// Insert a note that originated from a markdown import (records source + hash).
+#[cfg(feature = "sqlite")]
+pub fn insert_imported_note(
+    conn: &Connection,
+    title: &str,
+    body: &str,
+    folder_id: Option<i64>,
+    space_id: i64,
+    import_source: &str,
+    import_hash: &str,
+    import_rendered_hash: &str,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO note \
+         (title, body, folder_id, space_id, import_source, import_hash, import_rendered_hash) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            title,
+            body,
+            folder_id,
+            space_id,
+            import_source,
+            import_hash,
+            import_rendered_hash
+        ],
+    )?;
+    let note_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO note_fts(rowid, title, body) VALUES (?1, ?2, ?3)",
+        rusqlite::params![note_id, title, body],
+    )?;
+    Ok(note_id)
+}
+
+/// Update an imported note's content + the recorded import hash (on re-import of
+/// a changed source file). Also clears `deleted_at` so re-importing a source
+/// whose note was trashed brings it back in sync.
+#[cfg(feature = "sqlite")]
+pub fn update_imported_note(
+    conn: &Connection,
+    note_id: i64,
+    title: &str,
+    body: &str,
+    import_hash: &str,
+    import_rendered_hash: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO note_fts(note_fts, rowid, title, body) VALUES('delete', ?1, '', '')",
+        [note_id],
+    )
+    .ok();
+    conn.execute(
+        "INSERT INTO note_fts(rowid, title, body) VALUES (?1, ?2, ?3)",
+        rusqlite::params![note_id, title, body],
+    )?;
+    conn.execute(
+        "UPDATE note SET title = ?1, body = ?2, import_hash = ?3, import_rendered_hash = ?4, \
+         deleted_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?5",
+        rusqlite::params![title, body, import_hash, import_rendered_hash, note_id],
     )?;
     Ok(())
 }
@@ -174,7 +283,7 @@ pub fn list_notes(
 #[cfg(feature = "sqlite")]
 pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
     conn.query_row(
-        "SELECT id, title, body, folder_id, created_at, updated_at, deleted_at FROM note WHERE id = ?1",
+        "SELECT id, title, body, folder_id, created_at, updated_at, deleted_at, import_source FROM note WHERE id = ?1",
         [note_id],
         |row| {
             Ok(NoteData {
@@ -185,6 +294,7 @@ pub fn get_note(conn: &Connection, note_id: i64) -> Result<NoteData> {
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
                 deleted_at: row.get(6)?,
+                import_source: row.get(7)?,
             })
         },
     )

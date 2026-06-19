@@ -1000,6 +1000,11 @@ details summary {
     align-items: flex-start;
 }
 
+.note-import-source {
+    font-family: var(--font-mono, monospace);
+    cursor: default;
+}
+
 .note-folder-link {
     cursor: pointer;
     color: var(--color-accent);
