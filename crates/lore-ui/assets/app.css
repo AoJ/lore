@@ -45,6 +45,10 @@ a:hover {
 .app-keyboard-trap {
     display: flex;
     flex: 1;
+    /* min-width:0 down the whole chain to the editor, else a wide code line in a
+       note blows the content column past the window (WebKit/wry is stricter
+       about flex min-width than Chromium). */
+    min-width: 0;
     height: 100%;
     outline: none;
 }
