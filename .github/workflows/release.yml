@@ -324,7 +324,9 @@ jobs:
                 -e "s/@@SHA_APP@@/$SHA_APP/g" \
                 "$1"
           }
-          render tools/homebrew/lore.formula.rb > out/Formula/lore.rb
+          # Formula is `lore-cli` (the CLI); the cask is `lore` (the GUI) — distinct
+          # names so `brew install lore-cli` links the binaries unambiguously.
+          render tools/homebrew/lore.formula.rb > out/Formula/lore-cli.rb
           render tools/homebrew/lore.cask.rb    > out/Casks/lore.rb
       - name: push to tap
         env:
@@ -335,8 +337,9 @@ jobs:
           git clone --depth 1 \
             "https://x-access-token:${TAP_TOKEN}@github.com/AoJ/homebrew-lore.git" tap
           mkdir -p tap/Formula tap/Casks
-          cp out/Formula/lore.rb tap/Formula/lore.rb
-          cp out/Casks/lore.rb   tap/Casks/lore.rb
+          cp out/Formula/lore-cli.rb tap/Formula/lore-cli.rb
+          cp out/Casks/lore.rb       tap/Casks/lore.rb
+          rm -f tap/Formula/lore.rb  # retired: formula renamed lore -> lore-cli
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
