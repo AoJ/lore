@@ -481,6 +481,10 @@ a:hover {
 /* ---- Panel 3: Content ---- */
 .content-panel-container {
     flex: 1;
+    /* min-width:0: as a flex item it must be allowed to shrink below its content
+       width, else wide content (long code lines) blows the column past the
+       window edge instead of scrolling/wrapping inside it. */
+    min-width: 0;
     overflow-y: auto;
     background: var(--color-bg);
 }
