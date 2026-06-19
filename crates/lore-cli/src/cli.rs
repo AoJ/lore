@@ -59,6 +59,20 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Export a space's notes as a folder of markdown files (inverse of import)
+    Export {
+        /// Output directory (created if missing; existing files overwritten)
+        dir: PathBuf,
+        /// Space to export, by name (required)
+        #[arg(long)]
+        space: String,
+        /// Limit to a folder subtree, by name (default: whole space)
+        #[arg(long)]
+        folder: Option<String>,
+        /// Report what would be written without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Full-text search across archived pages
     Search {
         /// Search query (FTS5 syntax)

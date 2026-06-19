@@ -23,6 +23,8 @@ pub const EXPECTED_DB_SCHEMA_VERSION: u32 = 14;
 // `export_snapshot` function is gated inside the module behind `sqlite`.
 pub mod export;
 #[cfg(feature = "sqlite")]
+pub mod export_md;
+#[cfg(feature = "sqlite")]
 pub mod import_md;
 #[cfg(feature = "sqlite")]
 pub mod migrations;

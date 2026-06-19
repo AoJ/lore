@@ -144,6 +144,21 @@ changed, the import aborts atomically (nothing written) and lists the conflicts
 - `--prune` -- trash imported notes under this folder whose source file is gone.
 - `--dry-run` -- report what would change without writing.
 
+### `lore export <dir> --space <name>`
+
+Export a space's notes as a folder of markdown files — the inverse of import,
+for putting notes on GitHub or converting to Word via a template. The note-folder
+tree becomes subdirectories; each note is `<slug(title)>.md` with YAML frontmatter
+(title / created / updated). Attachments referenced in a note are written next to
+it in a `<slug>.assets/` folder and the links rewritten to that relative path.
+
+Export overwrites files but does not delete stale ones (it's an output
+operation, not a sync).
+
+- `--space <name>` -- source space (required).
+- `--folder <name>` -- limit to a folder subtree (default: the whole space).
+- `--dry-run` -- report what would be written without writing.
+
 ### `lore archive [url]`
 
 Fetch and archive pages. Without arguments, processes queued pages from the database.

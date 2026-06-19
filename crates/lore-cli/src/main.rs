@@ -101,6 +101,53 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Export {
+            dir,
+            space,
+            folder,
+            dry_run,
+        } => {
+            let conn = db::open(&db_path)?;
+            let spaces = db::list_all_spaces(&conn)?;
+            let space_row = spaces
+                .iter()
+                .find(|s| s.name.eq_ignore_ascii_case(&space))
+                .ok_or_else(|| {
+                    let names: Vec<&str> = spaces.iter().map(|s| s.name.as_str()).collect();
+                    anyhow::anyhow!(
+                        "space '{}' not found. Available: {}",
+                        space,
+                        names.join(", ")
+                    )
+                })?;
+            let folder_id = match folder {
+                None => None,
+                Some(ref name) => {
+                    let folders = db::list_folders(&conn, space_row.id)?;
+                    let f = folders
+                        .iter()
+                        .find(|f| f.name.eq_ignore_ascii_case(name))
+                        .ok_or_else(|| anyhow::anyhow!("folder '{}' not found in space", name))?;
+                    Some(f.id)
+                }
+            };
+            let report = lore_core::export_md::export_markdown_dir(
+                &conn,
+                &dir,
+                space_row.id,
+                folder_id,
+                dry_run,
+            )?;
+            let prefix = if dry_run { "[dry-run] " } else { "" };
+            eprintln!(
+                "{}exported {} note(s) + {} attachment(s) from space '{}' to {}",
+                prefix,
+                report.notes,
+                report.attachments,
+                space_row.name,
+                dir.display()
+            );
+        }
         Command::Search { query, limit } => {
             let conn = db::open(&db_path)?;
             // CLI searches across all spaces by default — pick the active one
