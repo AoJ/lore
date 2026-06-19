@@ -5,7 +5,7 @@ resolver = "3"
 # Shared package metadata — bumped here, every workspace crate inherits
 # via `version.workspace = true` so a release bump is a one-line change.
 [workspace.package]
-version = "1.0.8"
+version = "1.0.9"
 edition = "2024"
 license = "MIT"
 
