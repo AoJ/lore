@@ -5,7 +5,7 @@
 # Source template: tools/homebrew/lore.formula.rb in AoJ/lore. Do not hand-edit
 # in the tap — edit the template instead.
 
-class Lore < Formula
+class LoreCli < Formula
   desc "Personal knowledge management tool (headless: lore, lore-serve, lore-worker)"
   homepage "https://github.com/AoJ/lore"
   version "@@VERSION@@"

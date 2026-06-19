@@ -9,12 +9,14 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 lore is distributed through the Homebrew tap `AoJ/homebrew-lore`:
 - **cask** `lore` — the desktop app `Lore.app` (Developer ID signed + notarized;
   installs to /Applications, pinnable to the Dock).
-- **formula** `lore` — headless CLI (`lore`, `lore-serve`, `lore-worker`).
+- **formula** `lore-cli` — headless CLI (`lore`, `lore-serve`, `lore-worker`).
+  (Named `lore-cli` so it doesn't collide with the `lore` cask; the installed
+  commands are still `lore` / `lore-serve` / `lore-worker`.)
 
 ```bash
 brew tap AoJ/lore
 brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
-brew install lore          # CLI: lore, lore-serve, lore-worker
+brew install lore-cli      # CLI: lore, lore-serve, lore-worker (on PATH)
 brew upgrade               # new releases (run `brew update` first)
 ```
 
