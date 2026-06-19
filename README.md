@@ -6,32 +6,19 @@ Built in Rust with SQLite (FTS5) storage. Uses headless Chrome for page renderin
 
 ## Install (Homebrew)
 
-lore is distributed through the Homebrew tap `AoJ/homebrew-lore` (the tap repo is
-public, so no auth is needed to tap it):
+lore is distributed through the Homebrew tap `AoJ/homebrew-lore`:
 - **cask** `lore` — the desktop app `Lore.app` (Developer ID signed + notarized;
   installs to /Applications, pinnable to the Dock).
 - **formula** `lore` — headless CLI (`lore`, `lore-serve`, `lore-worker`).
 
-One-time setup:
-
 ```bash
 brew tap AoJ/lore
-brew trust aoj/lore                                # the cask carries a small custom download strategy
-export HOMEBREW_GITHUB_API_TOKEN=github_pat_...    # read access to AoJ/lore
-```
-
-The token is required because the **release binaries live in the private
-`AoJ/lore` repo** (only the tap itself is public). If you also use
-`HOMEBREW_GITHUB_API_TOKEN` for another account, swap in the lore-capable token
-when installing/upgrading lore.
-
-Then:
-
-```bash
 brew install --cask lore   # Lore.app → /Applications (pinnable to the Dock)
 brew install lore          # CLI: lore, lore-serve, lore-worker
 brew upgrade               # new releases (run `brew update` first)
 ```
+
+No token needed — the repo is public, so release assets download directly.
 
 On the **first** launch macOS shows a one-time "downloaded from the internet …
 Apple checked it for malicious software and none was detected" confirmation —
