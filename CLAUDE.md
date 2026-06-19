@@ -39,9 +39,11 @@ cli     ┘
   `list_pages_filtered`, `prepare_query`). No stdout — CLI does its own formatting.
 - `url_extract.rs` — pure markdown-link / bare-URL extractor.
 - `import_md.rs` — idempotent markdown-folder → notes import. Identity =
-  source path relative to the import root (stored on `note.import_source`);
-  re-import does a three-way sync (base = `note.import_hash`) and aborts
-  atomically on a note edited in lore. Used by `lore import`.
+  `<root_folder>/<path rel. to import root>` (stored on `note.import_source`);
+  re-import is a three-way sync using two hashes (`import_hash` = raw file,
+  `import_rendered_hash` = stored body) and aborts atomically on a note edited
+  in lore. Local links → note attachments (link rewritten); `--prune` trashes
+  notes whose source vanished. Used by `lore import`.
 - `migrations.rs` — versioned schema migrations (`PRAGMA user_version` +
   `EXPECTED_VERSION` gate; refuses to start on a newer-than-known DB).
 
@@ -145,7 +147,7 @@ when `open()` (the boot path) actually fails.
 lore add <url> [url...]           # classify via DB rules + insert
 lore add --batch <file>           # one URL per line, optionally URL<TAB>TITLE
 lore import <dir> --space <name>  # idempotent markdown-folder import (notes)
-       [--folder <name>] [--dry-run]
+       [--folder <name>] [--prune] [--dry-run]
 lore search <query>               # FTS5 (auto-prefix for short queries)
 lore list [--category X] [--status X] [--domain X]
 lore db-version                   # show on-disk vs. expected schema version

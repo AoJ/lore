@@ -35,9 +35,12 @@ pub struct NoteData {
 pub struct ImportedNote {
     pub id: i64,
     pub body: String,
-    /// Hash stored at the last import (the merge "base"); `None` only for rows
-    /// predating import tracking.
+    /// Hash of the RAW source file at the last import — "did the file change?".
     pub import_hash: Option<String>,
+    /// Hash of the stored (attachment-rewritten) body at the last import — "did
+    /// I edit it in lore?". `None` for notes imported before attachment support
+    /// (their body == raw, so `import_hash` is the fallback base).
+    pub import_rendered_hash: Option<String>,
 }
 
 #[cfg(feature = "sqlite")]
@@ -92,7 +95,7 @@ pub fn find_imported_note(
 ) -> Result<Option<ImportedNote>> {
     let row = conn
         .query_row(
-            "SELECT id, body, import_hash FROM note \
+            "SELECT id, body, import_hash, import_rendered_hash FROM note \
              WHERE space_id = ?1 AND import_source = ?2",
             rusqlite::params![space_id, import_source],
             |r| {
@@ -100,6 +103,7 @@ pub fn find_imported_note(
                     id: r.get(0)?,
                     body: r.get(1)?,
                     import_hash: r.get(2)?,
+                    import_rendered_hash: r.get(3)?,
                 })
             },
         )
@@ -117,11 +121,21 @@ pub fn insert_imported_note(
     space_id: i64,
     import_source: &str,
     import_hash: &str,
+    import_rendered_hash: &str,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO note (title, body, folder_id, space_id, import_source, import_hash) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![title, body, folder_id, space_id, import_source, import_hash],
+        "INSERT INTO note \
+         (title, body, folder_id, space_id, import_source, import_hash, import_rendered_hash) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            title,
+            body,
+            folder_id,
+            space_id,
+            import_source,
+            import_hash,
+            import_rendered_hash
+        ],
     )?;
     let note_id = conn.last_insert_rowid();
     conn.execute(
@@ -141,6 +155,7 @@ pub fn update_imported_note(
     title: &str,
     body: &str,
     import_hash: &str,
+    import_rendered_hash: &str,
 ) -> Result<()> {
     conn.execute(
         "INSERT INTO note_fts(note_fts, rowid, title, body) VALUES('delete', ?1, '', '')",
@@ -152,9 +167,9 @@ pub fn update_imported_note(
         rusqlite::params![note_id, title, body],
     )?;
     conn.execute(
-        "UPDATE note SET title = ?1, body = ?2, import_hash = ?3, deleted_at = NULL, \
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?4",
-        rusqlite::params![title, body, import_hash, note_id],
+        "UPDATE note SET title = ?1, body = ?2, import_hash = ?3, import_rendered_hash = ?4, \
+         deleted_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?5",
+        rusqlite::params![title, body, import_hash, import_rendered_hash, note_id],
     )?;
     Ok(())
 }

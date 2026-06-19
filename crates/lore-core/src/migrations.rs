@@ -57,6 +57,9 @@ const MIGRATIONS: &[Step] = &[
         "../migrations/0012_drop_unused_readability_fields.sql"
     )),
     Step::Sql(include_str!("../migrations/0013_note_import.sql")),
+    Step::Sql(include_str!(
+        "../migrations/0014_note_import_rendered_hash.sql"
+    )),
 ];
 
 /// Read the current schema version of the DB.

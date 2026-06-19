@@ -48,6 +48,7 @@ fn main() -> Result<()> {
             dir,
             space,
             folder,
+            prune,
             dry_run,
         } => {
             let mut conn = db::open(&db_path)?;
@@ -74,16 +75,20 @@ fn main() -> Result<()> {
                 space_row.id,
                 &root_folder,
                 dry_run,
+                prune,
             )?;
             let prefix = if dry_run { "[dry-run] " } else { "" };
             eprintln!(
-                "{}space '{}' / folder '{}': {} new, {} updated, {} unchanged",
+                "{}space '{}' / folder '{}': {} new, {} updated, {} unchanged, \
+                 {} attachment(s), {} pruned",
                 prefix,
                 space_row.name,
                 root_folder,
                 report.inserted,
                 report.updated,
-                report.skipped
+                report.skipped,
+                report.attachments,
+                report.pruned
             );
             // Real imports abort (Err) on conflict; dry runs report them here.
             if !report.conflicts.is_empty() {

@@ -127,11 +127,13 @@ Add one or more URLs to the database. Each URL is classified against rules in th
 
 ### `lore import <dir> --space <name>`
 
-Import a folder of markdown files as notes. **Idempotent**: identity is the
-source path relative to `<dir>`, so re-importing the same folder syncs changed
-files and skips unchanged ones instead of duplicating. Subfolders become note
-folders (nested under a top-level folder named after `<dir>`). Note titles come
-from the first `# heading`, falling back to the file name.
+Import a folder of markdown files as notes. **Idempotent**: identity is
+`<top-folder>/<path relative to dir>`, so re-importing the same folder syncs
+changed files and skips unchanged ones instead of duplicating. Subfolders become
+note folders (nested under a top-level folder named after `<dir>`). Note titles
+come from the first `# heading`, falling back to the file name. Local links and
+images (`![](rel)`, `[](rel)`) pointing at existing files are ingested as note
+attachments and the link is rewritten (external/`http` links are left alone).
 
 Conflict handling: if a note was edited inside lore *and* its source file also
 changed, the import aborts atomically (nothing written) and lists the conflicts
@@ -139,6 +141,7 @@ changed, the import aborts atomically (nothing written) and lists the conflicts
 
 - `--space <name>` -- target space (required).
 - `--folder <name>` -- top-level folder name (default: the directory's name).
+- `--prune` -- trash imported notes under this folder whose source file is gone.
 - `--dry-run` -- report what would change without writing.
 
 ### `lore archive [url]`

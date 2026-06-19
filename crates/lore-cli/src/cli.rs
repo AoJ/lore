@@ -52,6 +52,9 @@ pub enum Command {
         /// Top-level folder name (default: the import directory's name)
         #[arg(long)]
         folder: Option<String>,
+        /// Trash imported notes under this folder whose source file is gone
+        #[arg(long)]
+        prune: bool,
         /// Preview what would change without writing anything
         #[arg(long)]
         dry_run: bool,
