@@ -11,6 +11,11 @@
 .milkdown .editor,
 .milkdown .ProseMirror {
     white-space: pre-wrap;
+    /* Break long unbreakable tokens (URLs, hashes, paths) so prose never runs
+       past the panel edge; min-width:0 lets this column shrink inside its flex
+       parent (otherwise wide content forces the whole column wider). */
+    overflow-wrap: anywhere;
+    min-width: 0;
     font-family: var(--font-sans) !important;
     font-size: var(--font-size-sm) !important;
     color: var(--color-text) !important;
@@ -68,7 +73,9 @@
     background: var(--color-sidebar);
     padding: var(--spacing-sm);
     border-radius: var(--radius);
+    /* Long code lines scroll within the block instead of widening the panel. */
     overflow-x: auto;
+    max-width: 100%;
     font-size: var(--font-size-xs);
 }
 
