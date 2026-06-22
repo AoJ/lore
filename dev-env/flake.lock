@@ -5,11 +5,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1781539130,
-        "narHash": "sha256-ra1aSz6uV8VoPpK3qZdzi6M8i5C3zNMlXFAZNyJk5GE=",
+        "lastModified": 1782093936,
+        "narHash": "sha256-X/r58xRyD61YW2DWkU/JBaYLq5BmpeYNLrHW0tN4hCU=",
         "owner": "CloakHQ",
         "repo": "CloakBrowser",
-        "rev": "39db492b04dd983836634612655c040e5938fb8e",
+        "rev": "29679a73bfc64dfb6f97094615741a0ee8022a55",
         "type": "github"
       },
       "original": {
@@ -64,11 +64,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781850613,
-        "narHash": "sha256-UL/f++6fbg1MSC63NSynUVsww+DSay0N5TsbFzLZIsQ=",
+        "lastModified": 1782098508,
+        "narHash": "sha256-YeBVH+avasLg/ZTOyshNI4qfU8p5RbMs9O8944A1QDg=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "4baecb43a008cd004e5220a777e1724bd8d43e43",
+        "rev": "67eed429b53d462923d9be580cfc9ed372f7564f",
         "type": "github"
       },
       "original": {
