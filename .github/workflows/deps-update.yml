@@ -60,7 +60,11 @@ jobs:
           git switch -C "$BRANCH"
           git add -A
           git commit -m "chore(deps): cargo update + flake update + wasm-bindgen resync"
-          git push --force-with-lease origin "$BRANCH"
+          # Plain --force: this is a bot-owned throwaway branch recreated from main
+          # each run. --force-with-lease can't work here — checkout doesn't fetch
+          # the existing remote branch, so the lease has no basis and rejects with
+          # "stale info" once the branch already exists from a prior run.
+          git push --force origin "$BRANCH"
 
           # Create the PR if one isn't already open for this branch.
           if ! gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
