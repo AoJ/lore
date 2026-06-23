@@ -20,30 +20,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Auto-format on push to main and commit the result back. Lightweight, so
-  # it stays on rustup rather than booting nix.
+  # Verify formatting (check-only). Lightweight, so it stays on rustup rather
+  # than booting nix. Run `cargo fmt --all` (or `make fmt`) locally to fix.
+  #
+  # Deliberately NOT auto-commit-and-push: that pattern bit us twice — a bot
+  # push from this job doesn't re-trigger ci.yml (GITHUB_TOKEN anti-recursion),
+  # and checking out a named branch raced the deps-update auto-merge that
+  # deletes the branch mid-run (`git fetch <deleted-branch>` → exit 1). A pure
+  # check has no checkout-by-branch and no push, so neither failure mode exists.
   fmt:
     name: Format
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all
-      - name: Commit formatting changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet; then
-            git add -A
-            git commit -m "style: cargo fmt"
-            git push
-          fi
+      - run: cargo fmt --all --check
 
   # Clippy + tests + dependency audit, all inside the nix dev shell. The shell
   # carries GTK3/WebKit (for lore-ui) and cargo-deny, so no apt step is needed.
