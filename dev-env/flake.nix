@@ -27,9 +27,9 @@
       # Cargo.lock; `dev-env/update-wasm-bindgen.sh` (→ `make update-deps`)
       # rewrites them automatically, so don't hand-edit. The hashes are
       # fixed-output, hence version-specific — they can't be elided.
-      wasmBindgenVersion = "0.2.125";
-      wasmBindgenSrcHash = "sha256-zRawtjxMOdTMX+mZaiNR3YYfTiZJhf9qj7kXSSeMxrc=";
-      wasmBindgenCargoHash = "sha256-aZCfgR23Qb0Pn4Mm4ToMtuuRQqSJjXCR9li/VvP5CTM=";
+      wasmBindgenVersion = "0.2.126";
+      wasmBindgenSrcHash = "sha256-H6Is3fiZVxZCfOMWK5dWMSrtn50VGv0sfdnsT+cTtyk=";
+      wasmBindgenCargoHash = "sha256-VucqkXbCi4qtQzY/HrXiDnbSURsagPsdNVMn1Tw3UiY=";
       # Factored so the update script can build the two fixed-output pieces
       # in isolation (no full CLI compile): the src tarball and the vendored
       # cargo deps. The src hash is also obtainable via `nix-prefetch-url
